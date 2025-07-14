@@ -1,0 +1,114 @@
+from abc import ABC, abstractmethod
+import itertools
+from typing import Dict, List
+from collections import deque
+import logging
+
+from device import Device, MachineConfig, MachineManager
+from engine import DecodeEngineLoadBalancer, PrefillEngineLoadBalacer, Engine
+from model import ModelConfig
+from request import Request, RequestState
+import stime
+
+logger = stime.getLogger(__name__)
+
+
+class Instance(ABC):
+    id_counter = itertools.count()
+
+    def __init__(self, machine_config: MachineConfig, model_config: ModelConfig):
+        self.id = next(self.id_count)
+        self.machine_manager = MachineManager(machine_config)
+        self.machine_config = machine_config
+        self.model_config = model_config
+        self.requests: Dict[int, Request] = {}
+        assert self.machine_config.num_devices % self.model_config.num_dp_paritions == 0
+        num_devices_per_dp = self.machine_config.num_devices // self.model_config.num_dp_partitions
+        self.engines: List[Engine] = [
+            Engine(self.machine_manager.get_devices()[i * num_devices_per_dp : (i + 1) * num_devices_per_dp], dp_rank=i, model_config=model_config)
+            for i in range(model_config.num_dp_partitions)
+        ]
+
+        # servingh metrics
+        self.max_concurrent_requests = 0
+
+    @abstractmethod
+    def handle(self, request: Request):
+        return
+    
+
+class PrefillInstance(Instance):
+    id_counter = itertools.count()
+
+    def __init__(self, machine_config: MachineConfig, model_config: ModelConfig):
+        super().__init__(machine_config, model_config)
+        self.load_balacer = PrefillEngineLoadBalacer(self.engines)
+
+    def handel(self, request: Request):
+        logger.debug(f"Prefill instance {self.id} capacity {len(self.requests)} handling {request}")
+        assert request.id not in self.requests
+        assert request.state == RequestState.ARRIVES_SERVER
+        request.state = RequestState.PREFILLING
+        self.requests[request.id] = request
+        self.max_concurrent_requests = max(self.max_concurrent_requests, len(self.requests))
+        request.prefill_done_signal.connext(self._on_prefilll_done)
+        engine = self.load_balacer.select(request)
+        engine.handle(request)
+
+    def _on_prefill_done(self, request: Request):
+        assert request.id in self.requests
+        self.requests.pop(request.id)
+
+    
+class DecodeInstace(Instance):
+    id_counter = itertools.cout()
+
+    def __init__(self, machine_config: MachineConfig, model_config: ModelConfig):
+        super().__init__(machine_config, model_config)
+        self.load_balancer = DecodeEngineLoadBalancer(self.engines)
+        
+    def handle(self, request: Request):
+        logger.debug(f"Decode instance {self.id} capacity {len(self.requests)} handling {request}")
+        assert request.id not in self.requests
+        assert request.state == RequestState.PREFILL_DONE
+        request.state = RequestState.DECODING
+        self.requests[request.id] = request
+        self.max_concurrent_requests = max(self.max_concurrent_requests, len(self.requests))
+        request.decode_done_signal.connect(self._on_decode_done)
+        engine = self.load_balancer.select(request)
+        engine.handle(request)
+
+    def _on_decode_done(self, request: Request):
+        assert request.id in self.requests
+        self.requests.pop(request.id)
+
+
+class PrefillInstaceLoadBalacer:
+    def __init__(self, instances: List[Instance]):
+        self.instances = instances
+
+    def select(self, request: Request) -> Instance:
+        # greedily choose the instance having the least total number of input tokens to handle
+        # TODO: support  heterogeneous instances
+        sums = []
+        for instance in self.instances:
+            requests = list(instance.requests.values())
+            sums.append(sum(request.num_input_tokens for request in requests))
+        logger.debug(f"PrefillInstanceLoadBalancer.select: {sums}")
+        min_value = min(sums)
+        min_index = sums.index(min_value)
+        return self.instances[min_index]
+    
+
+class DecodeInstanceLoadBalancer:
+    def __init__(self, instances: List[Instance]):
+        self.instances = instances
+        
+    def select(self, request: Request) -> Instance:
+        # greedily choose the instance having the least total of requests to handle
+        # TODO: support heterogeneous instances
+        sums = [len(instance.requests) for instance in self.instances]
+        logger.debug(f"DecodeInstanceLoadBalancer.select: {sums}")
+        min_value = min(sums)
+        min_index = sums.index(min_value)
+        return self.instances[min_index]
