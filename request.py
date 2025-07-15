@@ -1,7 +1,9 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from enum import Enum, auto
 import itertools
 from typing import Optional
 from blinker import signal
+
 import stime
 
 
@@ -24,8 +26,8 @@ class Request:
         self.id = next(self.id_counter)
 
         # The following fields are requirement to the serving system
-        # TODO: support mulitple sequences such as beam search and best-of-N
-        # TODO: and sampling methods
+        # TOBEDONE: support mulitple sequences such as beam search and best-of-N
+        # TOBEDONE: and sampling methods
         self.model_name: Optional[str] = kwargs.get("model_name", None)
         self.num_input_tokens: int = kwargs.get("num_input_tokens", 0)
         self.num_output_tokens: int = kwargs.get("num_output_tokens", 0) # number of expected output tokens
@@ -83,4 +85,6 @@ class Request:
         if self.state.value >= RequestState.DECODE_DONE.value:
             tpot = f", tpot={self.time_per_output_token():.3f}"
             total = f", total={self.serving_time():.3f}"
-        return f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, num_decoded={self.num_decoded_tokens}, num_outputs={self.num_output_tokens})"
+        res = f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, " \ 
+              f"num_decoded={self.num_decoded_tokens}, num_outputs={self.num_output_tokens})"
+        return res

@@ -1,3 +1,4 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from abc import ABC, abstractmethod
 import itertools
 from typing import Dict, List
@@ -46,8 +47,10 @@ class PrefillInstance(Instance):
 
     def handel(self, request: Request):
         logger.debug(f"Prefill instance {self.id} capacity {len(self.requests)} handling {request}")
-        assert request.id not in self.requests
-        assert request.state == RequestState.ARRIVES_SERVER
+        if request.id in self.requests:
+            raise ValueError("request.id in self.requests")
+        if request.state != RequestState.ARRIVES_SERVER:
+            raise ValueError("request.state != RequestState.ARRIVES_SERVER")
         request.state = RequestState.PREFILLING
         self.requests[request.id] = request
         self.max_concurrent_requests = max(self.max_concurrent_requests, len(self.requests))
@@ -56,7 +59,8 @@ class PrefillInstance(Instance):
         engine.handle(request)
 
     def _on_prefill_done(self, request: Request):
-        assert request.id in self.requests
+        if request.id not in self.requests:
+            raise ValueError("request.id not in self.requests")
         self.requests.pop(request.id)
 
     
@@ -69,8 +73,10 @@ class DecodeInstace(Instance):
         
     def handle(self, request: Request):
         logger.debug(f"Decode instance {self.id} capacity {len(self.requests)} handling {request}")
-        assert request.id not in self.requests
-        assert request.state == RequestState.PREFILL_DONE
+        if request.id in self.requests:
+            raise ValueError("request.id in self.requests")
+        if request.state != RequestState.PREFILL_DONE:
+            raise ValueError("request.state != RequestState.PREFILL_DONE")
         request.state = RequestState.DECODING
         self.requests[request.id] = request
         self.max_concurrent_requests = max(self.max_concurrent_requests, len(self.requests))
@@ -79,7 +85,8 @@ class DecodeInstace(Instance):
         engine.handle(request)
 
     def _on_decode_done(self, request: Request):
-        assert request.id in self.requests
+        if request.id not in self.requests:
+            raise ValueError("request.id not in self.requests")
         self.requests.pop(request.id)
 
 
@@ -89,7 +96,7 @@ class PrefillInstaceLoadBalacer:
 
     def select(self, request: Request) -> Instance:
         # greedily choose the instance having the least total number of input tokens to handle
-        # TODO: support  heterogeneous instances
+        # TOBEDONE: support  heterogeneous instances
         sums = []
         for instance in self.instances:
             requests = list(instance.requests.values())
@@ -106,7 +113,7 @@ class DecodeInstanceLoadBalancer:
         
     def select(self, request: Request) -> Instance:
         # greedily choose the instance having the least total of requests to handle
-        # TODO: support heterogeneous instances
+        # TOBEDONE: support heterogeneous instances
         sums = [len(instance.requests) for instance in self.instances]
         logger.debug(f"DecodeInstanceLoadBalancer.select: {sums}")
         min_value = min(sums)

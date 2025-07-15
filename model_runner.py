@@ -1,3 +1,4 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from typing import List
 import threading
 
@@ -10,8 +11,8 @@ import stime
 class Worker:
     def __init__(self, device: Device, dp_rank: int, model_config: ModelConfig):
         """The worker instantiaties a model to compute on a device"""
-        # TODO: build model according to model configuration
-        self.model: Model = ModelBuilder.build(device, dp_rank, model_config) # TODO: check device is right input
+        # TOBEDONE: build model according to model configuration
+        self.model: Model = ModelBuilder.build(device, dp_rank, model_config) # TOBEDONE: check device is right input
 
     def run(self, batch: List[Request]):
         model_input: ModelInput = self._preprocess_input(batch)
@@ -20,11 +21,11 @@ class Worker:
         self._postprocess_output(model_output, batch)
 
     def _preprocess_input(self, batch: List[Request]) -> ModelInput:
-        # TODO
+        # TOBEDONE
         return ModelInput()
     
     def _postprocess_output(self, output: ModelOutput, batch: List[Request]):
-        # TODO
+        # TOBEDONE
         pass
 
 
@@ -40,7 +41,7 @@ class ModelRunner:
 
     def process_batch(self, batch: List[Request]):
         def worker_run(worker: Worker):
-            # TODO: consider input copy overhead
+            # TOBEDONE: consider input copy overhead
             worker.run(batch)
 
         worker_threads = [stime.Thread(target=worker_run, args=(worker,)) for worker in self.workers]

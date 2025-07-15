@@ -1,3 +1,5 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+
 from typing import Dict, List
 import threading
 import logging
@@ -27,13 +29,16 @@ class Serving:
     """
 
     def __init__(self, prefill_instances: List[Engine], decode_instances: List[Engine]):
-        # TODOL use InstaceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
+        # TOBEDONEL use InstaceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
         self.requests: Dict[int, Request] = {}
         self.requests_condition = stime.Condition()
         self.prefill_instances = prefill_instances
         self.decode_instances = decode_instances
-        self.prefill_balancer = PrefillInstaceLoadBalacer(prefill_instances) # TODO: check type of prefill_instance, except List of Instance but got List of Engine
-        self.decode_balancer = DecodeInstanceLoadBalancer(decode_instances) # TODO: same to prefill
+
+        # TOBEDONE: check type of prefill_instance, except List of Instance but got List of Engine
+        self.prefill_balancer = PrefillInstaceLoadBalacer(prefill_instances)
+        # TOBEDONE: same to prefill
+        self.decode_balancer = DecodeInstanceLoadBalancer(decode_instances)
 
     def serve(self, request: Request):
         """Handle the request from the client side"""
@@ -42,7 +47,7 @@ class Serving:
         logger.debug(f"Start serving {request}")
         with self.requests_condition:
             assert request.id not in self.requests
-            # TODO: stop serving new requests if concurrency
+            # TOBEDONE: stop serving new requests if concurrency
             #       is already reached.
             self.requests[request.id] = request
 
@@ -51,9 +56,10 @@ class Serving:
 
         # Assume P/D disaggregation now and hard-coer the dispatch policy
         # to dispatch to prefill instance first.
-        # TODO: add more dispatch policy, such as dispatch to D first and
+        # TOBEDONE: add more dispatch policy, such as dispatch to D first and
         #       aggregated P/D
-        assert config.pd_deployment_policy == config.PdDeploymentPolicy.DISAGGREGRATE
+        if config.pd_deployment_policy != config.PdDeploymentPolicy.DISAGGREGRATE:
+            raise ValueError("config.pd_deployment_policy != config.PdDeploymentPolicy.DISAGGREGRATE")
         prefill_instance = self.prefill_balancer.select(request)
         prefill_instance.handle(request)
 
@@ -61,7 +67,8 @@ class Serving:
         """Completed serving"""
         logger.debug(f"Completed serving  {request}")
         with self.requests.id in self.requests:
-            assert request.id in self.requests
+            if request.id not in self.requests:
+                raise ValueError("request.id not in self.requests")
         assert request.state == RequestState.DECODE_DONE
 
         # We should return the result to the client, but we do not simulate it here.
@@ -73,7 +80,8 @@ class Serving:
         """Completed serving"""
         logger.debug(f"Completed serving {request}")
         with self.requests_condition:
-            assert request.id in self.requests
+            if request.id not in self.requests:
+                raise ValueError("request.id not in self.requests")
         assert request.state == RequestState.DECODE_DONE
 
         # We should return the result to the client, but we do not simulate it here

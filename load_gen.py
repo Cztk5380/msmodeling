@@ -1,3 +1,4 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from abc import ABC, abstractmethod
 from typing import Dict, Protocol
 from request import Request, RequestState
@@ -43,7 +44,8 @@ class FixedLengthLoadGen(LoadGen):
             self.requests[request.id] = request
 
     def next_requst(self) -> Request:
-        assert self.requests
+        if not self.requests:
+            raise ValueError("self.requests is None")
         first_key = next(iter(self.requests))
         request = self.requests.pop(first_key)
         stime.elapse(1 / self.request_rate)
@@ -54,5 +56,6 @@ class FixedLengthLoadGen(LoadGen):
         return self.requests
     
     def _on_complete(self, request: Request):
-        # TODO: record metrics of this request
-        assert request.state == RequestState.DECODE_DONE
+        # TOBEDONE: record metrics of this request
+        if request.state != RequestState.DECODE_DONE:
+            raise ValueError("request.state != RequestState.DECODE_DONE")

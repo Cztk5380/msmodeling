@@ -1,3 +1,4 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import match
 import time
 from typing import Dict, List
@@ -33,7 +34,7 @@ class BatchScheduler:
     def _collect_batch(self):
         """Collect request batch and allocate resources for batched requests"""
         # Naively batch all the requests in the queue and assume resources are enough
-        # TODO: use more complex batching policy
+        # TOBEDONE: use more complex batching policy
 
         logger.debug("Collecting batch")
         batch = self.request_queue.get_all_due()
@@ -68,7 +69,8 @@ class BatchScheduler:
         """
         continuous_batching_requests = []
         for request in batch:
-            assert request.state == RequestState.PREFILLING or request.state == RequestState.DECODING
+            if request.state != RequestState.PREFILLING and request.state != RequestState.DECODING:
+                raise ValueError("request.state != RequestState.PREFILLING and request.state != RequestState.DECODING")
             request.num_decoded_tokens += 1
             if request.num_decoded_tokens >= request.num_output_tokens:
                 request.state = RequestState.DECODE_DONE
@@ -84,7 +86,8 @@ class BatchScheduler:
         try:
             while not self._shutdown.is_set():
                 batch = self.batch_queue.get()
-                assert batch
+                if batch is None:
+                    raise ValueError("batch is None")
                 # looger.debug(f"Processing {[request.id for request in batch]}"")
                 self.model_runner.process_batch(batch) # Process the batch
                 self._postprocess_batch(batch)
@@ -132,8 +135,8 @@ class PrefillEngineLoadBalacer:
     
     def select(self, request: Request) -> Engine:
         # greedily choose the instance having the least total number of input tokens to handle
-        # TODO: we should expose metrics from the engine instead of exposing all the request instances
-        # TODO: support heterogeneous instaces
+        # TOBEDONE: we should expose metrics from the engine instead of exposing all the request instances
+        # TOBEDONE: support heterogeneous instaces
         sums = [sum(request.num_input_tokens for request in engine.requests.values()) for engine in self.engines]
         min_value = min(sums)
         min_index = sums.index(min_value)
@@ -146,8 +149,8 @@ class DecodeEngineLoadBalancer:
 
     def select(self, request: Request) -> Engine:
         # greedily choose the instance having the least total number of requests to hand
-        # TODO: we should expose metrics from the engine instead of exposing all the request instances
-        # TODO: support heterogeneous instances
+        # TOBEDONE: we should expose metrics from the engine instead of exposing all the request instances
+        # TOBEDONE: support heterogeneous instances
         sums = [len(engine.requests) for engine in self.engines]
         min_value = min(sums)
         min_index = sums.index(min_value)

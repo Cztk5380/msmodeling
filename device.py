@@ -1,9 +1,10 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import dataclasses
 from typing import List
 
 
 class DeviceConfig:
-    # TODO add more device spec
+    # TOBEDONE add more device spec
     pass
 
 
@@ -19,7 +20,7 @@ class MachineConfig:
     """
     def __init__(self, device_config: DeviceConfig, num_devices: int = 1):
         self.num_devices = num_devices
-        # TODO add topology info
+        # TOBEDONE add topology info
 
 
 class Device:
