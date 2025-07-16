@@ -18,17 +18,16 @@ class Worker:
     def _preprocess_input(self, batch: List[Request]) -> ModelInput:
         # TOBEDONE
         return ModelInput()
-    
-    def _postprocess_output(self, output: ModelOutput, batch: List[Request]):
-        # TOBEDONE
-        pass
 
     def run(self, batch: List[Request]):
         model_input: ModelInput = self._preprocess_input(batch)
         model_output: ModelOutput = self.model.forward(model_input)
         # mark EOS etc.
         self._postprocess_output(model_output, batch)
-
+    
+    def _postprocess_output(self, output: ModelOutput, batch: List[Request]):
+        # TOBEDONE
+        pass
 
 class ModelRunner:
     def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
