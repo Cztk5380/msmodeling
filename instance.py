@@ -103,7 +103,7 @@ class PrefillInstaceLoadBalacer:
         for instance in self.instances:
             requests = list(instance.requests.values())
             sums.append(sum(request.num_input_tokens for request in requests))
-        logger.debug(f"PrefillInstanceLoadBalancer.select: {sums}")
+        logger.debug("PrefillInstanceLoadBalancer.select: %d", sums)
         min_value = min(sums)
         min_index = sums.index(min_value)
         return self.instances[min_index]
@@ -117,7 +117,7 @@ class DecodeInstanceLoadBalancer:
         # greedily choose the instance having the least total of requests to handle
         # TOBEDONE: support heterogeneous instances
         sums = [len(instance.requests) for instance in self.instances]
-        logger.debug(f"DecodeInstanceLoadBalancer.select: {sums}")
+        logger.debug("DecodeInstanceLoadBalancer.select: %d", sums)
         min_value = min(sums)
         min_index = sums.index(min_value)
         return self.instances[min_index]

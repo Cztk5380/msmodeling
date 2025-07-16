@@ -1,3 +1,4 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
 from device import DummyDeviceConfig, MachineConfig
 
@@ -16,10 +17,12 @@ class ServingTestCase(unittest.TestCase):
         prefill_instances = []
         decode_instances = []
         for _ in range(num_prefill_instances):
-            prefill = PrefillInstance(MachineConfig(DummyDeviceConfig(), 4), ModelConfig(num_dp_partitions=2, duration=dummy_duration))
+            prefill = PrefillInstance(MachineConfig(DummyDeviceConfig(), 4), 
+                                      ModelConfig(num_dp_partitions=2, duration=dummy_duration))
             prefill_instances.append(prefill)
         for _ in range(num_decode_instances):
-            decode = DecodeInstance(MachineConfig(DummyDeviceConfig(), 8), ModelConfig(num_dp_partitions=2, duration=dummy_duration))
+            decode = DecodeInstance(MachineConfig(DummyDeviceConfig(), 8), 
+                                    ModelConfig(num_dp_partitions=2, duration=dummy_duration))
             decode_instances.append(decode)
 
         num_requests = 100
@@ -54,7 +57,7 @@ class ServingTestCase(unittest.TestCase):
             self.assertEqual(len(instance.requests), 0)
             # make sure load balancing works somehow
             self.assertGreater(instance.max_concurrent_requests, 0)
-            for engine in instance.engines:
+            for _ in instance.engines:
                 # no requests remaining in the decode instance
                 self.assertEqual(len(instance.requests), 0)
         for instance in decode_instances:

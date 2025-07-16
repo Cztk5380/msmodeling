@@ -14,12 +14,6 @@ class Worker:
         # TOBEDONE: build model according to model configuration
         self.model: Model = ModelBuilder.build(device, dp_rank, model_config) # TOBEDONE: check device is right input
 
-    def run(self, batch: List[Request]):
-        model_input: ModelInput = self._preprocess_input(batch)
-        model_output: ModelOutput = self.model.forward(model_input)
-        # mark EOS etc.
-        self._postprocess_output(model_output, batch)
-
     @staticmethod
     def _preprocess_input(self, batch: List[Request]) -> ModelInput:
         # TOBEDONE
@@ -28,6 +22,12 @@ class Worker:
     def _postprocess_output(self, output: ModelOutput, batch: List[Request]):
         # TOBEDONE
         pass
+
+    def run(self, batch: List[Request]):
+        model_input: ModelInput = self._preprocess_input(batch)
+        model_output: ModelOutput = self.model.forward(model_input)
+        # mark EOS etc.
+        self._postprocess_output(model_output, batch)
 
 
 class ModelRunner:
@@ -53,4 +53,3 @@ class ModelRunner:
             
 
 
-            
