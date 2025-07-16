@@ -27,7 +27,7 @@ class ModelOutput:
 
 
 class Model(Protocol):
-    def forward(self, input: ModelInput) -> ModelOutput:
+    def forward(self, model_input: ModelInput) -> ModelOutput:
         ...
     
 
@@ -35,7 +35,7 @@ class DummpyModel(Model):
     def __init__(self, **kwargs):
         self.duration = kwargs.get("duration", 0.01)
 
-    def forward(self, input: ModelInput) -> ModelOutput:
+    def forward(self, model_input: ModelInput) -> ModelOutput:
         with stime.Duration(self.duration):
             return ModelOutput()
 
