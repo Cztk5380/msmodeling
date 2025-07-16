@@ -20,6 +20,7 @@ class Worker:
         # mark EOS etc.
         self._postprocess_output(model_output, batch)
 
+    @staticmethod
     def _preprocess_input(self, batch: List[Request]) -> ModelInput:
         # TOBEDONE
         return ModelInput()
@@ -49,4 +50,7 @@ class ModelRunner:
             worker_thread.start()
         for worker_thread in worker_threads:
             worker_thread.join()
+            
+
+
             
