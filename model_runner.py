@@ -29,6 +29,7 @@ class Worker:
         # TOBEDONE
         pass
 
+
 class ModelRunner:
     def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
         """
