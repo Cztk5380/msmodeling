@@ -5,6 +5,6 @@ from enum import Enum, auto
 class PdDeploymentPolicy(Enum):
     DISAGGREGRATE = auto()
 
-pd_deployment_policy = PdDeploymentPolicy.DISAGGREGRATE
-num_prefill_instances = 2
-num_decode_instances = 4
+PD_DEPLOYMENT_POLICY = PdDeploymentPolicy.DISAGGREGRATE
+NUM_PREFILL_INSTANCES = 2
+NUM_DECODE_INSTANCES = 4
