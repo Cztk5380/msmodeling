@@ -23,10 +23,12 @@ class Instance(ABC):
         self.machine_config = machine_config
         self.model_config = model_config
         self.requests: Dict[int, Request] = {}
-        assert self.machine_config.num_devices % self.model_config.num_dp_paritions == 0
+        if self.machine_config.num_devices % self.model_config.num_dp_paritions != 0:
+            raise ValueError("self.machine_config.num_devices mod self.model_config.num_dp_paritions != 0")
         num_devices_per_dp = self.machine_config.num_devices // self.model_config.num_dp_partitions
         self.engines: List[Engine] = [
-            Engine(self.machine_manager.get_devices()[i * num_devices_per_dp : (i + 1) * num_devices_per_dp], dp_rank=i, model_config=model_config)
+            Engine(self.machine_manager.get_devices()[i * num_devices_per_dp:(i + 1) * num_devices_per_dp], 
+                   dp_rank=i, model_config=model_config)
             for i in range(model_config.num_dp_partitions)
         ]
 
@@ -46,7 +48,7 @@ class PrefillInstance(Instance):
         self.load_balacer = PrefillEngineLoadBalacer(self.engines)
 
     def handel(self, request: Request):
-        logger.debug(f"Prefill instance {self.id} capacity {len(self.requests)} handling {request}")
+        logger.debug("Prefill instance %d capacity %d handling %s", self.id, len(self.requests), request)
         if request.id in self.requests:
             raise ValueError("request.id in self.requests")
         if request.state != RequestState.ARRIVES_SERVER:
@@ -72,7 +74,7 @@ class DecodeInstace(Instance):
         self.load_balancer = DecodeEngineLoadBalancer(self.engines)
         
     def handle(self, request: Request):
-        logger.debug(f"Decode instance {self.id} capacity {len(self.requests)} handling {request}")
+        logger.debug("Decode instance %d capacity %d handling %s", self.id, len(self.requests), request)
         if request.id in self.requests:
             raise ValueError("request.id in self.requests")
         if request.state != RequestState.PREFILL_DONE:

@@ -34,7 +34,12 @@ class FixedLengthLoadGen(LoadGen):
     A load runner that always produces fixed-length input and output sequences
     """
 
-    def __init__(self, model_name: str, num_requests: int, num_input_tokens: int, num_output_tokens: int, request_rate: float):
+    def __init__(self, 
+                 model_name: str, 
+                 num_requests: int, 
+                 num_input_tokens: int, 
+                 num_output_tokens: int, 
+                 request_rate: float):
         super().__init__(model_name)
         self.request_rate = request_rate
         self.requests: Dict[int, Request] = {}

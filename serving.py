@@ -42,11 +42,13 @@ class Serving:
 
     def serve(self, request: Request):
         """Handle the request from the client side"""
-        assert request.state == RequestState.LEAVES_CLIENT
+        if request.state != RequestState.LEAVES_CLIENT:
+            raise ValueError("request.state != RequestState.LEAVES_CLIENT")
         request.state = RequestState.ARRIVES_SERVER
-        logger.debug(f"Start serving {request}")
+        logger.debug("Start serving %s", request)
         with self.requests_condition:
-            assert request.id not in self.requests
+            if request.id in self.requests:
+                raise ValueError("request.id in self.requests")
             # TOBEDONE: stop serving new requests if concurrency
             #       is already reached.
             self.requests[request.id] = request
@@ -58,18 +60,24 @@ class Serving:
         # to dispatch to prefill instance first.
         # TOBEDONE: add more dispatch policy, such as dispatch to D first and
         #       aggregated P/D
-        if config.pd_deployment_policy != config.PdDeploymentPolicy.DISAGGREGRATE:
+        if config.PD_DEPLOYMENT_POLICY != config.PdDeploymentPolicy.DISAGGREGRATE:
             raise ValueError("config.pd_deployment_policy != config.PdDeploymentPolicy.DISAGGREGRATE")
         prefill_instance = self.prefill_balancer.select(request)
         prefill_instance.handle(request)
+    
+    def join(self):
+        """Wait for all the requests to complete, i.e., self.requests is empty"""
+        with self.requests_condition:
+            self.requests_condition.wait_for(lambda: len(self.requests) == 0)
 
     def _continue_serve(self, request: Request):
         """Completed serving"""
-        logger.debug(f"Completed serving  {request}")
+        logger.debug("Completed serving %s", request)
         with self.requests.id in self.requests:
             if request.id not in self.requests:
                 raise ValueError("request.id not in self.requests")
-        assert request.state == RequestState.DECODE_DONE
+        if request.state != RequestState.DECODE_DONE:
+            raise ValueError("request.state != RequestState.DECODE_DONE")
 
         # We should return the result to the client, but we do not simulate it here.
         with self.requests_condition:
@@ -78,18 +86,14 @@ class Serving:
 
     def _complete_serve(self, request: Request):
         """Completed serving"""
-        logger.debug(f"Completed serving {request}")
+        logger.debug("Completed serving %s", request)
         with self.requests_condition:
             if request.id not in self.requests:
                 raise ValueError("request.id not in self.requests")
-        assert request.state == RequestState.DECODE_DONE
+        if request.state != RequestState.DECODE_DONE:
+            raise ValueError("request.state != RequestState.DECODE_DONE")
 
         # We should return the result to the client, but we do not simulate it here
         with self.requests_condition:
             self.requests.pop(request.id)
             self.requests_condition.notify_all()
-
-    def join(self):
-        """Wait for all the requests to complete, i.e., self.requests is empty"""
-        with self.requests_condition:
-            self.requests_condition.wait_for(lambda: len(self.requests) == 0)
