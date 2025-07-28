@@ -34,5 +34,5 @@ class MachineManager:
         self.matchine_config = machine_config
         self.devices = [Device(machine_config, i) for i in range(machine_config.num_devices)]
 
-        def get_devices(self) -> List[Device]:
-            return self.devices
+    def get_devices(self) -> List[Device]:
+        return self.devices

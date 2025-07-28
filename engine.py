@@ -26,7 +26,7 @@ class BatchScheduler:
         self.request_queue.put(request)
 
     def run(self):
-        self.batching_thread = stime.Thread(target=self._batching_loop. daemon=True)
+        self.batching_thread = stime.Thread(target=self._batching_loop, daemon=True)
         self.batching_thread.start()
         self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
         self.runner_thread.start()

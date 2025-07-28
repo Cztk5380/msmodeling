@@ -32,6 +32,7 @@ class ServingTestCase(unittest.TestCase):
         load_runner = FixedLengthLoadGen(
             model_name=None,
             num_requests=num_requests,
+            num_input_tokens=num_input_tokens,
             num_output_tokens=num_output_tokens,
             request_rate=1.0,
         )

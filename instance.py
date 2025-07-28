@@ -18,13 +18,13 @@ class Instance(ABC):
     id_counter = itertools.count()
 
     def __init__(self, machine_config: MachineConfig, model_config: ModelConfig):
-        self.id = next(self.id_count)
+        self.id = next(self.id_counter)
         self.machine_manager = MachineManager(machine_config)
         self.machine_config = machine_config
         self.model_config = model_config
         self.requests: Dict[int, Request] = {}
-        if self.machine_config.num_devices % self.model_config.num_dp_paritions != 0:
-            raise ValueError("self.machine_config.num_devices mod self.model_config.num_dp_paritions != 0")
+        if self.machine_config.num_devices % self.model_config.num_dp_partitions != 0:
+            raise ValueError("self.machine_config.num_devices mod self.model_config.num_dp_partitions != 0")
         num_devices_per_dp = self.machine_config.num_devices // self.model_config.num_dp_partitions
         self.engines: List[Engine] = [
             Engine(self.machine_manager.get_devices()[i * num_devices_per_dp:(i + 1) * num_devices_per_dp], 
@@ -47,7 +47,7 @@ class PrefillInstance(Instance):
         super().__init__(machine_config, model_config)
         self.load_balacer = PrefillEngineLoadBalacer(self.engines)
 
-    def handel(self, request: Request):
+    def handle(self, request: Request):
         logger.debug("Prefill instance %d capacity %d handling %s", self.id, len(self.requests), request)
         if request.id in self.requests:
             raise ValueError("request.id in self.requests")
@@ -56,7 +56,7 @@ class PrefillInstance(Instance):
         request.state = RequestState.PREFILLING
         self.requests[request.id] = request
         self.max_concurrent_requests = max(self.max_concurrent_requests, len(self.requests))
-        request.prefill_done_signal.connext(self._on_prefilll_done)
+        request.prefill_done_signal.connect(self._on_prefill_done)
         engine = self.load_balacer.select(request)
         engine.handle(request)
 
@@ -66,8 +66,8 @@ class PrefillInstance(Instance):
         self.requests.pop(request.id)
 
     
-class DecodeInstace(Instance):
-    id_counter = itertools.cout()
+class DecodeInstance(Instance):
+    id_counter = itertools.count()
 
     def __init__(self, machine_config: MachineConfig, model_config: ModelConfig):
         super().__init__(machine_config, model_config)

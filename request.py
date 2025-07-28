@@ -37,7 +37,7 @@ class Request:
         self.state_change_signal = signal(f"state_changedd_{self.id}") # general signal
         self.prefill_done_signal = signal(f"prefill_done_{self.id}")
         self.decode_done_signal = signal(f"decode_done_{self.id}")
-        self.num_input_tokens: int = 0
+        self.num_decoded_tokens: int = 0
 
         # The following fields are metrics
         self.leaves_client_time = 0
@@ -53,7 +53,7 @@ class Request:
     def state(self, new_state):
         old_state = self._state
         self._state = new_state
-        self.state_change_signal.send(self, old_state, new_state=new_state)
+        self.state_change_signal.send(self, old_state=old_state, new_state=new_state)
         if new_state == RequestState.DECODE_DONE:
             self.decode_done_time = stime.now()
             self.decode_done_signal.send(self)
@@ -85,6 +85,6 @@ class Request:
         if self.state.value >= RequestState.DECODE_DONE.value:
             tpot = f", tpot={self.time_per_output_token():.3f}"
             total = f", total={self.serving_time():.3f}"
-        res = f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, " \ 
+        res = f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, " \
               f"num_decoded={self.num_decoded_tokens}, num_outputs={self.num_output_tokens})"
         return res

@@ -71,18 +71,19 @@ class Serving:
             self.requests_condition.wait_for(lambda: len(self.requests) == 0)
 
     def _continue_serve(self, request: Request):
-        """Completed serving"""
-        logger.debug("Completed serving %s", request)
-        with self.requests.id in self.requests:
+        """Continue serving"""
+        logger.debug("Continue serving %s", request)
+        with self.requests_condition:
             if request.id not in self.requests:
                 raise ValueError("request.id not in self.requests")
-        if request.state != RequestState.DECODE_DONE:
-            raise ValueError("request.state != RequestState.DECODE_DONE")
+        if request.state == RequestState.DECODE_DONE:
+            # EOS after prefill
+            self._complete_serve(request)
 
-        # We should return the result to the client, but we do not simulate it here.
-        with self.requests_condition:
-            self.requests.pop(request.id)
-            self.requests_condition.notify_all()
+        if request.state != RequestState.PREFILL_DONE:
+            raise ValueError("In continue serving: request.state shoulf be PREFILL_DONE, but get %s", request.state)
+        decode_instance = self.decode_balancer.select(request)
+        decode_instance.handle(request)
 
     def _complete_serve(self, request: Request):
         """Completed serving"""

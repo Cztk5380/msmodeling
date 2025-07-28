@@ -492,7 +492,7 @@ class Queue(Generic[T]):
                 # get the earliest timestamp again just in case some threads
                 # put more items
                 first_ts = self._heap[0][0]
-                if first_ts < current:
+                if first_ts < current_ts:
                     return
             if timeout_unit == 0:
                 waiting_timeout = first_ts - current_ts
@@ -508,7 +508,7 @@ class Queue(Generic[T]):
 def getLogger(logger_name: str):
     class SimulationTimeFilter(logging.Filter):
             def __init__(self):
-                super.__init__("sim_time")
+                super().__init__("sim_time")
             def filter(self, record):
                 record.sim_time = now()
                 return True    # always return True to ensure the record is processed
