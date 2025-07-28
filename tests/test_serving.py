@@ -10,7 +10,7 @@ from serving import Serving
 
 
 class ServingTestCase(unittest.TestCase):
-    def test_dummpy_model(self):
+    def test_dummy_model(self):
         dummy_duration = 0.3
         num_prefill_instances = 8
         num_decode_instances = 8
@@ -43,7 +43,7 @@ class ServingTestCase(unittest.TestCase):
             requests[request.id] = request
 
         while load_runner.has_request():
-            request = load_runner.next_requst()
+            request = load_runner.next_request()
             request.decode_done_signal.connect(count_completed)
             serving.serve(request)
         serving.join()
@@ -58,9 +58,9 @@ class ServingTestCase(unittest.TestCase):
             self.assertEqual(len(instance.requests), 0)
             # make sure load balancing works somehow
             self.assertGreater(instance.max_concurrent_requests, 0)
-            for _ in instance.engines:
+            for engine in instance.engines:
                 # no requests remaining in the decode instance
-                self.assertEqual(len(instance.requests), 0)
+                self.assertEqual(len(engine.requests), 0)
         for instance in decode_instances:
             # no requests remaining in the decode instances
             self.assertEqual(len(instance.requests), 0)
@@ -69,3 +69,6 @@ class ServingTestCase(unittest.TestCase):
             for engine in instance.engines:
                 # no requests remaining in the engine
                 self.assertEqual(len(engine.requests), 0)
+
+if __name__ == '__main__':
+    unittest.main()

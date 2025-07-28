@@ -31,7 +31,7 @@ class Model(Protocol):
         ...
     
 
-class DummpyModel(Model):
+class DummyModel(Model):
     def __init__(self, **kwargs):
         self.duration = kwargs.get("duration", 0.01)
 
@@ -44,5 +44,5 @@ class ModelBuilder:
     @staticmethod
     def build(device: DeviceConfig, dp_rank: int, config: ModelConfig) -> Model:
         if config.model_name is None:
-            return DummpyModel(**config.kwargs)
+            return DummyModel(**config.kwargs)
         raise NotImplementedError(f"Model {config.model_name} is not implemented.")

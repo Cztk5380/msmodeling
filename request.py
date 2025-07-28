@@ -8,9 +8,9 @@ import stime
 
 
 class RequestState(Enum):
-    INITAL = auto()          # Initial state after the request is created from the client side
+    INITIAL = auto()          # Initial state after the request is created from the client side
     LEAVES_CLIENT = auto()   # The request leaves the client
-    ARRIVES_SERVER = auto()  # The rquest arrives at the server side and ready to be served
+    ARRIVES_SERVER = auto()  # The request arrives at the server side and ready to be served
     PREFILLING = auto()      # The prefill stage is in progress
     PREFILL_DONE = auto()    # Prefill completed
     DECODING = auto()        # The decode stage is in progress
@@ -26,15 +26,15 @@ class Request:
         self.id = next(self.id_counter)
 
         # The following fields are requirement to the serving system
-        # TOBEDONE: support mulitple sequences such as beam search and best-of-N
-        # TOBEDONE: and sampling methods
+        # TOBEDONE: support multiple sequences such as beam search and best-of-N
+        # TOBEDONE: add sampling methods
         self.model_name: Optional[str] = kwargs.get("model_name", None)
         self.num_input_tokens: int = kwargs.get("num_input_tokens", 0)
         self.num_output_tokens: int = kwargs.get("num_output_tokens", 0) # number of expected output tokens
 
         # The following fields are states
-        self._state: RequestState = RequestState.INITAL
-        self.state_change_signal = signal(f"state_changedd_{self.id}") # general signal
+        self._state: RequestState = RequestState.INITIAL
+        self.state_change_signal = signal(f"state_changed_{self.id}") # general signal
         self.prefill_done_signal = signal(f"prefill_done_{self.id}")
         self.decode_done_signal = signal(f"decode_done_{self.id}")
         self.num_decoded_tokens: int = 0
@@ -86,5 +86,5 @@ class Request:
             tpot = f", tpot={self.time_per_output_token():.3f}"
             total = f", total={self.serving_time():.3f}"
         res = f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, " \
-              f"num_decoded={self.num_decoded_tokens}, num_outputs={self.num_output_tokens})"
+              f"num_decoded={self.num_decoded_tokens},num_inputs={self.num_input_tokens}, num_outputs={self.num_output_tokens})"
         return res

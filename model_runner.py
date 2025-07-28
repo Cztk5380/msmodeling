@@ -10,7 +10,7 @@ import stime
 
 class Worker:
     def __init__(self, device: Device, dp_rank: int, model_config: ModelConfig):
-        """The worker instantiaties a model to compute on a device"""
+        """The worker instantiates a model to compute on a device"""
         # TOBEDONE: build model according to model configuration
         self.model: Model = ModelBuilder.build(device, dp_rank, model_config) # TOBEDONE: check device is right input
 

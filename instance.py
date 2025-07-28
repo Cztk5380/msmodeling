@@ -6,7 +6,7 @@ from collections import deque
 import logging
 
 from device import Device, MachineConfig, MachineManager
-from engine import DecodeEngineLoadBalancer, PrefillEngineLoadBalacer, Engine
+from engine import DecodeEngineLoadBalancer, PrefillEngineLoadBalancer, Engine
 from model import ModelConfig
 from request import Request, RequestState
 import stime
@@ -24,7 +24,8 @@ class Instance(ABC):
         self.model_config = model_config
         self.requests: Dict[int, Request] = {}
         if self.machine_config.num_devices % self.model_config.num_dp_partitions != 0:
-            raise ValueError("self.machine_config.num_devices mod self.model_config.num_dp_partitions != 0")
+            raise ValueError("In instance __init__, num_devices must be divisible by num_dp_partitions," \
+                f"but got num_devices = %d, num_dp_partitions = %d", self.machine_config.num_devices, self.model_config.num_dp_partitions)
         num_devices_per_dp = self.machine_config.num_devices // self.model_config.num_dp_partitions
         self.engines: List[Engine] = [
             Engine(self.machine_manager.get_devices()[i * num_devices_per_dp:(i + 1) * num_devices_per_dp], 
@@ -45,14 +46,14 @@ class PrefillInstance(Instance):
 
     def __init__(self, machine_config: MachineConfig, model_config: ModelConfig):
         super().__init__(machine_config, model_config)
-        self.load_balacer = PrefillEngineLoadBalacer(self.engines)
+        self.load_balacer = PrefillEngineLoadBalancer(self.engines)
 
     def handle(self, request: Request):
         logger.debug("Prefill instance %d capacity %d handling %s", self.id, len(self.requests), request)
         if request.id in self.requests:
-            raise ValueError("request.id in self.requests")
+            raise ValueError("In PrefillInstance handle, request.id already in self.requests")
         if request.state != RequestState.ARRIVES_SERVER:
-            raise ValueError("request.state != RequestState.ARRIVES_SERVER")
+            raise ValueError("In PrefillInstance handle, request.state should be ARRIVES_SERVER, but get %s", request.state)
         request.state = RequestState.PREFILLING
         self.requests[request.id] = request
         self.max_concurrent_requests = max(self.max_concurrent_requests, len(self.requests))
@@ -62,7 +63,7 @@ class PrefillInstance(Instance):
 
     def _on_prefill_done(self, request: Request):
         if request.id not in self.requests:
-            raise ValueError("request.id not in self.requests")
+            raise ValueError("In PrefillInstance _on_prefill_done, request.id not in self.requests")
         self.requests.pop(request.id)
 
     
@@ -92,7 +93,7 @@ class DecodeInstance(Instance):
         self.requests.pop(request.id)
 
 
-class PrefillInstaceLoadBalacer:
+class PrefillInstanceLoadBalancer:
     def __init__(self, instances: List[Instance]):
         self.instances = instances
 
@@ -114,7 +115,7 @@ class DecodeInstanceLoadBalancer:
         self.instances = instances
         
     def select(self, request: Request) -> Instance:
-        # greedily choose the instance having the least total of requests to handle
+        # greedily choose the instance having the least total number of requests to handle
         # TOBEDONE: support heterogeneous instances
         sums = [len(instance.requests) for instance in self.instances]
         logger.debug("DecodeInstanceLoadBalancer.select: %d", sums)

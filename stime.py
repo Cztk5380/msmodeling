@@ -44,7 +44,7 @@ def now() -> float:
     """
     Returns the current logical timestamp of the calling thread (in seconds).
     """
-    assert threading.current_thread().native_id in _all_threads, f"Thread {threading.current_thread().name} is not tracked by stime"
+    assert threading.current_thread().native_id in _all_threads, f"Thread {threading.current_thread().native_id} is not tracked by stime"
     return _all_threads[threading.current_thread().native_id].ts
 
 def set_now(ts: float):
@@ -102,9 +102,9 @@ class duration:
     def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
         @wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
-            retult = func(*args, **kwargs)
+            result = func(*args, **kwargs)
             elapse(self._duration)
-            return retult
+            return result
         return wrapper
 
 
@@ -271,7 +271,7 @@ class Queue(Generic[T]):
             items without breaking the causality. See 'wait_till_due' for detail.
         """
         self._condition = Condition()
-        self._shutdotdown = threading.Event()
+        self._shutdown = threading.Event()
         # the heap stores tuple of (timestamp, count, item)
         self._heap: List[Tuple[float, int, T]] = []
         # A counter to act as a tie-breaker for items with the same timestamp.
@@ -342,14 +342,14 @@ class Queue(Generic[T]):
         """
         with self._condition:
             while not self._heap:
-                if not block:
-                    raise QueueEmpty()
-                else:
+                if block:
                     self._condition.wait()
-            
+                else:
+                    raise QueueEmpty()
+                    
             item_ts, _count, item = heapq.heappop(self._heap)
 
-            # Time synchonize: if the item is in th future, advance the clock
+            # Time synchonize: if the item is in the future, advance the clock
             current_ts = now()
             if item_ts > current_ts:
                 set_now(item_ts)
@@ -358,7 +358,7 @@ class Queue(Generic[T]):
 
             return item
 
-    def __iter__(self) -> Iterable[T]:
+    def __iter__(self) -> Iterator[T]:
         """
         Iterator over the items in the queue, without timestamp.
 
@@ -366,7 +366,7 @@ class Queue(Generic[T]):
         """
         snapshot = []
         with self._condition:
-            for _, _, item in  sorted(self._heap):
+            for _, _, item in sorted(self._heap):
                 snapshot.append(item)
         return iter(snapshot)
 
@@ -507,16 +507,16 @@ class Queue(Generic[T]):
 
 def getLogger(logger_name: str):
     class SimulationTimeFilter(logging.Filter):
-            def __init__(self):
-                super().__init__("sim_time")
-            def filter(self, record):
-                record.sim_time = now()
-                return True    # always return True to ensure the record is processed
+        def __init__(self):
+            super().__init__("sim_time")
+        def filter(self, record):
+            record.sim_time = now()
+            return True    # always return True to ensure the record is processed
 
     logger = logging.getLogger(logger_name)
     handler = logging.StreamHandler()
-    sim_filer = SimulationTimeFilter()
-    handler.addFilter(sim_filer)
+    sim_filter = SimulationTimeFilter()
+    handler.addFilter(sim_filter)
     formatter = logging.Formatter('[%(sim_time)8.2f][T%(thread)d] %(levelname)-8s %(file_name)s:%(lineno)d: %(message)s')
     handler.setFormatter(formatter)
     logger.addHandler(handler)

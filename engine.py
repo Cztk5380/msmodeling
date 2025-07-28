@@ -15,7 +15,7 @@ logger = stime.getLogger(__name__)
 
 class BatchScheduler:
     def __init__(self, model_runner: ModelRunner):
-        self. model_runner = model_runner
+        self.model_runner = model_runner
         self.request_queue = stime.Queue(allow_anti_causality_put=True)
         self.batch_queue = stime.Queue()
         self._shutdown = threading.Event()
@@ -50,7 +50,7 @@ class BatchScheduler:
         return batch
     
     def _batching_loop(self):
-        """Threading target: collect requests inot batches and process them."""
+        """Threading target: collect requests into batches and process them."""
         try:
             while not self._shutdown.is_set():
                 batch = self._collect_batch()
@@ -70,7 +70,7 @@ class BatchScheduler:
         continuous_batching_requests = []
         for request in batch:
             if request.state != RequestState.PREFILLING and request.state != RequestState.DECODING:
-                raise ValueError("request.state != RequestState.PREFILLING and request.state != RequestState.DECODING")
+                raise ValueError("In _postprocess_batch, request.state should be PREFILLING or DECODING, but get %s" % request.state)
             request.num_decoded_tokens += 1
             if request.num_decoded_tokens >= request.num_output_tokens:
                 request.state = RequestState.DECODE_DONE
@@ -87,8 +87,8 @@ class BatchScheduler:
             while not self._shutdown.is_set():
                 batch = self.batch_queue.get()
                 if batch is None:
-                    raise ValueError("batch is None")
-                # looger.debug(f"Processing {[request.id for request in batch]}"")
+                    raise ValueError("In _runner_loop, batch is None")
+                # logger.debug(f"Processing {[request.id for request in batch]}")
                 self.model_runner.process_batch(batch) # Process the batch
                 self._postprocess_batch(batch)
         except:
@@ -129,14 +129,14 @@ class Engine:
         return self.batch_scheduler.requests
 
 
-class PrefillEngineLoadBalacer:
+class PrefillEngineLoadBalancer:
     def __init__(self, engines: List[Engine]):
         self.engines = engines
     
     def select(self, request: Request) -> Engine:
         # greedily choose the instance having the least total number of input tokens to handle
         # TOBEDONE: we should expose metrics from the engine instead of exposing all the request instances
-        # TOBEDONE: support heterogeneous instaces
+        # TOBEDONE: support heterogeneous instances
         sums = [sum(request.num_input_tokens for request in engine.requests.values()) for engine in self.engines]
         min_value = min(sums)
         min_index = sums.index(min_value)
