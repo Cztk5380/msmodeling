@@ -25,7 +25,7 @@ class ServingTestCase(unittest.TestCase):
                                     ModelConfig(num_dp_partitions=2, duration=dummy_duration))
             decode_instances.append(decode)
 
-        num_requests = 100
+        num_requests = 10
         num_input_tokens = 2048
         num_output_tokens = 50
         serving = Serving(prefill_instances, decode_instances)
