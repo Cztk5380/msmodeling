@@ -34,7 +34,7 @@ class TestTimedModule(unittest.TestCase):
     def test_duration_decorator(self):
         stime.set_now(10)
 
-        @stime.duration(10)
+        @stime.DurationDecorator(10)
         def decorated_function():
             self.assertAlmostEqual(stime.now(), 10)
             return "done"

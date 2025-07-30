@@ -86,7 +86,7 @@ def elapse(ts: float):
     set_now(now() + ts)
 
 
-class duration:
+class DurationDecorator:
     """
     A decorator to specify a duration to elapse after a function call.
 
@@ -94,7 +94,7 @@ class duration:
     is advanced by the specified duration.
 
     Usage:
-        @stime.duration(5.0)
+        @stime.DurationDecorator(5.0)
         def some_long_running_function():
             ...
     
