@@ -11,7 +11,7 @@ from model import ModelConfig
 from request import Request, RequestState
 import stime
 
-logger = stime.getLogger(__name__)
+logger = stime.get_logger(__name__)
 
 
 class Instance(ABC):
@@ -25,7 +25,8 @@ class Instance(ABC):
         self.requests: Dict[int, Request] = {}
         if self.machine_config.num_devices % self.model_config.num_dp_partitions != 0:
             raise ValueError("In instance __init__, num_devices must be divisible by num_dp_partitions," \
-                f"but got num_devices = %d, num_dp_partitions = %d", self.machine_config.num_devices, self.model_config.num_dp_partitions)
+                f"but got num_devices = %d, num_dp_partitions = %d", \
+                    self.machine_config.num_devices, self.model_config.num_dp_partitions)
         num_devices_per_dp = self.machine_config.num_devices // self.model_config.num_dp_partitions
         self.engines: List[Engine] = [
             Engine(self.machine_manager.get_devices()[i * num_devices_per_dp:(i + 1) * num_devices_per_dp], 
@@ -53,7 +54,8 @@ class PrefillInstance(Instance):
         if request.id in self.requests:
             raise ValueError("In PrefillInstance handle, request.id already in self.requests")
         if request.state != RequestState.ARRIVES_SERVER:
-            raise ValueError("In PrefillInstance handle, request.state should be ARRIVES_SERVER, but get %s", request.state)
+            raise ValueError("In PrefillInstance handle, request.state should be ARRIVES_SERVER," \
+                "but get %s", request.state)
         request.state = RequestState.PREFILLING
         self.requests[request.id] = request
         self.max_concurrent_requests = max(self.max_concurrent_requests, len(self.requests))

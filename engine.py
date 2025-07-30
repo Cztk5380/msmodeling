@@ -10,7 +10,7 @@ from model import ModelConfig
 from model_runner import ModelRunner
 from request import Request, RequestState
 
-logger = stime.getLogger(__name__)
+logger = stime.get_logger(__name__)
 
 
 class BatchScheduler:
@@ -20,16 +20,34 @@ class BatchScheduler:
         self.batch_queue = stime.Queue()
         self._shutdown = threading.Event()
         self.batching_timeout = 0
+        self.batching_thread = stime.Thread(target=self._batching_loop, daemon=True)
+        self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
+
+    @property
+    def requests(self) -> Dict[int, Request]:
+        requests: Dict[int, Request] = {}
+        for request in self.request_queue:
+            requests[request.id] = request
+        for batch in self.batch_queue:
+            for request in batch:
+                requests[request.id] = request
+        return requests
 
     def add(self, request: Request):
         logger.debug(f"BatchScheduler adding {request}")
         self.request_queue.put(request)
 
     def run(self):
-        self.batching_thread = stime.Thread(target=self._batching_loop, daemon=True)
         self.batching_thread.start()
-        self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
         self.runner_thread.start()
+
+    def shutdown(self):
+        """Gracefully stop the processing thread."""
+        self._shutdown.set()
+        self.request_queue.shutdown()
+        self.batch_queue.shutdown()
+        self.batching_thread.join() # wait for the thread to finish
+        self.runner_thread.join()
 
     def _collect_batch(self):
         """Collect request batch and allocate resources for batched requests"""
@@ -70,7 +88,8 @@ class BatchScheduler:
         continuous_batching_requests = []
         for request in batch:
             if request.state != RequestState.PREFILLING and request.state != RequestState.DECODING:
-                raise ValueError("In _postprocess_batch, request.state should be PREFILLING or DECODING, but get %s" % request.state)
+                raise ValueError("In _postprocess_batch, request.state should be PREFILLING or DECODING," \
+                    " but get %s" % request.state)
             request.num_decoded_tokens += 1
             if request.num_decoded_tokens >= request.num_output_tokens:
                 request.state = RequestState.DECODE_DONE
@@ -88,30 +107,11 @@ class BatchScheduler:
                 batch = self.batch_queue.get()
                 if batch is None:
                     raise ValueError("In _runner_loop, batch is None")
-                # logger.debug(f"Processing {[request.id for request in batch]}")
                 self.model_runner.process_batch(batch) # Process the batch
                 self._postprocess_batch(batch)
         except:
             logger.error(f"Unexpected exception in the runner loop", exc_info=True)
             raise
-
-    def shutdown(self):
-        """Gracefully stop the processing thread."""
-        self._shutdown.set()
-        self.request_queue.shutdown()
-        self.batch_queue.shutdown()
-        self.batching_thread.join() # wait for the thread to finish
-        self.runner_thread.join()
-
-    @property
-    def requests(self) -> Dict[int, Request]:
-        requests: Dict[int, Request] = {}
-        for request in self.request_queue:
-            requests[request.id] = request
-        for batch in self.batch_queue:
-            for request in batch:
-                requests[request.id] = request
-        return requests
     
 
 class Engine:
@@ -120,13 +120,13 @@ class Engine:
         self.batch_scheduler = BatchScheduler(self.model_runner)
         self.batch_scheduler.run()
 
-    def handle(self, request: Request):
-        logger.debug(f"Engine handling {request}")
-        self.batch_scheduler.add(request)
-
     @property
     def requests(self) -> Dict[int, Request]:
         return self.batch_scheduler.requests
+
+    def handle(self, request: Request):
+        logger.debug(f"Engine handling {request}")
+        self.batch_scheduler.add(request)
 
 
 class PrefillEngineLoadBalancer:

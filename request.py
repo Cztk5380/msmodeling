@@ -45,6 +45,20 @@ class Request:
         self.prefill_done_time = 0
         self.decode_done_time = 0
 
+    def __str__(self) -> str:
+        ttft = ""
+        tpot = ""
+        total = ""
+        if self.state.value >= RequestState.PREFILL_DONE.value:
+            ttft = f", ttft={self.time_to_first_token():.3f}"
+        if self.state.value >= RequestState.DECODE_DONE.value:
+            tpot = f", tpot={self.time_per_output_token():.3f}"
+            total = f", total={self.serving_time():.3f}"
+        res = f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, " \
+              f"num_decoded={self.num_decoded_tokens},num_inputs={self.num_input_tokens}, " \
+              f"num_outputs={self.num_output_tokens})"
+        return res
+
     @property
     def state(self):
         return self._state
@@ -75,16 +89,3 @@ class Request:
     
     def serving_time(self):
         return self.decode_done_time - self.leaves_client_time
-    
-    def __str__(self) -> str:
-        ttft = ""
-        tpot = ""
-        total = ""
-        if self.state.value >= RequestState.PREFILL_DONE.value:
-            ttft = f", ttft={self.time_to_first_token():.3f}"
-        if self.state.value >= RequestState.DECODE_DONE.value:
-            tpot = f", tpot={self.time_per_output_token():.3f}"
-            total = f", total={self.serving_time():.3f}"
-        res = f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, " \
-              f"num_decoded={self.num_decoded_tokens},num_inputs={self.num_input_tokens}, num_outputs={self.num_output_tokens})"
-        return res

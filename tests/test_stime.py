@@ -1,15 +1,19 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
 import time
 from queue import Queue as StandardQueue # Used for thread-safe communication in tests
 
 import stime
 
+
 class NonComparable:
     """A simple class that cannot be compared to other objects, testing purposes only"""
     def __init__(self, name):
         self.name = name
+
     def __repr__(self):
         return f'NonComparable({self.name})'
+
 
 class TestTimedModule(unittest.TestCase):
     def setUp(self):
@@ -29,6 +33,7 @@ class TestTimedModule(unittest.TestCase):
 
     def test_duration_decorator(self):
         stime.set_now(10)
+
         @stime.duration(10)
         def decorated_function():
             self.assertAlmostEqual(stime.now(), 10)
@@ -42,7 +47,6 @@ class TestTimedModule(unittest.TestCase):
         with stime.Duration(1):
             self.assertAlmostEqual(stime.now(), 0)
         self.assertAlmostEqual(stime.now(), 1)
-
 
     # 2. Queue tests
 
@@ -125,10 +129,14 @@ class TestTimedModule(unittest.TestCase):
 
     def test_queue_due_methods(self):
         q = stime.Queue()
-        stime.set_now(30); q.put("item_30")
-        stime.set_now(40); q.put("item_40")
-        stime.set_now(50); q.put("item_50")
-        stime.set_now(60); q.put("item_60")
+        stime.set_now(30)
+        q.put("item_30")
+        stime.set_now(40)
+        q.put("item_40")
+        stime.set_now(50)
+        q.put("item_50")
+        stime.set_now(60)
+        q.put("item_60")
         
         stime.set_now(45)
 
@@ -148,9 +156,12 @@ class TestTimedModule(unittest.TestCase):
 
     def test_get_all_due(self):
         q = stime.Queue()
-        stime.set_now(30); q.put("item_30")
-        stime.set_now(40); q.put("item_40")
-        stime.set_now(50); q.put("item_50")
+        stime.set_now(30)
+        q.put("item_30")
+        stime.set_now(40)
+        q.put("item_40")
+        stime.set_now(50)
+        q.put("item_50")
         stime.set_now(45)
 
         removed_item = q.get_all_due()
@@ -160,9 +171,12 @@ class TestTimedModule(unittest.TestCase):
 
     def test_queue_iterators(self):
         q = stime.Queue()
-        stime.set_now(40); q.put("item_40")
-        stime.set_now(30); q.put("item_30")
-        stime.set_now(50); q.put("item_50")
+        stime.set_now(40)
+        q.put("item_40")
+        stime.set_now(30)
+        q.put("item_30")
+        stime.set_now(50)
+        q.put("item_50")
 
         items = list(q)
         self.assertEqual(items, ["item_30", "item_40", "item_50"])
@@ -218,11 +232,11 @@ class TestTimedModule(unittest.TestCase):
         self.assertEqual(q.get(), "legal_item_at_35.0")
 
         # part3 edge case preconditions for the wait_till_due()
-        # calling when now() >= first_ts should raise AssertionError
+        # calling when now() >= first_ts should raise ValueError
         q_fail = stime.Queue()
         stime.set_now(50)
         q_fail.put("item_at_50")
-        with self.assertRaises(AssertionError):
+        with self.assertRaises(ValueError):
             q_fail.wait_till_due(5.0)
 
     def test_queue_wait_till_due_single_item_slow_producer(self):

@@ -10,7 +10,7 @@ from instance import DecodeInstanceLoadBalancer, PrefillInstanceLoadBalancer
 from request import Request, RequestState
 import stime
 
-logger = stime.getLogger(__name__)
+logger = stime.get_logger(__name__)
 
 
 class Serving:

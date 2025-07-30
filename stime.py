@@ -1,10 +1,7 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 """
 A module for managing and synchronizing logical time in a multi-threaded environment
-
-This module provides a 'stime.Thread' class 
 """
-
-
 
 import math
 import threading
@@ -19,6 +16,7 @@ logger = logging.getLogger(__name__)
 # Define a generic type variable for type hinting
 T = TypeVar('T')
 
+
 # 1. Global threading state
 class ThreadState:
     def __init__(self, thread: threading.Thread):
@@ -29,23 +27,28 @@ class ThreadState:
 # native_id -> ThreadState
 _all_threads: Dict[int, ThreadState] = {}
 
-def _wait(id=-1):
-    if id == -1:
-        id = threading.current_thread().native_id
-    _all_threads[id].is_running = False
 
-def _awake(id=-1):
-    if id == -1:
-        id = threading.current_thread().native_id
-    _all_threads[id].is_running = True
+def _wait(thread_id=-1):
+    if thread_id == -1:
+        thread_id = threading.current_thread().native_id
+    _all_threads[thread_id].is_running = False
+
+
+def _awake(thread_id=-1):
+    if thread_id == -1:
+        thread_id = threading.current_thread().native_id
+    _all_threads[thread_id].is_running = True
+
 
 # 2. Core Time Functions
 def now() -> float:
     """
     Returns the current logical timestamp of the calling thread (in seconds).
     """
-    assert threading.current_thread().native_id in _all_threads, f"Thread {threading.current_thread().native_id} is not tracked by stime"
+    if threading.current_thread().native_id not in _all_threads:
+        raise ValueError("Thread %d is not tracked by stime", threading.current_thread().native_id)
     return _all_threads[threading.current_thread().native_id].ts
+
 
 def set_now(ts: float):
     """
@@ -69,6 +72,7 @@ def set_now(ts: float):
 # Intialize the main thread's timestamp
 set_now(0.0)
 
+
 # Time elapsing mechanisms
 def elapse(ts: float):
     """
@@ -77,8 +81,10 @@ def elapse(ts: float):
     Args:
         ts (float): The logical duration (in seconds) to set.
     """
-    assert (ts >= 0.0)
+    if (ts < 0.0):
+        raise ValueError("Cannot set negative time")
     set_now(now() + ts)
+
 
 class duration:
     """
@@ -96,7 +102,8 @@ class duration:
         ts (float): The logical duration (in seconds) to set.
     """
     def __init__(self, ts: float):
-        assert ts >= 0.0
+        if (ts < 0.0):
+            raise ValueError("Cannot set negative time")
         self._duration = ts
 
     def __call__(self, func: Callable[..., Any]) -> Callable[..., Any]:
@@ -124,7 +131,8 @@ class Duration:
         ts (float): The logical duration (in seconds) to set.
     """
     def __init__(self, ts: float):
-        assert ts >= 0.0
+        if (ts < 0.0):
+            raise ValueError("Cannot set negative time")
         self._duration = ts
 
     def __enter__(self) -> None:
@@ -132,6 +140,7 @@ class Duration:
 
     def __exit__(self, exc_type: Any, exc_val: Any, exc_tb: Any) -> None:
         elapse(self._duration)
+
 
 # 4. Thread Time Management
 class Thread(threading.Thread):
@@ -145,9 +154,9 @@ class Thread(threading.Thread):
     the joined thread's exit timestamp to maintain causality (update to the maximum of the two).
     
     """
-    def __init__(self, group: None=None, target: Optional[Callable[..., Any]]=None,
-                 name: Optional[str]=None, args: Iterable[Any]=(), kwargs: Optional[Dict[str, Any]]=None, *,
-                 daemon: Optional[bool]=None):
+    def __init__(self, group: None = None, target: Optional[Callable[..., Any]] = None,
+                 name: Optional[str] = None, args: Iterable[Any] = (), kwargs: Optional[Dict[str, Any]] = None, *,
+                 daemon: Optional[bool] = None):
         self._original_target = target
         self._original_args = args
         self._original_kwargs = kwargs or {}
@@ -156,22 +165,6 @@ class Thread(threading.Thread):
 
         # The superclass __init__() method will call self._wrapped_run()
         super().__init__(group=group, target=self._wrapped_run, name=name, daemon=daemon)
-
-    def _wrapped_run(self) -> None:
-        """
-        Internal wrapper for the user's target function to manage the timestamp lifecycle.
-        """
-        # 1. set the initial timestamp inherited from the parent thread
-        set_now(self._start_timestamp)
-        try:
-            # 2. run the user's target function
-            if self._original_target:
-                self._original_target(*self._original_args, **self._original_kwargs)
-        finally:
-            # 3. record the exit timestamp in a 'finally' block to ensure it's always executed
-            self._exit_timestamp = now()
-            # TODO consider encapsulating this
-            _all_threads.pop(threading.current_thread().native_id)
 
     def start(self) -> None:
         """
@@ -200,6 +193,22 @@ class Thread(threading.Thread):
             if self._exit_timestamp > caller_now:
                 set_now(self._exit_timestamp)
 
+    def _wrapped_run(self) -> None:
+        """
+        Internal wrapper for the user's target function to manage the timestamp lifecycle.
+        """
+        # 1. set the initial timestamp inherited from the parent thread
+        set_now(self._start_timestamp)
+        try:
+            # 2. run the user's target function
+            if self._original_target:
+                self._original_target(*self._original_args, **self._original_kwargs)
+        finally:
+            # 3. record the exit timestamp in a 'finally' block to ensure it's always executed
+            self._exit_timestamp = now()
+            # TOBEDONE consider encapsulating this
+            _all_threads.pop(threading.current_thread().native_id)
+
     
 class QueueEmpty(Exception):
     """Exception raised when trying to get an item from an empty queue."""
@@ -220,6 +229,23 @@ class Condition:
     def __exit__(self, *args):
         return self._condition.__exit__(*args)
 
+    def wait(self):
+        self._do_wait()
+
+    def wait_for(self, predicate):
+        self._do_wait(predicate)
+
+    def notify_all(self):
+        for thread_id in self.waiters:
+            _awake(thread_id)
+        self._condition.notify_all()
+
+    def acquire(self):
+        self._condition.acquire()
+
+    def release(self):
+        self._condition.release()
+
     def _do_wait(self, predicate=None):
         _wait()
         self.waiters.add(threading.current_thread().native_id)
@@ -234,23 +260,6 @@ class Condition:
             self._condition.wait()
         self.waiters.remove(threading.current_thread().native_id)
         _awake() # make sure we are indeed awake
-
-    def wait(self):
-        self._do_wait()
-
-    def wait_for(self, predicate):
-        self._do_wait(predicate)
-
-    def notify_all(self):
-        for id in self.waiters:
-            _awake(id)
-        self._condition.notify_all()
-
-    def acquire(self):
-        self._condition.acquire()
-
-    def release(self):
-        self._condition.release()
 
 
  # 5. Thread-safe Time-Synchronizing Priority Queue
@@ -287,16 +296,17 @@ class Queue(Generic[T]):
         """Return True if the queue is not empty."""
         return bool(self._heap)
 
-    def _put_item(self, item: T) -> None:
-        ts = now()
-        if ts < self.allowed_earliest_ts:
-            raise RuntimeError(f"Items can only be put into the queue at or after {self.allowed_earliest_ts}, "
-                               f"but now is {ts}")
-        # The counter ensure that even with the same timestamp, the heap
-        # has a unique value to compare, preventing errors with non-comparable items.
-        entry = (ts, self._counter, item)
-        self._counter += 1
-        heapq.heappush(self._heap, entry)
+    def __iter__(self) -> Iterator[T]:
+        """
+        Iterator over the items in the queue, without timestamp.
+
+        Note: the items are yielded in order of increasing timestamp.
+        """
+        snapshot = []
+        with self._condition:
+            for _, _, item in sorted(self._heap):
+                snapshot.append(item)
+        return iter(snapshot)
 
     def put(self, item: T) -> None:
         """
@@ -357,18 +367,6 @@ class Queue(Generic[T]):
                     self.allowed_earliest_ts = now()
 
             return item
-
-    def __iter__(self) -> Iterator[T]:
-        """
-        Iterator over the items in the queue, without timestamp.
-
-        Note: the items are yielded in order of increasing timestamp.
-        """
-        snapshot = []
-        with self._condition:
-            for _, _, item in sorted(self._heap):
-                snapshot.append(item)
-        return iter(snapshot)
 
     def peek_due(self) -> Optional[T]:
         """
@@ -464,8 +462,8 @@ class Queue(Generic[T]):
                 if first_ts < current_ts:
                     return
             else:
-                assert current_ts < first_ts, "Expect now() is earlier but got now"
-                f"({current_ts}) <= first_ts({first_ts})"
+                if first_ts <= current_ts:
+                    raise ValueError("Expect now() is earlier but got now: %s >= first: %s" % (current_ts, first_ts))
             self._condition.release()
             try:
                 while True:
@@ -505,20 +503,34 @@ class Queue(Generic[T]):
     def shutdown(self):
         return
 
-def getLogger(logger_name: str):
+    def _put_item(self, item: T) -> None:
+        ts = now()
+        if ts < self.allowed_earliest_ts:
+            raise RuntimeError(f"Items can only be put into the queue at or after {self.allowed_earliest_ts}, "
+                               f"but now is {ts}")
+        # The counter ensure that even with the same timestamp, the heap
+        # has a unique value to compare, preventing errors with non-comparable items.
+        entry = (ts, self._counter, item)
+        self._counter += 1
+        heapq.heappush(self._heap, entry)
+
+
+def get_logger(logger_name: str):
     class SimulationTimeFilter(logging.Filter):
         def __init__(self):
             super().__init__("sim_time")
+
         def filter(self, record):
             record.sim_time = now()
             return True    # always return True to ensure the record is processed
 
-    logger = logging.getLogger(logger_name)
+    customed_logger = logging.getLogger(logger_name)
     handler = logging.StreamHandler()
     sim_filter = SimulationTimeFilter()
     handler.addFilter(sim_filter)
-    formatter = logging.Formatter('[%(sim_time)8.2f][T%(thread)d] %(levelname)-8s %(file_name)s:%(lineno)d: %(message)s')
+    formatter = \
+        logging.Formatter('[%(sim_time)8.2f][T%(thread)d] %(levelname)-8s %(file_name)s:%(lineno)d: %(message)s')
     handler.setFormatter(formatter)
-    logger.addHandler(handler)
-    logger.propagate = False
-    return logger
+    customed_logger.addHandler(handler)
+    customed_logger.propagate = False
+    return customed_logger

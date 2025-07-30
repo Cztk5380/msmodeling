@@ -20,7 +20,7 @@ class Worker:
         return ModelInput()
 
     @staticmethod
-    def _postprocess_output(self, output: ModelOutput, batch: List[Request]):
+    def _postprocess_output(output: ModelOutput, batch: List[Request]):
         # TOBEDONE
         pass
 
