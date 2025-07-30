@@ -10,26 +10,44 @@ from model import ModelConfig
 from model_runner import ModelRunner
 from request import Request, RequestState
 
-logger = stime.getLogger(__name__)
+logger = stime.get_logger(__name__)
 
 
 class BatchScheduler:
     def __init__(self, model_runner: ModelRunner):
-        self. model_runner = model_runner
+        self.model_runner = model_runner
         self.request_queue = stime.Queue(allow_anti_causality_put=True)
         self.batch_queue = stime.Queue()
         self._shutdown = threading.Event()
         self.batching_timeout = 0
+        self.batching_thread = stime.Thread(target=self._batching_loop, daemon=True)
+        self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
+
+    @property
+    def requests(self) -> Dict[int, Request]:
+        requests: Dict[int, Request] = {}
+        for request in self.request_queue:
+            requests[request.id] = request
+        for batch in self.batch_queue:
+            for request in batch:
+                requests[request.id] = request
+        return requests
 
     def add(self, request: Request):
         logger.debug(f"BatchScheduler adding {request}")
         self.request_queue.put(request)
 
     def run(self):
-        self.batching_thread = stime.Thread(target=self._batching_loop. daemon=True)
         self.batching_thread.start()
-        self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
         self.runner_thread.start()
+
+    def shutdown(self):
+        """Gracefully stop the processing thread."""
+        self._shutdown.set()
+        self.request_queue.shutdown()
+        self.batch_queue.shutdown()
+        self.batching_thread.join() # wait for the thread to finish
+        self.runner_thread.join()
 
     def _collect_batch(self):
         """Collect request batch and allocate resources for batched requests"""
@@ -50,7 +68,7 @@ class BatchScheduler:
         return batch
     
     def _batching_loop(self):
-        """Threading target: collect requests inot batches and process them."""
+        """Threading target: collect requests into batches and process them."""
         try:
             while not self._shutdown.is_set():
                 batch = self._collect_batch()
@@ -70,7 +88,8 @@ class BatchScheduler:
         continuous_batching_requests = []
         for request in batch:
             if request.state != RequestState.PREFILLING and request.state != RequestState.DECODING:
-                raise ValueError("request.state != RequestState.PREFILLING and request.state != RequestState.DECODING")
+                raise ValueError("In _postprocess_batch, request.state should be PREFILLING or DECODING," \
+                    " but get %s" % request.state)
             request.num_decoded_tokens += 1
             if request.num_decoded_tokens >= request.num_output_tokens:
                 request.state = RequestState.DECODE_DONE
@@ -87,31 +106,12 @@ class BatchScheduler:
             while not self._shutdown.is_set():
                 batch = self.batch_queue.get()
                 if batch is None:
-                    raise ValueError("batch is None")
-                # looger.debug(f"Processing {[request.id for request in batch]}"")
+                    raise ValueError("In _runner_loop, batch is None")
                 self.model_runner.process_batch(batch) # Process the batch
                 self._postprocess_batch(batch)
         except:
             logger.error(f"Unexpected exception in the runner loop", exc_info=True)
             raise
-
-    def shutdown(self):
-        """Gracefully stop the processing thread."""
-        self._shutdown.set()
-        self.request_queue.shutdown()
-        self.batch_queue.shutdown()
-        self.batching_thread.join() # wait for the thread to finish
-        self.runner_thread.join()
-
-    @property
-    def requests(self) -> Dict[int, Request]:
-        requests: Dict[int, Request] = {}
-        for request in self.request_queue:
-            requests[request.id] = request
-        for batch in self.batch_queue:
-            for request in batch:
-                requests[request.id] = request
-        return requests
     
 
 class Engine:
@@ -120,23 +120,23 @@ class Engine:
         self.batch_scheduler = BatchScheduler(self.model_runner)
         self.batch_scheduler.run()
 
-    def handle(self, request: Request):
-        logger.debug(f"Engine handling {request}")
-        self.batch_scheduler.add(request)
-
     @property
     def requests(self) -> Dict[int, Request]:
         return self.batch_scheduler.requests
 
+    def handle(self, request: Request):
+        logger.debug(f"Engine handling {request}")
+        self.batch_scheduler.add(request)
 
-class PrefillEngineLoadBalacer:
+
+class PrefillEngineLoadBalancer:
     def __init__(self, engines: List[Engine]):
         self.engines = engines
     
     def select(self, request: Request) -> Engine:
         # greedily choose the instance having the least total number of input tokens to handle
         # TOBEDONE: we should expose metrics from the engine instead of exposing all the request instances
-        # TOBEDONE: support heterogeneous instaces
+        # TOBEDONE: support heterogeneous instances
         sums = [sum(request.num_input_tokens for request in engine.requests.values()) for engine in self.engines]
         min_value = min(sums)
         min_index = sums.index(min_value)

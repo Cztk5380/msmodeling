@@ -10,14 +10,19 @@ import stime
 
 class Worker:
     def __init__(self, device: Device, dp_rank: int, model_config: ModelConfig):
-        """The worker instantiaties a model to compute on a device"""
+        """The worker instantiates a model to compute on a device"""
         # TOBEDONE: build model according to model configuration
         self.model: Model = ModelBuilder.build(device, dp_rank, model_config) # TOBEDONE: check device is right input
 
     @staticmethod
-    def _preprocess_input(self, batch: List[Request]) -> ModelInput:
+    def _preprocess_input(batch: List[Request]) -> ModelInput:
         # TOBEDONE
         return ModelInput()
+
+    @staticmethod
+    def _postprocess_output(output: ModelOutput, batch: List[Request]):
+        # TOBEDONE
+        pass
 
     def run(self, batch: List[Request]):
         model_input: ModelInput = self._preprocess_input(batch)
@@ -25,10 +30,6 @@ class Worker:
         # mark EOS etc.
         self._postprocess_output(model_output, batch)
     
-    def _postprocess_output(self, output: ModelOutput, batch: List[Request]):
-        # TOBEDONE
-        pass
-
 
 class ModelRunner:
     def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):

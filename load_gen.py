@@ -10,7 +10,7 @@ class LoadGen(ABC):
         self.model_name = model_name
 
     @abstractmethod
-    def next_requst(self) -> Request:
+    def next_request(self) -> Request:
         """
         Each request is a stime object (i.e. has a timestamp attached to it) meaning its
         expected arriving time.
@@ -48,7 +48,7 @@ class FixedLengthLoadGen(LoadGen):
             request.decode_done_signal.connect(self._on_complete)
             self.requests[request.id] = request
 
-    def next_requst(self) -> Request:
+    def next_request(self) -> Request:
         if not self.requests:
             raise ValueError("self.requests is None")
         first_key = next(iter(self.requests))
