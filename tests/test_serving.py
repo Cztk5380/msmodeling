@@ -6,7 +6,7 @@ from instance import DecodeInstance, PrefillInstance
 from load_gen import FixedLengthLoadGen
 from model import ModelConfig
 from request import Request
-from serving import Serving
+from serving import PdDisaggregationServing, PdAggregationServing
 
 
 class ServingTestCase(unittest.TestCase):
@@ -28,7 +28,7 @@ class ServingTestCase(unittest.TestCase):
         num_requests = 10
         num_input_tokens = 2048
         num_output_tokens = 50
-        serving = Serving(prefill_instances, decode_instances)
+        serving = PdDisaggregationServing(prefill_instances, decode_instances)
         load_runner = FixedLengthLoadGen(
             model_name=None,
             num_requests=num_requests,

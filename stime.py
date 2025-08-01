@@ -525,11 +525,12 @@ def get_logger(logger_name: str):
             return True    # always return True to ensure the record is processed
 
     customed_logger = logging.getLogger(logger_name)
+    customed_logger.setLevel(logging.DEBUG)
     handler = logging.StreamHandler()
     sim_filter = SimulationTimeFilter()
     handler.addFilter(sim_filter)
     formatter = \
-        logging.Formatter('[%(sim_time)8.2f][T%(thread)d] %(levelname)-8s %(file_name)s:%(lineno)d: %(message)s')
+        logging.Formatter('[%(sim_time)8.2f][T%(thread)d] %(levelname)-8s %(filename)s:%(lineno)d: %(message)s')
     handler.setFormatter(formatter)
     customed_logger.addHandler(handler)
     customed_logger.propagate = False

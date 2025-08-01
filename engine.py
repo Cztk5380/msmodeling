@@ -14,7 +14,7 @@ logger = stime.get_logger(__name__)
 
 
 class BatchScheduler:
-    def __init__(self, model_runner: ModelRunner):
+    def __init__(self, model_runner: ModelRunner, pd_role: str):
         self.model_runner = model_runner
         self.request_queue = stime.Queue(allow_anti_causality_put=True)
         self.batch_queue = stime.Queue()
@@ -22,6 +22,7 @@ class BatchScheduler:
         self.batching_timeout = 0
         self.batching_thread = stime.Thread(target=self._batching_loop, daemon=True)
         self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
+        self.pd_role = pd_role
 
     @property
     def requests(self) -> Dict[int, Request]:
@@ -48,6 +49,17 @@ class BatchScheduler:
         self.batch_queue.shutdown()
         self.batching_thread.join() # wait for the thread to finish
         self.runner_thread.join()
+
+    def get_work_load(self):
+        if self.pd_role == "prefill":
+            return sum(request.num_input_tokens for request in self.requests.values())
+        elif self.pd_role == "decode":
+            return len(self.requests)
+        elif self.pd_role == "both":
+            return sum(request.num_input_tokens if request.state == RequestState.PREFILLING else 1 \
+                for request in self.requests.values())
+        else:
+            raise ValueError("Invalid pd_role")
 
     def _collect_batch(self):
         """Collect request batch and allocate resources for batched requests"""
@@ -95,7 +107,11 @@ class BatchScheduler:
                 request.state = RequestState.DECODE_DONE
 
             if request.state == RequestState.PREFILLING:
+                # print("reach here")
                 request.state = RequestState.PREFILL_DONE
+                if self.pd_role == "both":
+                    
+                    request.state = RequestState.DECODING
             elif request.state == RequestState.DECODING:
                 continuous_batching_requests.append(request)
             
@@ -115,9 +131,9 @@ class BatchScheduler:
     
 
 class Engine:
-    def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
+    def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig, pd_role):
         self.model_runner = ModelRunner(devices, dp_rank, model_config)
-        self.batch_scheduler = BatchScheduler(self.model_runner)
+        self.batch_scheduler = BatchScheduler(self.model_runner, pd_role)
         self.batch_scheduler.run()
 
     @property
@@ -128,31 +144,19 @@ class Engine:
         logger.debug(f"Engine handling {request}")
         self.batch_scheduler.add(request)
 
+    def get_work_load(self) -> int:
+        return self.batch_scheduler.get_work_load()
 
-class PrefillEngineLoadBalancer:
+
+class EngineLoadBalancer:
     def __init__(self, engines: List[Engine]):
         self.engines = engines
-    
+
     def select(self, request: Request) -> Engine:
         # greedily choose the instance having the least total number of input tokens to handle
         # TOBEDONE: we should expose metrics from the engine instead of exposing all the request instances
         # TOBEDONE: support heterogeneous instances
-        sums = [sum(request.num_input_tokens for request in engine.requests.values()) for engine in self.engines]
-        min_value = min(sums)
-        min_index = sums.index(min_value)
+        work_loads = [engine.get_work_load() for engine in self.engines]
+        min_value = min(work_loads)
+        min_index = work_loads.index(min_value)
         return self.engines[min_index]
-    
-
-class DecodeEngineLoadBalancer:
-    def __init__(self, engines: List[Engine]):
-        self.engines = engines
-
-    def select(self, request: Request) -> Engine:
-        # greedily choose the instance having the least total number of requests to hand
-        # TOBEDONE: we should expose metrics from the engine instead of exposing all the request instances
-        # TOBEDONE: support heterogeneous instances
-        sums = [len(engine.requests) for engine in self.engines]
-        min_value = min(sums)
-        min_index = sums.index(min_value)
-        return self.engines[min_index]
-    
