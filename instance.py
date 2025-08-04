@@ -33,8 +33,9 @@ class Instance(ABC):
         # servingh metrics
         self.max_concurrent_requests = 0
 
+    @abstractmethod
     def get_work_load(self):
-        return sum(engine.get_work_load() for engine in self.engines)
+        return
 
     @abstractmethod
     def handle(self, request: Request):
@@ -72,6 +73,9 @@ class PrefillInstance(Instance):
             raise ValueError("In PrefillInstance _on_prefill_done, request.id not in self.requests")
         self.requests.pop(request.id)
 
+    def get_work_load(self) -> int:
+        return sum(request.num_input_tokens for request in self.requests.values())
+
     
 class DecodeInstance(Instance):
     id_counter = itertools.count()
@@ -102,6 +106,9 @@ class DecodeInstance(Instance):
         if request.id not in self.requests:
             raise ValueError("request.id not in self.requests")
         self.requests.pop(request.id)
+    
+    def get_work_load(self):
+        return len(self.requests)
 
 class PrefillDecodeInstance(Instance):
     id_counter = itertools.count()
@@ -125,7 +132,7 @@ class PrefillDecodeInstance(Instance):
         self.requests[request.id] = request
         self.max_concurrent_requests = max(self.max_concurrent_requests, len(self.requests))
         request.decode_done_signal.connect(self._on_decode_done)
-        engine = self.load_balacer.select(request)
+        engine = self.load_balancer.select(request)
         engine.handle(request)
 
     def _on_decode_done(self, request: Request):
@@ -133,6 +140,9 @@ class PrefillDecodeInstance(Instance):
             raise ValueError("request.id not in self.requests")
         self.requests.pop(request.id)
 
+    def get_work_load(self):
+        return sum(request.num_input_tokens if request.state == RequestState.PREFILLING else 1 \
+            for request in self.requests.values())
 
 class InstanceLoadBalancer:
     def __init__(self, instances: List[Instance]):

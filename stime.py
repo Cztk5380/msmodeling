@@ -525,7 +525,6 @@ def get_logger(logger_name: str):
             return True    # always return True to ensure the record is processed
 
     customed_logger = logging.getLogger(logger_name)
-    customed_logger.setLevel(logging.DEBUG)
     handler = logging.StreamHandler()
     sim_filter = SimulationTimeFilter()
     handler.addFilter(sim_filter)

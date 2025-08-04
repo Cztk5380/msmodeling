@@ -107,11 +107,10 @@ class BatchScheduler:
                 request.state = RequestState.DECODE_DONE
 
             if request.state == RequestState.PREFILLING:
-                # print("reach here")
                 request.state = RequestState.PREFILL_DONE
                 if self.pd_role == "both":
-                    
                     request.state = RequestState.DECODING
+                    continuous_batching_requests.append(request)
             elif request.state == RequestState.DECODING:
                 continuous_batching_requests.append(request)
             
