@@ -2,7 +2,7 @@
 import unittest
 from device import DummyDeviceConfig, MachineConfig
 
-from instance import DecodeInstance, PrefillInstance, PrefillDecodeInstance
+from instance import Instance
 from load_gen import FixedLengthLoadGen
 from model import ModelConfig
 from request import Request
@@ -20,12 +20,12 @@ class ServingTestCase(unittest.TestCase):
         prefill_instances = []
         decode_instances = []
         for _ in range(num_prefill_instances):
-            prefill = PrefillInstance(MachineConfig(DummyDeviceConfig(), 4), 
-                                      ModelConfig(num_dp_partitions=2, duration=dummy_duration))
+            prefill = Instance(MachineConfig(DummyDeviceConfig(), 4), 
+                               ModelConfig(num_dp_partitions=2, duration=dummy_duration), 'prefill')
             prefill_instances.append(prefill)
         for _ in range(num_decode_instances):
-            decode = DecodeInstance(MachineConfig(DummyDeviceConfig(), 8), 
-                                    ModelConfig(num_dp_partitions=2, duration=dummy_duration))
+            decode = Instance(MachineConfig(DummyDeviceConfig(), 8), 
+                              ModelConfig(num_dp_partitions=2, duration=dummy_duration), 'decode')
             decode_instances.append(decode)
 
         num_requests = 10
@@ -79,8 +79,8 @@ class ServingTestCase(unittest.TestCase):
         num_prefill_decode_instances = 8
         prefill_decode_instances = []
         for _ in range(num_prefill_decode_instances):
-            instance = PrefillDecodeInstance(MachineConfig(DummyDeviceConfig(), 4), 
-                                             ModelConfig(num_dp_partitions=2, duration=dummy_duration))
+            instance = Instance(MachineConfig(DummyDeviceConfig(), 4), 
+                                ModelConfig(num_dp_partitions=2, duration=dummy_duration), 'both')
             prefill_decode_instances.append(instance)
 
         num_requests = 10
