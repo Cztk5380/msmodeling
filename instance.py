@@ -28,9 +28,9 @@ class Instance(ABC):
             raise ValueError("In instance __init__, num_devices must be divisible by num_dp_partitions," \
                 "but got num_devices = %d, num_dp_partitions = %d", \
                     self.machine_config.num_devices, self.model_config.num_dp_partitions)
-        self.num_devices_per_dp = self.machine_config.num_devices // self.model_config.num_dp_partitions
+        num_devices_per_dp = self.machine_config.num_devices // self.model_config.num_dp_partitions
         self.engines: List[Engine] = [
-            Engine(self.machine_manager.get_devices()[i * self.num_devices_per_dp:(i + 1) * self.num_devices_per_dp], 
+            Engine(self.machine_manager.get_devices()[i * num_devices_per_dp:(i + 1) * num_devices_per_dp], 
                    dp_rank=i, model_config=model_config)
             for i in range(model_config.num_dp_partitions)
         ]
