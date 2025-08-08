@@ -14,7 +14,7 @@ logger = stime.get_logger(__name__)
 
 
 class BatchScheduler:
-    def __init__(self, model_runner: ModelRunner, pd_role: str):
+    def __init__(self, model_runner: ModelRunner):
         self.model_runner = model_runner
         self.request_queue = stime.Queue(allow_anti_causality_put=True)
         self.batch_queue = stime.Queue()
@@ -22,7 +22,6 @@ class BatchScheduler:
         self.batching_timeout = 0
         self.batching_thread = stime.Thread(target=self._batching_loop, daemon=True)
         self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
-        self.pd_role = pd_role
 
     @property
     def requests(self) -> Dict[int, Request]:
@@ -51,15 +50,7 @@ class BatchScheduler:
         self.runner_thread.join()
 
     def get_work_load(self):
-        if self.pd_role == "prefill":
-            return sum(request.num_input_tokens for request in self.requests.values())
-        elif self.pd_role == "decode":
-            return len(self.requests)
-        elif self.pd_role == "both":
-            return sum(request.num_input_tokens if request.state == RequestState.PREFILLING else 1 \
-                for request in self.requests.values())
-        else:
-            raise ValueError("Invalid pd_role")
+        return sum(request.num_tokens_to_infer() for request in self.requests.values())
 
     def _collect_batch(self):
         """Collect request batch and allocate resources for batched requests"""
@@ -108,9 +99,7 @@ class BatchScheduler:
 
             if request.state == RequestState.PREFILLING:
                 request.state = RequestState.PREFILL_DONE
-                if self.pd_role == "both":
-                    request.state = RequestState.DECODING
-                    continuous_batching_requests.append(request)
+                request.state = RequestState.BETWEEN_PREFILL_DECODE
             elif request.state == RequestState.DECODING:
                 continuous_batching_requests.append(request)
             
@@ -130,9 +119,12 @@ class BatchScheduler:
     
 
 class Engine:
-    def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig, pd_role):
+    """
+    Process request, PREFILLING --> PREFILL_DONE or DECODING --> DECODE_DONE
+    """
+    def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
         self.model_runner = ModelRunner(devices, dp_rank, model_config)
-        self.batch_scheduler = BatchScheduler(self.model_runner, pd_role)
+        self.batch_scheduler = BatchScheduler(self.model_runner)
         self.batch_scheduler.run()
 
     @property
@@ -141,6 +133,9 @@ class Engine:
 
     def handle(self, request: Request):
         logger.debug(f"Engine handling {request}")
+        if request.state not in [RequestState.PREFILLING, RequestState.DECODING]:
+            raise ValueError("Engine.handle failed, request.state should be PREFILLING or DECODING, "
+                "but get request.state: %s", request.state)
         self.batch_scheduler.add(request)
 
     def get_work_load(self) -> int:

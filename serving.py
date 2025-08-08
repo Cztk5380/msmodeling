@@ -1,3 +1,4 @@
+# serving.py
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 from typing import Dict, List
@@ -31,6 +32,35 @@ class Serving(ABC):
         with self.requests_condition:
             self.requests_condition.wait_for(lambda: len(self.requests) == 0)
 
+    def _before_serve(self, request: Request):
+        """
+        process request, LEAVES_CLIENT --> ARRIVES_SERVER. Same for all kinds of serving
+        """
+        if request.state != RequestState.LEAVES_CLIENT:
+            raise ValueError("request.state != RequestState.LEAVES_CLIENT")
+        request.state = RequestState.ARRIVES_SERVER
+        logger.debug("Start serving %s", request)
+        with self.requests_condition:
+            if request.id in self.requests:
+                raise ValueError("request.id in self.requests")
+            # TOBEDONE: stop serving new requests if concurrency
+            #       is already reached.
+            self.requests[request.id] = request
+
+    def _complete_serve_callback(self, request: Request):
+        """Completed serving"""
+        logger.debug("Completed serving %s", request)
+        with self.requests_condition:
+            if request.id not in self.requests:
+                raise ValueError("request.id not in self.requests")
+        if request.state != RequestState.DECODE_DONE:
+            raise ValueError("request.state != RequestState.DECODE_DONE")
+
+        # We should return the result to the client, but we do not simulate it here
+        with self.requests_condition:
+            self.requests.pop(request.id)
+            self.requests_condition.notify_all()
+
 
 class PdDisaggregationServing(Serving):
     """
@@ -58,55 +88,29 @@ class PdDisaggregationServing(Serving):
 
     def serve(self, request: Request):
         """Handle the request from the client side"""
-        if request.state != RequestState.LEAVES_CLIENT:
-            raise ValueError("request.state != RequestState.LEAVES_CLIENT")
-        request.state = RequestState.ARRIVES_SERVER
-        logger.debug("Start serving %s", request)
-        with self.requests_condition:
-            if request.id in self.requests:
-                raise ValueError("request.id in self.requests")
-            # TOBEDONE: stop serving new requests if concurrency
-            #       is already reached.
-            self.requests[request.id] = request
+        self._before_serve(request)
 
-        request.decode_done_signal.connect(self._complete_serve)
-        request.prefill_done_signal.connect(self._continue_serve)
+        request.decode_done_signal.connect(self._complete_serve_callback)
+        request.between_prefill_decode_singal.connect(self._continue_serve_callback)
 
-        # Assume P/D disaggregation now and hard-code the dispatch policy
-        # to dispatch to prefill instance first.
-        # TOBEDONE: add more dispatch policy, such as dispatch to D first and
-        #       aggregated P/D
         prefill_instance = self.prefill_balancer.select(request)
         prefill_instance.handle(request)
 
-    def _continue_serve(self, request: Request):
+    def _continue_serve_callback(self, request: Request):
         """Continue serving"""
         logger.debug("Continue serving %s", request)
         with self.requests_condition:
             if request.id not in self.requests:
                 raise ValueError("request.id not in self.requests")
-        if request.state == RequestState.DECODE_DONE:
-            # EOS after prefill
-            self._complete_serve(request)
+        # if request.state == RequestState.DECODE_DONE:
+        #     # EOS after prefill
+        #     self._complete_serve(request)
 
-        if request.state != RequestState.PREFILL_DONE:
-            raise ValueError("In continue serving: request.state shoulf be PREFILL_DONE, but get %s", request.state)
+        if request.state != RequestState.BETWEEN_PREFILL_DECODE:
+            raise ValueError("In continue serving: request.state shoulf be BETWEEN_PREFILL_DECODE, but get %s", request.state)
         decode_instance = self.decode_balancer.select(request)
         decode_instance.handle(request)
 
-    def _complete_serve(self, request: Request):
-        """Completed serving"""
-        logger.debug("Completed serving %s", request)
-        with self.requests_condition:
-            if request.id not in self.requests:
-                raise ValueError("request.id not in self.requests")
-        if request.state != RequestState.DECODE_DONE:
-            raise ValueError("request.state != RequestState.DECODE_DONE")
-
-        # We should return the result to the client, but we do not simulate it here
-        with self.requests_condition:
-            self.requests.pop(request.id)
-            self.requests_condition.notify_all()
 
 
 class PdAggregationServing(Serving):
@@ -119,32 +123,23 @@ class PdAggregationServing(Serving):
 
     def serve(self, request: Request):
         """Handle the request from the client side"""
-        if request.state != RequestState.LEAVES_CLIENT:
-            raise ValueError("request.state != RequestState.LEAVES_CLIENT")
-        request.state = RequestState.ARRIVES_SERVER
-        logger.debug("Start serving %s", request)
-        with self.requests_condition:
-            if request.id in self.requests:
-                raise ValueError("request.id in self.requests")
-            # TOBEDONE: stop serving new requests if concurrency
-            #       is already reached.
-            self.requests[request.id] = request
+        self._before_serve(request)
 
-        request.decode_done_signal.connect(self._complete_serve)
+        request.decode_done_signal.connect(self._complete_serve_callback)
+        request.between_prefill_decode_singal.connect(self._continue_serve_callback)  
 
         prefill_decode_instance = self.prefill_decode_balancer.select(request)
-        prefill_decode_instance.handle(request)   
+        prefill_decode_instance.handle(request)
 
-    def _complete_serve(self, request: Request):
-        """Completed serving"""
-        logger.debug("Completed serving %s", request)
+
+    def _continue_serve_callback(self, request: Request):
+        """Continue serving"""
+        logger.debug("Continue serving %s", request)
         with self.requests_condition:
             if request.id not in self.requests:
                 raise ValueError("request.id not in self.requests")
-        if request.state != RequestState.DECODE_DONE:
-            raise ValueError("request.state != RequestState.DECODE_DONE")
 
-        # We should return the result to the client, but we do not simulate it here
-        with self.requests_condition:
-            self.requests.pop(request.id)
-            self.requests_condition.notify_all() 
+        if request.state != RequestState.BETWEEN_PREFILL_DECODE:
+            raise ValueError("In continue serving: request.state shoulf be BETWEEN_PREFILL_DECODE, but get %s", request.state)
+        prefill_decode_instance = self.prefill_decode_balancer.select(request)
+        prefill_decode_instance.handle(request)

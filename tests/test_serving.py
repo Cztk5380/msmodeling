@@ -21,11 +21,11 @@ class ServingTestCase(unittest.TestCase):
         decode_instances = []
         for _ in range(num_prefill_instances):
             prefill = Instance(MachineConfig(DummyDeviceConfig(), 4), 
-                               ModelConfig(num_dp_partitions=2, duration=dummy_duration), 'prefill')
+                               ModelConfig(num_dp_partitions=2, duration=dummy_duration))
             prefill_instances.append(prefill)
         for _ in range(num_decode_instances):
             decode = Instance(MachineConfig(DummyDeviceConfig(), 8), 
-                              ModelConfig(num_dp_partitions=2, duration=dummy_duration), 'decode')
+                              ModelConfig(num_dp_partitions=2, duration=dummy_duration))
             decode_instances.append(decode)
 
         num_requests = 10
@@ -80,7 +80,7 @@ class ServingTestCase(unittest.TestCase):
         prefill_decode_instances = []
         for _ in range(num_prefill_decode_instances):
             instance = Instance(MachineConfig(DummyDeviceConfig(), 4), 
-                                ModelConfig(num_dp_partitions=2, duration=dummy_duration), 'both')
+                                ModelConfig(num_dp_partitions=2, duration=dummy_duration))
             prefill_decode_instances.append(instance)
 
         num_requests = 10
