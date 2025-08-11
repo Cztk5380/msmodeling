@@ -135,10 +135,13 @@ class Engine:
         logger.debug(f"Engine handling {request}")
         if request.state not in [RequestState.PREFILLING, RequestState.DECODING]:
             raise ValueError("Engine.handle failed, request.state should be PREFILLING or DECODING, "
-                "but get request.state: %s", request.state)
+                "but get request.state: %s" % request.state)
         self.batch_scheduler.add(request)
 
     def get_work_load(self) -> int:
+        """
+        work_load is an abstract score using to measure the inference work of engine
+        """
         return self.batch_scheduler.get_work_load()
 
 

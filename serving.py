@@ -16,6 +16,14 @@ logger = stime.get_logger(__name__)
 
 
 class Serving(ABC):
+    """
+    The abstract class for inference request serving.
+
+    Requests could come from either the client side (an initial request) or some server instance such as 
+    Prefill instance which has completed prefill and wants to hand over the request to the Decode instance.
+    Serving is responsible for picking the right server instances to dispatch to according
+    to a pre-defined policy.
+    """
     def __init__(self):
         self.requests: Dict[int, Request] = {}
         self.requests_condition = stime.Condition()
@@ -64,16 +72,14 @@ class Serving(ABC):
 
 class PdDisaggregationServing(Serving):
     """
-    The entrypoint of inference request serving.
-
-    Requests could come from either the client side (an initial request) or some server instance such as 
-    Prefill instance which has completed prefill and wants to hand over the request to the Decode instance.
-    Serving is responsible for picking the right server instances to dispatch to according
-    to a pre-defined policy.
+    P/D disaggregation case
 
     The overall request serving flow looks like below:
-    Requests are firstly dispatched to a server instance (P or D), then the instance dispatches the requests to
+    Requests are firstly dispatched to a prefill server instance, then the instance dispatches the requests to
     an Engine which corresponds to a Data-Parallel partition. Then the Engine batches on the incoming Requests.
+
+    After request have done prefilling, it is sent to decode server instance, and do the similar thing as that in
+    prefill server instance.
     
     """
 
@@ -102,18 +108,26 @@ class PdDisaggregationServing(Serving):
         with self.requests_condition:
             if request.id not in self.requests:
                 raise ValueError("request.id not in self.requests")
-        # if request.state == RequestState.DECODE_DONE:
-        #     # EOS after prefill
-        #     self._complete_serve(request)
 
         if request.state != RequestState.BETWEEN_PREFILL_DECODE:
-            raise ValueError("In continue serving: request.state shoulf be BETWEEN_PREFILL_DECODE, but get %s", request.state)
+            raise ValueError("In continue serving: request.state shoulf be BETWEEN_PREFILL_DECODE, " \
+                "but get %s" % request.state)
         decode_instance = self.decode_balancer.select(request)
         decode_instance.handle(request)
 
 
 
 class PdAggregationServing(Serving):
+    """
+    P/D aggregation case
+
+    The overall request serving flow looks like below:
+    Requests are firstly dispatched to a server instance, then the instance dispatches the requests to
+    an Engine which corresponds to a Data-Parallel partition. Then the Engine batches on the incoming Requests.
+    After the requests finish the prefill period inference, the requests are directed to serving and then dispatched
+    to the save server instance to finish the decode period inference.
+    
+    """
     def __init__(self, prefill_decode_instances: List[Instance]):
         # TOBEDONEL use InstanceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
         super().__init__()
@@ -140,6 +154,7 @@ class PdAggregationServing(Serving):
                 raise ValueError("request.id not in self.requests")
 
         if request.state != RequestState.BETWEEN_PREFILL_DECODE:
-            raise ValueError("In continue serving: request.state shoulf be BETWEEN_PREFILL_DECODE, but get %s", request.state)
+            raise ValueError("In continue serving: request.state should be BETWEEN_PREFILL_DECODE, but get %s" \
+                % request.state)
         prefill_decode_instance = self.prefill_decode_balancer.select(request)
         prefill_decode_instance.handle(request)
