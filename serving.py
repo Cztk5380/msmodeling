@@ -1,47 +1,49 @@
+# serving.py
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 from typing import Dict, List
 import threading
 import logging
+from abc import ABC, abstractmethod
 
 import config
 from engine import Engine
-from instance import DecodeInstanceLoadBalancer, PrefillInstanceLoadBalancer
+from instance import InstanceLoadBalancer, Instance
 from request import Request, RequestState
 import stime
 
 logger = stime.get_logger(__name__)
 
 
-class Serving:
+class Serving(ABC):
     """
-    The entrypoint of inference request serving.
+    The abstract class for inference request serving.
 
     Requests could come from either the client side (an initial request) or some server instance such as 
     Prefill instance which has completed prefill and wants to hand over the request to the Decode instance.
     Serving is responsible for picking the right server instances to dispatch to according
     to a pre-defined policy.
-
-    The overall request serving flow looks like below:
-    Requests are firstly dispatched to a server instance (P or D), then the instance dispatches the requests to
-    an Engine which corresponds to a Data-Parallel partition. Then the Engine batches on the incoming Requests.
-    
     """
-
-    def __init__(self, prefill_instances: List[Engine], decode_instances: List[Engine]):
-        # TOBEDONEL use InstanceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
+    def __init__(self):
         self.requests: Dict[int, Request] = {}
         self.requests_condition = stime.Condition()
-        self.prefill_instances = prefill_instances
-        self.decode_instances = decode_instances
 
-        # TOBEDONE: check type of prefill_instance, except List of Instance but got List of Engine
-        self.prefill_balancer = PrefillInstanceLoadBalancer(prefill_instances)
-        # TOBEDONE: same to prefill
-        self.decode_balancer = DecodeInstanceLoadBalancer(decode_instances)
+    @abstractmethod
+    def serve(self, request: Request) -> None:
+        """
+        Serves a request.
+        """
+        raise NotImplementedError
 
-    def serve(self, request: Request):
-        """Handle the request from the client side"""
+    def join(self):
+        """Wait for all the requests to complete, i.e., self.requests is empty"""
+        with self.requests_condition:
+            self.requests_condition.wait_for(lambda: len(self.requests) == 0)
+
+    def _before_serve(self, request: Request):
+        """
+        process request, LEAVES_CLIENT --> ARRIVES_SERVER. Same for all kinds of serving
+        """
         if request.state != RequestState.LEAVES_CLIENT:
             raise ValueError("request.state != RequestState.LEAVES_CLIENT")
         request.state = RequestState.ARRIVES_SERVER
@@ -53,39 +55,7 @@ class Serving:
             #       is already reached.
             self.requests[request.id] = request
 
-        request.decode_done_signal.connect(self._complete_serve)
-        request.prefill_done_signal.connect(self._continue_serve)
-
-        # Assume P/D disaggregation now and hard-code the dispatch policy
-        # to dispatch to prefill instance first.
-        # TOBEDONE: add more dispatch policy, such as dispatch to D first and
-        #       aggregated P/D
-        if config.PD_DEPLOYMENT_POLICY != config.PdDeploymentPolicy.DISAGGREGRATE:
-            raise ValueError("config.pd_deployment_policy != config.PdDeploymentPolicy.DISAGGREGRATE")
-        prefill_instance = self.prefill_balancer.select(request)
-        prefill_instance.handle(request)
-    
-    def join(self):
-        """Wait for all the requests to complete, i.e., self.requests is empty"""
-        with self.requests_condition:
-            self.requests_condition.wait_for(lambda: len(self.requests) == 0)
-
-    def _continue_serve(self, request: Request):
-        """Continue serving"""
-        logger.debug("Continue serving %s", request)
-        with self.requests_condition:
-            if request.id not in self.requests:
-                raise ValueError("request.id not in self.requests")
-        if request.state == RequestState.DECODE_DONE:
-            # EOS after prefill
-            self._complete_serve(request)
-
-        if request.state != RequestState.PREFILL_DONE:
-            raise ValueError("In continue serving: request.state shoulf be PREFILL_DONE, but get %s", request.state)
-        decode_instance = self.decode_balancer.select(request)
-        decode_instance.handle(request)
-
-    def _complete_serve(self, request: Request):
+    def _complete_serve_callback(self, request: Request):
         """Completed serving"""
         logger.debug("Completed serving %s", request)
         with self.requests_condition:
@@ -98,3 +68,97 @@ class Serving:
         with self.requests_condition:
             self.requests.pop(request.id)
             self.requests_condition.notify_all()
+
+
+class PdDisaggregationServing(Serving):
+    """
+    P/D disaggregation case
+
+    The overall request serving flow looks like below:
+    Requests are firstly dispatched to a prefill server instance, then the instance dispatches the requests to
+    an Engine which corresponds to a Data-Parallel partition. Then the Engine batches on the incoming Requests.
+
+    After request have done prefilling, it is sent to decode server instance, and do the similar thing as that in
+    prefill server instance.
+    
+    """
+
+    def __init__(self, prefill_instances: List[Instance], decode_instances: List[Instance]):
+        # TOBEDONEL use InstanceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
+        super().__init__()
+        self.prefill_instances = prefill_instances
+        self.decode_instances = decode_instances
+
+        self.prefill_balancer = InstanceLoadBalancer(prefill_instances)
+        self.decode_balancer = InstanceLoadBalancer(decode_instances)
+
+    def serve(self, request: Request):
+        """Handle the request from the client side"""
+        self._before_serve(request)
+
+        request.decode_done_signal.connect(self._complete_serve_callback)
+        request.prefill_done_signal.connect(self._continue_serve_callback)
+
+        prefill_instance = self.prefill_balancer.select(request)
+        prefill_instance.handle(request)
+
+    def _continue_serve_callback(self, request: Request):
+        """Continue serving"""
+        logger.debug("Continue serving %s", request)
+        with self.requests_condition:
+            if request.id not in self.requests:
+                raise ValueError("request.id not in self.requests")
+
+        if request.state != RequestState.PREFILL_DONE:
+            raise ValueError("In continue serving: request.state shoulf be PREFILL_DONE, " \
+                "but get %s" % request.state)
+        decode_instance = self.decode_balancer.select(request)
+        decode_instance.handle(request)
+
+
+
+class PdAggregationServing(Serving):
+    """
+    P/D aggregation case
+
+    The overall request serving flow looks like below:
+    Requests are firstly dispatched to a server instance, then the instance dispatches the requests to
+    an Engine which corresponds to a Data-Parallel partition. Then the Engine batches on the incoming Requests.
+    After the requests finish the prefill period inference, the requests are directed to serving and then dispatched
+    to the same server instance to finish the decode period inference.
+    
+    """
+    def __init__(self, prefill_decode_instances: List[Instance]):
+        # TOBEDONEL use InstanceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
+        super().__init__()
+        self.prefill_decode_instances = prefill_decode_instances
+        self.prefill_decode_balancer = InstanceLoadBalancer(prefill_decode_instances)
+        self.request2instance: Dict[int, Instance] = {}
+
+    def serve(self, request: Request):
+        """Handle the request from the client side"""
+        self._before_serve(request)
+
+        request.decode_done_signal.connect(self._complete_serve_callback)
+        request.prefill_done_signal.connect(self._continue_serve_callback)  
+
+        prefill_decode_instance = self.prefill_decode_balancer.select(request)
+        self.request2instance[request.id] = prefill_decode_instance
+        prefill_decode_instance.handle(request)
+
+
+    def _continue_serve_callback(self, request: Request):
+        """Continue serving"""
+        logger.debug("Continue serving %s", request)
+        with self.requests_condition:
+            if request.id not in self.requests:
+                raise ValueError("request.id not in self.requests")
+
+        if request.state != RequestState.PREFILL_DONE:
+            raise ValueError("In continue serving: request.state should be PREFILL_DONE, but get %s" \
+                % request.state)
+        prefill_decode_instance = self.request2instance.get(request.id)
+        if not prefill_decode_instance:
+            raise ValueError("PdAggregationServing._continue_serve_callback failed, request id: %d " \
+                "is not found in self.request2instance" % request.id)
+        prefill_decode_instance.handle(request)

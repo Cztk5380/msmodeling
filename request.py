@@ -35,6 +35,7 @@ class Request:
         # The following fields are states
         self._state: RequestState = RequestState.INITIAL
         self.state_change_signal = signal(f"state_changed_{self.id}") # general signal
+        self.before_prefill_done_signal = signal(f"before_prefill_done_{self.id}")
         self.prefill_done_signal = signal(f"prefill_done_{self.id}")
         self.decode_done_signal = signal(f"decode_done_{self.id}")
         self.num_decoded_tokens: int = 0
@@ -66,6 +67,8 @@ class Request:
     @state.setter
     def state(self, new_state):
         old_state = self._state
+        if new_state == RequestState.PREFILL_DONE:
+            self.before_prefill_done_signal.send(self)
         self._state = new_state
         self.state_change_signal.send(self, old_state=old_state, new_state=new_state)
         if new_state == RequestState.DECODE_DONE:
