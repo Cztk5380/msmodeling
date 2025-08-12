@@ -158,7 +158,7 @@ class PdAggregationServing(Serving):
             raise ValueError("In continue serving: request.state should be PREFILL_DONE, but get %s" \
                 % request.state)
         prefill_decode_instance = self.request2instance.get(request.id)
-        if prefill_decode_instance == None:
+        if not prefill_decode_instance:
             raise ValueError("PdAggregationServing._continue_serve_callback failed, request id: %d " \
                 "is not found in self.request2instance" % request.id)
         prefill_decode_instance.handle(request)
