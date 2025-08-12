@@ -6,10 +6,12 @@ import logging
 import threading
 from typing import Dict, List, Optional, Union
 import torch
+import contextlib
 from torch.utils._python_dispatch import TorchDispatchMode
 from .machine import MachineConfig
 from .performance_model import PerformanceModel, OpInvokeInfo
 from .performance_model.memory_tracker import MemoryTracker
+from .patch_torch import support_autocast_for_meta
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +37,8 @@ class Runtime(TorchDispatchMode):
         self.memory_tracker: Optional[MemoryTracker] = memory_tracker
         self.event_list: List[RuntimeEvent] = []
         # TODO: add multi-stream support
+
+        self.exit_stack = contextlib.ExitStack()
     
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         kwargs = {} if kwargs is None else kwargs
@@ -51,6 +55,7 @@ class Runtime(TorchDispatchMode):
 
     def __enter__(self):
         super().__enter__()
+        self.exit_stack.enter_context(support_autocast_for_meta())
         _current_runtime.value = self
         return self
 
