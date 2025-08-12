@@ -22,20 +22,14 @@ class BatchScheduler:
         self.batching_timeout = 0
         self.batching_thread = stime.Thread(target=self._batching_loop, daemon=True)
         self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
-
-    @property
-    def requests(self) -> Dict[int, Request]:
-        requests: Dict[int, Request] = {}
-        for request in self.request_queue:
-            requests[request.id] = request
-        for batch in self.batch_queue:
-            for request in batch:
-                requests[request.id] = request
-        return requests
+        self.requests: Dict[int, Request] = {}
+        self.requests_condition = stime.Condition()
 
     def add(self, request: Request):
         logger.debug(f"BatchScheduler adding {request}")
         self.request_queue.put(request)
+        with self.requests_condition:
+            self.requests[request.id] = request
 
     def run(self):
         self.batching_thread.start()
@@ -48,6 +42,16 @@ class BatchScheduler:
         self.batch_queue.shutdown()
         self.batching_thread.join() # wait for the thread to finish
         self.runner_thread.join()
+
+    def get_work_load(self):
+        res = 0
+        with self.requests_condition:
+            for request in self.requests.values():
+                if request.state == RequestState.PREFILLING:
+                    res += request.num_input_tokens
+                elif request.state == RequestState.DECODING:
+                    res += 1
+        return res
 
     def _collect_batch(self):
         """Collect request batch and allocate resources for batched requests"""
@@ -92,9 +96,15 @@ class BatchScheduler:
                     " but get %s" % request.state)
             request.num_decoded_tokens += 1
             if request.num_decoded_tokens >= request.num_output_tokens:
+                with self.requests_condition:
+                    self.requests.pop(request.id)
+                    self.requests_condition.notify_all()
                 request.state = RequestState.DECODE_DONE
 
             if request.state == RequestState.PREFILLING:
+                with self.requests_condition:
+                    self.requests.pop(request.id)
+                    self.requests_condition.notify_all()
                 request.state = RequestState.PREFILL_DONE
             elif request.state == RequestState.DECODING:
                 continuous_batching_requests.append(request)
@@ -115,44 +125,37 @@ class BatchScheduler:
     
 
 class Engine:
+    """
+    Process request, PREFILLING --> PREFILL_DONE or DECODING --> DECODE_DONE
+    """
     def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
         self.model_runner = ModelRunner(devices, dp_rank, model_config)
         self.batch_scheduler = BatchScheduler(self.model_runner)
         self.batch_scheduler.run()
 
-    @property
-    def requests(self) -> Dict[int, Request]:
-        return self.batch_scheduler.requests
-
     def handle(self, request: Request):
         logger.debug(f"Engine handling {request}")
+        if request.state not in [RequestState.PREFILLING, RequestState.DECODING]:
+            raise ValueError("Engine.handle failed, request.state should be PREFILLING or DECODING, "
+                "but get request.state: %s" % request.state)
         self.batch_scheduler.add(request)
 
+    def get_work_load(self) -> int:
+        """
+        work_load is an abstract score using to measure the inference work of engine
+        """
+        return self.batch_scheduler.get_work_load()
 
-class PrefillEngineLoadBalancer:
+
+class EngineLoadBalancer:
     def __init__(self, engines: List[Engine]):
         self.engines = engines
-    
+
     def select(self, request: Request) -> Engine:
         # greedily choose the instance having the least total number of input tokens to handle
         # TOBEDONE: we should expose metrics from the engine instead of exposing all the request instances
         # TOBEDONE: support heterogeneous instances
-        sums = [sum(request.num_input_tokens for request in engine.requests.values()) for engine in self.engines]
-        min_value = min(sums)
-        min_index = sums.index(min_value)
+        work_loads = [engine.get_work_load() for engine in self.engines]
+        min_value = min(work_loads)
+        min_index = work_loads.index(min_value)
         return self.engines[min_index]
-    
-
-class DecodeEngineLoadBalancer:
-    def __init__(self, engines: List[Engine]):
-        self.engines = engines
-
-    def select(self, request: Request) -> Engine:
-        # greedily choose the instance having the least total number of requests to hand
-        # TOBEDONE: we should expose metrics from the engine instead of exposing all the request instances
-        # TOBEDONE: support heterogeneous instances
-        sums = [len(engine.requests) for engine in self.engines]
-        min_value = min(sums)
-        min_index = sums.index(min_value)
-        return self.engines[min_index]
-    
