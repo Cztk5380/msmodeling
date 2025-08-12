@@ -2,7 +2,6 @@ import unittest
 import torch
 from ..transformer_model import TransformerModel, ModelConfig, ParallelConfig, QuantConfig
 from ..attention import AttentionMetadataTensorCast
-from torch._subclasses.fake_tensor import FakeTensor, FakeTensorMode
 from ..patch_torch import support_autocast_for_meta
 
 class ModelLoadTestCase(unittest.TestCase):
@@ -45,7 +44,7 @@ class ModelLoadTestCase(unittest.TestCase):
         model = TransformerModel(model_id, model_config)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        
+
         with torch.no_grad(), support_autocast_for_meta():
             outputs = model.forward(inputs, position_ids, attention_meta=attn_meta)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))

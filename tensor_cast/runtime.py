@@ -6,7 +6,6 @@ import logging
 import threading
 from typing import Dict, List, Optional, Union
 import torch
-import contextlib
 from torch.utils._python_dispatch import TorchDispatchMode
 from .machine import MachineConfig
 from .performance_model import PerformanceModel, OpInvokeInfo
@@ -39,7 +38,7 @@ class Runtime(TorchDispatchMode):
         # TODO: add multi-stream support
 
         self.exit_stack = contextlib.ExitStack()
-    
+
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         kwargs = {} if kwargs is None else kwargs
         out = func(*args, **kwargs)
@@ -111,7 +110,7 @@ class Runtime(TorchDispatchMode):
                 key = (op_name, shapes_str)
             else:
                 key = op_name
-            
+
             entry = aggregated_data[key]
             entry["count"] += 1
             for model_name, result in event.perf_results.items():
@@ -122,16 +121,16 @@ class Runtime(TorchDispatchMode):
 
         # --- Prepare for Formatting ---
         model_names = [model.name for model in self.perf_models]
-        
+
         # Sort entries by the total time of the first performance model, descending
         # This brings the most expensive operations to the top.
         first_model = model_names[0] if model_names else None
-        
+
         def sort_key(item):
             if first_model:
                 return item[1]["total_runtimes"].get(first_model, 0)
             return 0
-            
+
         sorted_items = sorted(aggregated_data.items(), key=sort_key, reverse=True)
 
         # --- Define Headers and Calculate Column Widths ---
@@ -168,11 +167,11 @@ class Runtime(TorchDispatchMode):
 
         # --- Build Table String ---
         output_lines = []
-        
+
         # Create header and separator lines
         header_line = "  ".join(h.center(col_widths[h]) for h in headers)
         separator_line = "  ".join("-" * col_widths[h] for h in headers)
-        
+
         output_lines.append(separator_line)
         output_lines.append(header_line)
         output_lines.append(separator_line)
@@ -195,7 +194,7 @@ class Runtime(TorchDispatchMode):
                 row.append(_format_time(total_time).rjust(col_widths[f"{model_name} total"]))
                 row.append(_format_time(avg_time).rjust(col_widths[f"{model_name} avg"]))
             row.append(str(data["count"]).rjust(col_widths["# of Calls"]))
-            
+
             output_lines.append("  ".join(row))
 
         output_lines.append(separator_line)
@@ -205,41 +204,41 @@ class Runtime(TorchDispatchMode):
         for _, data in aggregated_data.items():
             for model_name, total_time in data["total_runtimes"].items():
                 summary_totals[model_name] += total_time
-                
+
         for model_name in model_names:
             total_str = _format_time(summary_totals[model_name])
             output_lines.append(f"Total time for {model_name}: {total_str}")
 
         return "\n".join(output_lines)
-        
+
     def export_chrome_trace(self, trace_file):
         """
         Dump self.event_list as the chrome trace file. Results from different performance models are
         arranged in different processes. Multiple streams are organized as threads in each process.
-        """ 
+        """
         trace_events = []
-        
+
         # Map performance model names to Process IDs (pid)
         perf_model_pids = {model.name: i for i, model in enumerate(self.perf_models)}
-        
+
         # Keep track of the current time for each process/thread combination.
         # The key is the pid, and the value is the cumulative time in microseconds.
         # For now, we assume a single thread (tid=0) per process.
-        current_time_us = {pid: 0.0 for pid in perf_model_pids.values()}
-        
+        current_time_us = dict.fromkeys(perf_model_pids.values(), 0.0)
+
         # 1. Add Metadata Events to name the processes for readability in the trace viewer
         for model_name, pid in perf_model_pids.items():
             trace_events.append({
-                "name": "process_name", 
+                "name": "process_name",
                 "ph": "M",  # Metadata event type
-                "pid": pid, 
+                "pid": pid,
                 "args": {"name": f"{model_name} (PID: {pid})"}
             })
             # Also name the default thread for this process
             trace_events.append({
-                "name": "thread_name", 
-                "ph": "M", 
-                "pid": pid, 
+                "name": "thread_name",
+                "ph": "M",
+                "pid": pid,
                 "tid": 0, # Assuming a single stream for now
                 "args": {"name": "Stream 0"}
             })
@@ -247,17 +246,17 @@ class Runtime(TorchDispatchMode):
         # 2. Iterate through events and create trace entries
         for event in self.event_list:
             op_name = str(event.op_invoke_info.func)
-            
+
             # Create a trace event for each performance model's result
             for model_name, result in event.perf_results.items():
                 pid = perf_model_pids[model_name]
-                
+
                 # result.runtime is in seconds, Chrome Trace wants microseconds
                 duration_us = result.execution_time_s * 1e6
-                
+
                 # The event starts at the current cumulative time for this process
                 start_time_us = current_time_us[pid]
-                
+
                 trace_event = {
                     "name": op_name,
                     "cat": model_name,  # Category can be the model name
@@ -273,10 +272,10 @@ class Runtime(TorchDispatchMode):
                     }
                 }
                 trace_events.append(trace_event)
-                
+
                 # Update the cumulative time for this process's timeline
                 current_time_us[pid] += duration_us
-                
+
         # 3. Write the final JSON object to the specified file
         if isinstance(trace_file, str):
             f = open(trace_file, 'w')
