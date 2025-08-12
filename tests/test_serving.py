@@ -63,7 +63,7 @@ class ServingTestCase(unittest.TestCase):
             self.assertGreater(instance.max_concurrent_requests, 0)
             for engine in instance.engines:
                 # no requests remaining in the decode instance
-                self.assertEqual(len(engine.requests), 0)
+                self.assertEqual(len(engine.batch_scheduler.requests), 0)
         for instance in decode_instances:
             # no requests remaining in the decode instances
             self.assertEqual(len(instance.requests), 0)
@@ -71,7 +71,7 @@ class ServingTestCase(unittest.TestCase):
             self.assertGreater(instance.max_concurrent_requests, 0)
             for engine in instance.engines:
                 # no requests remaining in the engine
-                self.assertEqual(len(engine.requests), 0)
+                self.assertEqual(len(engine.batch_scheduler.requests), 0)
 
 
     def test_pd_aggregation_dummy_model(self):
@@ -118,7 +118,7 @@ class ServingTestCase(unittest.TestCase):
             self.assertGreater(instance.max_concurrent_requests, 0)
             for engine in instance.engines:
                 # no requests remaining in the engine
-                self.assertEqual(len(engine.requests), 0)
+                self.assertEqual(len(engine.batch_scheduler.requests), 0)
 
 if __name__ == '__main__':
     unittest.main()

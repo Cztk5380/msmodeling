@@ -22,20 +22,14 @@ class BatchScheduler:
         self.batching_timeout = 0
         self.batching_thread = stime.Thread(target=self._batching_loop, daemon=True)
         self.runner_thread = stime.Thread(target=self._runner_loop, daemon=True)
-
-    @property
-    def requests(self) -> Dict[int, Request]:
-        requests: Dict[int, Request] = {}
-        for request in self.request_queue:
-            requests[request.id] = request
-        for batch in self.batch_queue:
-            for request in batch:
-                requests[request.id] = request
-        return requests
+        self.requests: Dict[int, Request] = {}
+        self.requests_condition = stime.Condition()
 
     def add(self, request: Request):
         logger.debug(f"BatchScheduler adding {request}")
         self.request_queue.put(request)
+        with self.requests_condition:
+            self.requests[request.id] = request
 
     def run(self):
         self.batching_thread.start()
@@ -50,7 +44,14 @@ class BatchScheduler:
         self.runner_thread.join()
 
     def get_work_load(self):
-        return sum(request.num_tokens_to_infer() for request in self.requests.values())
+        res = 0
+        with self.requests_condition:
+            for request in self.requests.values():
+                if request.state == RequestState.PREFILLING:
+                    res += request.num_input_tokens
+                elif request.state == RequestState.DECODING:
+                    res += 1
+        return res
 
     def _collect_batch(self):
         """Collect request batch and allocate resources for batched requests"""
@@ -95,11 +96,16 @@ class BatchScheduler:
                     " but get %s" % request.state)
             request.num_decoded_tokens += 1
             if request.num_decoded_tokens >= request.num_output_tokens:
+                with self.requests_condition:
+                    self.requests.pop(request.id)
+                    self.requests_condition.notify_all()
                 request.state = RequestState.DECODE_DONE
 
             if request.state == RequestState.PREFILLING:
+                with self.requests_condition:
+                    self.requests.pop(request.id)
+                    self.requests_condition.notify_all()
                 request.state = RequestState.PREFILL_DONE
-                request.state = RequestState.BETWEEN_PREFILL_DECODE
             elif request.state == RequestState.DECODING:
                 continuous_batching_requests.append(request)
             
@@ -126,10 +132,6 @@ class Engine:
         self.model_runner = ModelRunner(devices, dp_rank, model_config)
         self.batch_scheduler = BatchScheduler(self.model_runner)
         self.batch_scheduler.run()
-
-    @property
-    def requests(self) -> Dict[int, Request]:
-        return self.batch_scheduler.requests
 
     def handle(self, request: Request):
         logger.debug(f"Engine handling {request}")

@@ -43,14 +43,14 @@ class Instance(ABC):
         logger.debug("Instance %d capacity %d handling %s", self.id, len(self.requests), request)
         if request.id in self.requests:
             raise ValueError("In Instance handle, request.id already in self.requests")
-        if request.state not in [RequestState.ARRIVES_SERVER, RequestState.BETWEEN_PREFILL_DECODE]:
+        if request.state not in [RequestState.ARRIVES_SERVER, RequestState.PREFILL_DONE]:
             raise ValueError("Instance.handle failed, request.state should be ARRIVES_SERVER " \
-                "or BETWEEN_PREFILL_DECODE, but get %s" % request.state)
+                "or PREFILL_DONE, but get %s" % request.state)
 
         if request.state == RequestState.ARRIVES_SERVER:
-            request.prefill_done_signal.connect(self._on_infer_period_done)
+            request.before_prefill_done_signal.connect(self._on_infer_period_done)
             request.state = RequestState.PREFILLING
-        if request.state == RequestState.BETWEEN_PREFILL_DECODE:
+        if request.state == RequestState.PREFILL_DONE:
             request.decode_done_signal.connect(self._on_infer_period_done)
             request.state = RequestState.DECODING
 
@@ -60,7 +60,7 @@ class Instance(ABC):
         engine.handle(request)
 
     def get_work_load(self):
-        return sum(request.num_tokens_to_infer() for request in self.requests.values())
+        return sum(engine.get_work_load() for engine in self.engines)
 
     def _on_infer_period_done(self, request: Request):
         if request.id not in self.requests:

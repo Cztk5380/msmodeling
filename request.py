@@ -13,7 +13,6 @@ class RequestState(Enum):
     ARRIVES_SERVER = auto()  # The request arrives at the server side and ready to be served
     PREFILLING = auto()      # The prefill stage is in progress
     PREFILL_DONE = auto()    # Prefill completed
-    BETWEEN_PREFILL_DECODE = auto() # The request is between prefill and decode stage
     DECODING = auto()        # The decode stage is in progress
     DECODE_DONE = auto()     # Decode completed
     COMPLETED = DECODE_DONE
@@ -36,8 +35,8 @@ class Request:
         # The following fields are states
         self._state: RequestState = RequestState.INITIAL
         self.state_change_signal = signal(f"state_changed_{self.id}") # general signal
+        self.before_prefill_done_signal = signal(f"before_prefill_done_{self.id}")
         self.prefill_done_signal = signal(f"prefill_done_{self.id}")
-        self.between_prefill_decode_singal = signal(f"between_prefill_decode_{self.id}")
         self.decode_done_signal = signal(f"decode_done_{self.id}")
         self.num_decoded_tokens: int = 0
 
@@ -46,14 +45,6 @@ class Request:
         self.arrives_server_time = 0
         self.prefill_done_time = 0
         self.decode_done_time = 0
-
-    def num_tokens_to_infer(self):
-        if self._state == RequestState.PREFILLING:
-            return self.num_input_tokens
-        elif self._state == RequestState.DECODING:
-            return 1
-        else:
-            return 0
 
     def __str__(self) -> str:
         ttft = ""
@@ -76,6 +67,8 @@ class Request:
     @state.setter
     def state(self, new_state):
         old_state = self._state
+        if new_state == RequestState.PREFILL_DONE:
+            self.before_prefill_done_signal.send(self)
         self._state = new_state
         self.state_change_signal.send(self, old_state=old_state, new_state=new_state)
         if new_state == RequestState.DECODE_DONE:
@@ -84,8 +77,6 @@ class Request:
         elif new_state == RequestState.PREFILL_DONE:
             self.prefill_done_time = stime.now()
             self.prefill_done_signal.send(self)
-        elif new_state == RequestState.BETWEEN_PREFILL_DECODE:
-            self.between_prefill_decode_singal.send(self)
         elif new_state == RequestState.ARRIVES_SERVER:
             self.arrives_server_time = stime.now()
         elif new_state == RequestState.LEAVES_CLIENT:
