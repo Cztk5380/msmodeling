@@ -10,6 +10,7 @@ command = [
     'python',
     'tools/linter/adapters/flake8_linter.py',
     '--',
+    '--max-line-length=120',
     '@{{PATHSFILE}}'
 ]
 init_command = [

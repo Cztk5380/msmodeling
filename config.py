@@ -1,9 +1,10 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-from enum import Enum, auto
+from enum import auto, Enum
 
 
 class PdDeploymentPolicy(Enum):
     DISAGGREGRATE = auto()
+
 
 PD_DEPLOYMENT_POLICY = PdDeploymentPolicy.DISAGGREGRATE
 NUM_PREFILL_INSTANCES = 2

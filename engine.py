@@ -1,14 +1,13 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-import math
-import time
-from typing import Dict, List
 import threading
+from typing import Dict, List
 
 import stime
 from device import Device
 from model import ModelConfig
 from model_runner import ModelRunner
 from request import Request, RequestState
+
 
 logger = stime.get_logger(__name__)
 
@@ -40,7 +39,7 @@ class BatchScheduler:
         self._shutdown.set()
         self.request_queue.shutdown()
         self.batch_queue.shutdown()
-        self.batching_thread.join() # wait for the thread to finish
+        self.batching_thread.join()  # wait for the thread to finish
         self.runner_thread.join()
 
     def get_work_load(self):
@@ -70,7 +69,7 @@ class BatchScheduler:
                 f"No due requests, fast-forwarding from {now:.3f} to {stime.now():.3f}"
             )
         return batch
-    
+
     def _batching_loop(self):
         """Threading target: collect requests into batches and process them."""
         try:
@@ -78,10 +77,12 @@ class BatchScheduler:
                 batch = self._collect_batch()
                 if batch:
                     # put the batch into the batch queue for the runner thread to pick up
-                    logger.debug(f"Collected batch size: {len(batch)} {[request.id for request in batch]}")
+                    logger.debug(
+                        f"Collected batch size: {len(batch)} {[request.id for request in batch]}"
+                    )
                     self.batch_queue.put(batch)
         except:
-            logger.error(f"Unexpected exception in the batching loop", exc_info=True)
+            logger.exception("Unexpected exception in the batching loop")
             raise
 
     def _postprocess_batch(self, batch: List[Request]):
@@ -91,9 +92,15 @@ class BatchScheduler:
         """
         continuous_batching_requests = []
         for request in batch:
-            if request.state != RequestState.PREFILLING and request.state != RequestState.DECODING:
-                raise ValueError("In _postprocess_batch, request.state should be PREFILLING or DECODING," \
-                    " but get %s" % request.state)
+            if (
+                request.state != RequestState.PREFILLING
+                and request.state != RequestState.DECODING
+            ):
+                raise ValueError(
+                    "In _postprocess_batch, request.state should be PREFILLING or DECODING,"
+                    " but get %s",
+                    request.state,
+                )
             request.num_decoded_tokens += 1
             if request.num_decoded_tokens >= request.num_output_tokens:
                 with self.requests_condition:
@@ -108,7 +115,7 @@ class BatchScheduler:
                 request.state = RequestState.PREFILL_DONE
             elif request.state == RequestState.DECODING:
                 continuous_batching_requests.append(request)
-            
+
         self.request_queue.put_items(continuous_batching_requests)
 
     def _runner_loop(self):
@@ -117,17 +124,18 @@ class BatchScheduler:
                 batch = self.batch_queue.get()
                 if batch is None:
                     raise ValueError("In _runner_loop, batch is None")
-                self.model_runner.process_batch(batch) # Process the batch
+                self.model_runner.process_batch(batch)  # Process the batch
                 self._postprocess_batch(batch)
         except:
-            logger.error(f"Unexpected exception in the runner loop", exc_info=True)
+            logger.exception("Unexpected exception in the runner loop")
             raise
-    
+
 
 class Engine:
     """
     Process request, PREFILLING --> PREFILL_DONE or DECODING --> DECODE_DONE
     """
+
     def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
         self.model_runner = ModelRunner(devices, dp_rank, model_config)
         self.batch_scheduler = BatchScheduler(self.model_runner)
@@ -136,8 +144,11 @@ class Engine:
     def handle(self, request: Request):
         logger.debug(f"Engine handling {request}")
         if request.state not in [RequestState.PREFILLING, RequestState.DECODING]:
-            raise ValueError("Engine.handle failed, request.state should be PREFILLING or DECODING, "
-                "but get request.state: %s" % request.state)
+            raise ValueError(
+                "Engine.handle failed, request.state should be PREFILLING or DECODING, "
+                "but get request.state: %s",
+                request.state,
+            )
         self.batch_scheduler.add(request)
 
     def get_work_load(self) -> int:

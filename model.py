@@ -2,15 +2,18 @@
 import dataclasses
 from typing import Optional, Protocol
 
-from device import DeviceConfig
 import stime
+from device import DeviceConfig
 
 
 class ModelConfig:
     """
     Model configuration describes the model architecture, parallel strategy, etc.
     """
-    def __init__(self, model_name: Optional[str] = None, num_dp_partitions: int = 1, **kwargs):
+
+    def __init__(
+        self, model_name: Optional[str] = None, num_dp_partitions: int = 1, **kwargs
+    ):
         self.model_name = model_name
         self.num_dp_partitions = num_dp_partitions
         self.kwargs = kwargs

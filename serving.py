@@ -1,16 +1,13 @@
 # serving.py
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 
-from typing import Dict, List
-import threading
-import logging
 from abc import ABC, abstractmethod
+from typing import Dict, List
 
-import config
-from engine import Engine
-from instance import InstanceLoadBalancer, Instance
-from request import Request, RequestState
 import stime
+from instance import Instance, InstanceLoadBalancer
+from request import Request, RequestState
+
 
 logger = stime.get_logger(__name__)
 
@@ -19,11 +16,12 @@ class Serving(ABC):
     """
     The abstract class for inference request serving.
 
-    Requests could come from either the client side (an initial request) or some server instance such as 
+    Requests could come from either the client side (an initial request) or some server instance such as
     Prefill instance which has completed prefill and wants to hand over the request to the Decode instance.
     Serving is responsible for picking the right server instances to dispatch to according
     to a pre-defined policy.
     """
+
     def __init__(self):
         self.requests: Dict[int, Request] = {}
         self.requests_condition = stime.Condition()
@@ -80,10 +78,12 @@ class PdDisaggregationServing(Serving):
 
     After request have done prefilling, it is sent to decode server instance, and do the similar thing as that in
     prefill server instance.
-    
+
     """
 
-    def __init__(self, prefill_instances: List[Instance], decode_instances: List[Instance]):
+    def __init__(
+        self, prefill_instances: List[Instance], decode_instances: List[Instance]
+    ):
         # TOBEDONEL use InstanceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
         super().__init__()
         self.prefill_instances = prefill_instances
@@ -110,11 +110,12 @@ class PdDisaggregationServing(Serving):
                 raise ValueError("request.id not in self.requests")
 
         if request.state != RequestState.PREFILL_DONE:
-            raise ValueError("In continue serving: request.state shoulf be PREFILL_DONE, " \
-                "but get %s" % request.state)
+            raise ValueError(
+                "In continue serving: request.state shoulf be PREFILL_DONE, "
+                "but get %s" % request.state
+            )
         decode_instance = self.decode_balancer.select(request)
         decode_instance.handle(request)
-
 
 
 class PdAggregationServing(Serving):
@@ -126,8 +127,9 @@ class PdAggregationServing(Serving):
     an Engine which corresponds to a Data-Parallel partition. Then the Engine batches on the incoming Requests.
     After the requests finish the prefill period inference, the requests are directed to serving and then dispatched
     to the same server instance to finish the decode period inference.
-    
+
     """
+
     def __init__(self, prefill_decode_instances: List[Instance]):
         # TOBEDONEL use InstanceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
         super().__init__()
@@ -140,12 +142,11 @@ class PdAggregationServing(Serving):
         self._before_serve(request)
 
         request.decode_done_signal.connect(self._complete_serve_callback)
-        request.prefill_done_signal.connect(self._continue_serve_callback)  
+        request.prefill_done_signal.connect(self._continue_serve_callback)
 
         prefill_decode_instance = self.prefill_decode_balancer.select(request)
         self.request2instance[request.id] = prefill_decode_instance
         prefill_decode_instance.handle(request)
-
 
     def _continue_serve_callback(self, request: Request):
         """Continue serving"""
@@ -155,10 +156,14 @@ class PdAggregationServing(Serving):
                 raise ValueError("request.id not in self.requests")
 
         if request.state != RequestState.PREFILL_DONE:
-            raise ValueError("In continue serving: request.state should be PREFILL_DONE, but get %s" \
-                % request.state)
+            raise ValueError(
+                "In continue serving: request.state should be PREFILL_DONE, but get %s"
+                % request.state
+            )
         prefill_decode_instance = self.request2instance.get(request.id)
         if not prefill_decode_instance:
-            raise ValueError("PdAggregationServing._continue_serve_callback failed, request id: %d " \
-                "is not found in self.request2instance" % request.id)
+            raise ValueError(
+                "PdAggregationServing._continue_serve_callback failed, request id: %d "
+                "is not found in self.request2instance" % request.id
+            )
         prefill_decode_instance.handle(request)
