@@ -72,6 +72,7 @@ ignore = [
     "FURB122", # writelines
     # these ignores are from flake8-logging-format; please fix!
     "G101",
+    "G004",
     # these ignores are from ruff NPY; please fix!
     "NPY002",
     # these ignores are from ruff PERF; please fix!
@@ -93,6 +94,8 @@ ignore = [
     "SIM118",
     "UP007", # keep-runtime-typing
     "UP045", # keep-runtime-typing
+    "UP035", # ignore typing.List warning
+    "UP006",
     "TC006",
 ]
 select = [

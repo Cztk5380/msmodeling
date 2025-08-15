@@ -3,18 +3,31 @@
 A module for managing and synchronizing logical time in a multi-threaded environment
 """
 
+import heapq
+import logging
 import math
 import threading
-import heapq
-from functools import wraps
 import time
-from typing import Iterator, TypeVar, Generic, List, Optional, Any, Tuple, Callable, Dict, Iterable, Union
+from functools import wraps
+from typing import (
+    Any,
+    Callable,
+    Dict,
+    Generic,
+    Iterable,
+    Iterator,
+    List,
+    Optional,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
-import logging
+
 logger = logging.getLogger(__name__)
 
 # Define a generic type variable for type hinting
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 # 1. Global threading state
@@ -23,6 +36,7 @@ class ThreadState:
         self.thread = thread
         self.is_running = True
         self.ts = 0
+
 
 # native_id -> ThreadState
 _all_threads: Dict[int, ThreadState] = {}
@@ -46,7 +60,9 @@ def now() -> float:
     Returns the current logical timestamp of the calling thread (in seconds).
     """
     if threading.current_thread().native_id not in _all_threads:
-        raise ValueError("Thread %d is not tracked by stime", threading.current_thread().native_id)
+        raise ValueError(
+            "Thread %d is not tracked by stime", threading.current_thread().native_id
+        )
     return _all_threads[threading.current_thread().native_id].ts
 
 
@@ -69,6 +85,7 @@ def set_now(ts: float):
         state = _all_threads[current_thread.native_id]
     state.ts = ts
 
+
 # Intialize the main thread's timestamp
 set_now(0.0)
 
@@ -81,7 +98,7 @@ def elapse(ts: float):
     Args:
         ts (float): The logical duration (in seconds) to set.
     """
-    if (ts < 0.0):
+    if ts < 0.0:
         raise ValueError("Cannot set negative time")
     set_now(now() + ts)
 
@@ -97,12 +114,13 @@ class DurationDecorator:
         @stime.DurationDecorator(5.0)
         def some_long_running_function():
             ...
-    
+
     Args:
         ts (float): The logical duration (in seconds) to set.
     """
+
     def __init__(self, ts: float):
-        if (ts < 0.0):
+        if ts < 0.0:
             raise ValueError("Cannot set negative time")
         self._duration = ts
 
@@ -112,6 +130,7 @@ class DurationDecorator:
             result = func(*args, **kwargs)
             elapse(self._duration)
             return result
+
         return wrapper
 
 
@@ -130,8 +149,9 @@ class Duration:
     Args:
         ts (float): The logical duration (in seconds) to set.
     """
+
     def __init__(self, ts: float):
-        if (ts < 0.0):
+        if ts < 0.0:
             raise ValueError("Cannot set negative time")
         self._duration = ts
 
@@ -152,11 +172,19 @@ class Thread(threading.Thread):
     - When the thread's function exits, its final logical timestamp is recorded.
     - When 'join()' is called, the calling thread's timestamp is synchronized with
     the joined thread's exit timestamp to maintain causality (update to the maximum of the two).
-    
+
     """
-    def __init__(self, group: None = None, target: Optional[Callable[..., Any]] = None,
-                 name: Optional[str] = None, args: Iterable[Any] = (), kwargs: Optional[Dict[str, Any]] = None, *,
-                 daemon: Optional[bool] = None):
+
+    def __init__(
+        self,
+        group: None = None,
+        target: Optional[Callable[..., Any]] = None,
+        name: Optional[str] = None,
+        args: Iterable[Any] = (),
+        kwargs: Optional[Dict[str, Any]] = None,
+        *,
+        daemon: Optional[bool] = None,
+    ):
         self._original_target = target
         self._original_args = args
         self._original_kwargs = kwargs or {}
@@ -164,7 +192,9 @@ class Thread(threading.Thread):
         self._start_timestamp: float = 0.0
 
         # The superclass __init__() method will call self._wrapped_run()
-        super().__init__(group=group, target=self._wrapped_run, name=name, daemon=daemon)
+        super().__init__(
+            group=group, target=self._wrapped_run, name=name, daemon=daemon
+        )
 
     def start(self) -> None:
         """
@@ -209,7 +239,7 @@ class Thread(threading.Thread):
             # TOBEDONE consider encapsulating this
             _all_threads.pop(threading.current_thread().native_id)
 
-    
+
 class QueueEmpty(Exception):
     """Exception raised when trying to get an item from an empty queue."""
     pass
@@ -219,6 +249,7 @@ class Condition:
     """
     A condition that tracks the running status of a waiting thread.
     """
+
     def __init__(self, lock=None):
         self._condition = threading.Condition(lock)
         self.waiters = set()
@@ -250,26 +281,29 @@ class Condition:
         _wait()
         self.waiters.add(threading.current_thread().native_id)
         if predicate:
+
             def wrapped_predicate():
                 is_true = predicate()
                 if not is_true:
                     _wait()
                 return is_true
+
             self._condition.wait_for(wrapped_predicate)
         else:
             self._condition.wait()
         self.waiters.remove(threading.current_thread().native_id)
-        _awake() # make sure we are indeed awake
+        _awake()  # make sure we are indeed awake
 
 
- # 5. Thread-safe Time-Synchronizing Priority Queue
+# 5. Thread-safe Time-Synchronizing Priority Queue
 class Queue(Generic[T]):
-    """"
+    """
     A priority queue for passing data and synchronizing logical time ordered by timestamp.
 
     Internalliy uses Python's 'heapq' module to ensure the item with the earliest timestamp is always
     processed first. A counter is used as tie-breaker to handle non-comparable item with the same timestamp.
     """
+
     def __init__(self, allow_anti_causality_put=False) -> None:
         """
         Args:
@@ -322,7 +356,7 @@ class Queue(Generic[T]):
     def put_items(self, items: Union[list, tuple]) -> None:
         """
         Puts a list or tuple of items into the queue, ordered by current thread's timestamp.
-        
+
         Args:
             items: The items to put into the queue.
         """
@@ -336,7 +370,7 @@ class Queue(Generic[T]):
         """
         Removes and returns the item with the earliest timestamp.
         If the queue is empty and the 'block' arg is True, the caller is blocked until
-        an item is available. 
+        an item is available.
         Otherwise, if the queue is empty and the 'block' arg is False,
         'QueueEmpty' exception is raised.
 
@@ -379,7 +413,7 @@ class Queue(Generic[T]):
         with self._condition:
             if not self._heap:
                 return None
-            
+
             item_ts, _, item = self._heap[0]
             if item_ts <= now():
                 return item
@@ -410,7 +444,7 @@ class Queue(Generic[T]):
         with self._condition:
             if not self._heap:
                 return None
-                
+
             if self._heap[0][0] <= now():
                 _, _, item = heapq.heappop(self._heap)
                 # No time synchronize needed since item_ts <= now()
@@ -439,7 +473,7 @@ class Queue(Generic[T]):
         Simulate timeout wait, The current timestamp is moved fast-forward with
         multiple units of "timeout_unit" till just passing the earliest item in the queue.
 
-        We carefully checks all the threads in the 'logical-time' system to avoid breaking 
+        We carefully checks all the threads in the 'logical-time' system to avoid breaking
         causality. The algorithm works like below:
 
             Suppoes the earliest timestamp in the queue is t0. We check if all the running
@@ -463,7 +497,10 @@ class Queue(Generic[T]):
                     return
             else:
                 if first_ts <= current_ts:
-                    raise ValueError("Expect now() is earlier but got now: %s >= first: %s" % (current_ts, first_ts))
+                    raise ValueError(
+                        "Expect now() is earlier but got now: %s >= first: %s"
+                        % (current_ts, first_ts)
+                    )
             self._condition.release()
             try:
                 while True:
@@ -506,8 +543,10 @@ class Queue(Generic[T]):
     def _put_item(self, item: T) -> None:
         ts = now()
         if ts < self.allowed_earliest_ts:
-            raise RuntimeError(f"Items can only be put into the queue at or after {self.allowed_earliest_ts}, "
-                               f"but now is {ts}")
+            raise RuntimeError(
+                f"Items can only be put into the queue at or after {self.allowed_earliest_ts}, "
+                f"but now is {ts}"
+            )
         # The counter ensure that even with the same timestamp, the heap
         # has a unique value to compare, preventing errors with non-comparable items.
         entry = (ts, self._counter, item)
@@ -522,14 +561,15 @@ def get_logger(logger_name: str):
 
         def filter(self, record):
             record.sim_time = now()
-            return True    # always return True to ensure the record is processed
+            return True  # always return True to ensure the record is processed
 
     customed_logger = logging.getLogger(logger_name)
     handler = logging.StreamHandler()
     sim_filter = SimulationTimeFilter()
     handler.addFilter(sim_filter)
-    formatter = \
-        logging.Formatter('[%(sim_time)8.2f][T%(thread)d] %(levelname)-8s %(filename)s:%(lineno)d: %(message)s')
+    formatter = logging.Formatter(
+        "[%(sim_time)8.2f][T%(thread)d] %(levelname)-8s %(filename)s:%(lineno)d: %(message)s"
+    )
     handler.setFormatter(formatter)
     customed_logger.addHandler(handler)
     customed_logger.propagate = False

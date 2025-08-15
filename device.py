@@ -1,5 +1,4 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-import dataclasses
 from typing import List
 
 
@@ -18,6 +17,7 @@ class MachineConfig:
     or across nodes. They are connected with some interconnect topology and used
     as a server instance for some computation tasks.
     """
+
     def __init__(self, device_config: DeviceConfig, num_devices: int = 1):
         self.num_devices = num_devices
         # TOBEDONE add topology info

@@ -1,18 +1,19 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from typing import List
-import threading
 
-from device import Device
-from model import ModelConfig, ModelInput, ModelOutput, Model, ModelBuilder
-from request import Request
 import stime
+from device import Device
+from model import Model, ModelBuilder, ModelConfig, ModelInput, ModelOutput
+from request import Request
 
 
 class Worker:
     def __init__(self, device: Device, dp_rank: int, model_config: ModelConfig):
         """The worker instantiates a model to compute on a device"""
         # TOBEDONE: build model according to model configuration
-        self.model: Model = ModelBuilder.build(device, dp_rank, model_config) # TOBEDONE: check device is right input
+        self.model: Model = ModelBuilder.build(
+            device, dp_rank, model_config
+        )  # TOBEDONE: check device is right input
 
     @staticmethod
     def _preprocess_input(batch: List[Request]) -> ModelInput:
@@ -29,7 +30,7 @@ class Worker:
         model_output: ModelOutput = self.model.forward(model_input)
         # mark EOS etc.
         self._postprocess_output(model_output, batch)
-    
+
 
 class ModelRunner:
     def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
@@ -51,6 +52,3 @@ class ModelRunner:
             worker_thread.start()
         for worker_thread in worker_threads:
             worker_thread.join()
-            
-
-

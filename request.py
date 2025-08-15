@@ -1,14 +1,15 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-from enum import Enum, auto
 import itertools
+from enum import auto, Enum
 from typing import Optional
-from blinker import signal
 
 import stime
 
+from blinker import signal
+
 
 class RequestState(Enum):
-    INITIAL = auto()          # Initial state after the request is created from the client side
+    INITIAL = auto()         # Initial state after the request is created from the client side
     LEAVES_CLIENT = auto()   # The request leaves the client
     ARRIVES_SERVER = auto()  # The request arrives at the server side and ready to be served
     PREFILLING = auto()      # The prefill stage is in progress
@@ -30,11 +31,13 @@ class Request:
         # TOBEDONE: add sampling methods
         self.model_name: Optional[str] = kwargs.get("model_name", None)
         self.num_input_tokens: int = kwargs.get("num_input_tokens", 0)
-        self.num_output_tokens: int = kwargs.get("num_output_tokens", 0) # number of expected output tokens
+        self.num_output_tokens: int = kwargs.get(
+            "num_output_tokens", 0
+        )  # number of expected output tokens
 
         # The following fields are states
         self._state: RequestState = RequestState.INITIAL
-        self.state_change_signal = signal(f"state_changed_{self.id}") # general signal
+        self.state_change_signal = signal(f"state_changed_{self.id}")  # general signal
         self.before_prefill_done_signal = signal(f"before_prefill_done_{self.id}")
         self.prefill_done_signal = signal(f"prefill_done_{self.id}")
         self.decode_done_signal = signal(f"decode_done_{self.id}")
@@ -55,15 +58,17 @@ class Request:
         if self.state.value >= RequestState.DECODE_DONE.value:
             tpot = f", tpot={self.time_per_output_token():.3f}"
             total = f", total={self.serving_time():.3f}"
-        res = f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, " \
-              f"num_decoded={self.num_decoded_tokens},num_inputs={self.num_input_tokens}, " \
-              f"num_outputs={self.num_output_tokens})"
+        res = (
+            f"Request(id={self.id}, model_name={self.model_name}, state={self.state}{ttft}{tpot}{total}, "
+            f"num_decoded={self.num_decoded_tokens},num_inputs={self.num_input_tokens}, "
+            f"num_outputs={self.num_output_tokens})"
+        )
         return res
 
     @property
     def state(self):
         return self._state
-    
+
     @state.setter
     def state(self, new_state):
         old_state = self._state
@@ -84,11 +89,13 @@ class Request:
 
     def time_to_first_token(self):
         return self.prefill_done_time - self.leaves_client_time
-    
+
     def time_per_output_token(self):
         if self.num_output_tokens == 1:
             return 0
-        return (self.decode_done_time - self.prefill_done_time) / (self.num_output_tokens - 1)
-    
+        return (self.decode_done_time - self.prefill_done_time) / (
+            self.num_output_tokens - 1
+        )
+
     def serving_time(self):
         return self.decode_done_time - self.leaves_client_time
