@@ -40,18 +40,14 @@ class ModelRunner:
         further sharded among the 'devices' via other parallel algorithms like tensor parallel etc.
         It instantiates a list of 'Workers' with each working on a device.
         """
-        self.workers: List[Worker] = [
-            Worker(device, dp_rank, model_config) for device in devices
-        ]
+        self.workers: List[Worker] = [Worker(device, dp_rank, model_config) for device in devices]
 
     def process_batch(self, batch: List[Request]):
         def worker_run(worker: Worker):
             # TOBEDONE: consider input copy overhead
             worker.run(batch)
 
-        worker_threads = [
-            stime.Thread(target=worker_run, args=(worker,)) for worker in self.workers
-        ]
+        worker_threads = [stime.Thread(target=worker_run, args=(worker,)) for worker in self.workers]
         for worker_thread in worker_threads:
             worker_thread.start()
         for worker_thread in worker_threads:

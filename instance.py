@@ -35,7 +35,7 @@ class Instance(ABC):
         self.engines: List[Engine] = [
             Engine(
                 self.machine_manager.get_devices()[
-                    i * num_devices_per_dp : (i + 1) * num_devices_per_dp
+                    i * num_devices_per_dp: (i + 1) * num_devices_per_dp
                 ],
                 dp_rank=i,
                 model_config=model_config,
