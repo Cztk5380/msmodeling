@@ -1,33 +1,15 @@
-from typing import Dict, Optional, Protocol, Union
+from typing import Dict, Optional, Union
 import torch
-from dataclasses import dataclass
 import contextlib
 
 from transformers import AutoConfig, AutoModel
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from .attention import flash_attention_forward, AttentionTensorCast
+from .attention import flash_attention_forward
+from .rotary_embedding import CachingRotaryEmb
+from .model_config import ModelConfig
+
 
 ALL_ATTENTION_FUNCTIONS["tensor_cast"] = flash_attention_forward
-
-
-@dataclass
-class QuantConfig:
-    # TODO
-    pass
-
-
-@dataclass
-class ParallelConfig:
-    # TODO
-    pass
-
-
-@dataclass
-class ModelConfig:
-    parallel_config: ParallelConfig
-    quant_config: QuantConfig
-    dtype: torch.dtype = torch.bfloat16
-    trust_remote_code: bool = True
 
 
 class TensorDict:
@@ -114,23 +96,17 @@ class TransformerModel(ModelBase):
         with init_on_device_without_buffers("meta"):
             self.hf_config = AutoConfig.from_pretrained(model_id)
             self.text_config = self.hf_config.get_text_config()
-            self.text_config._attn_implementation = "tensor_cast"
+            if self.model_config.attention_cls and self.model_config.attention_cls.attn_implmentation:
+                self.text_config._attn_implementation = self.model_config.attention_cls.attn_implmentation
             self.model = AutoModel.from_config(
                 self.hf_config,
                 torch_dtype=self.model_config.dtype,
                 trust_remote_code=self.model_config.trust_remote_code,
             )
-        self.build_attentions()
         self.patch_model()
         self.shard_model()
         self.quantize_model()
         self.load_weights()
-
-    def build_attentions(self):
-        self.attention_by_layers = {}
-        for i in range(self.text_config.num_hidden_layers):
-            # TODO: should not hard-code AttentionTensorCast class here
-            self.attention_by_layers[i] = AttentionTensorCast()
 
     def patch_model(self):
         """
@@ -139,15 +115,56 @@ class TransformerModel(ModelBase):
         1. torch.compile compatible
         2. Frontend PyTorch module-level fusion
         """
-        pass
+        # replace attention with custom implementation if defined
+        if self.model_config.attention_cls is not None:
+            self.attention_by_layers = {}
+            for i in range(self.text_config.num_hidden_layers):
+                self.attention_by_layers[i] = self.model_config.attention_cls()
+                if i in self.model_config.quant_config.attention_configs:
+                    self.attention_by_layers[i].quant_config = self.model_config.quant_config.attention_configs[i]
+        
+        # cache rotary embedding to avoid computing it each time per forward
+        if hasattr(self.model, "rotary_emb"):
+            self.model.rotary_emb = CachingRotaryEmb(
+                self.model.rotary_emb,
+                act_dtype=self.model_config.dtype,
+                max_position_embeddings=self.text_config.max_position_embeddings
+            )
 
     def shard_model(self):
         """TODO: Model parallel"""
         pass
 
+    def quant_linear(self):
+        """
+        Replaces all nn.Linear modules with QuantLinear modules based on the
+        quantization configuration stored in self.model_config.
+        """
+        if self.model_config.quant_linear_cls is None:
+            return
+
+        for name, module in self.model.named_modules():
+            # We need to find the parent module to replace the child
+            if isinstance(module, torch.nn.Linear):
+                # Split module path to get parent and child name
+                path = name.split('.')
+                parent_name = '.'.join(path[:-1])
+                child_name = path[-1]
+                
+                # Find the parent module
+                parent_module = self.model
+                if parent_name:
+                    parent_module = self.model.get_submodule(parent_name)
+                
+                # Check if a quantization config exists for this specific layer
+                if name in self.model_config.quant_config.linear_configs:
+                    quant_config = self.model_config.quant_config.linear_configs[name]
+                    # Create and set the new quantized module
+                    quantized_module = self.model_config.quant_linear_cls(module, quant_config)
+                    setattr(parent_module, child_name, quantized_module)
+
     def quantize_model(self):
-        """TODO: """
-        pass
+        self.quant_linear()
 
     def load_weights(self):
         """TODO: load real weights"""
@@ -173,7 +190,7 @@ class TransformerModel(ModelBase):
             use_cache=False,
             position_ids=position_ids,
             inputs_embeds=inputs_embeds,
-            attention_by_layers=self.attention_by_layers,
+            attention_by_layers=getattr(self, "attention_by_layers", None),
             return_dict=False,
             **kwargs)[0]
         return hidden_states

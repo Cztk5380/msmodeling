@@ -4,7 +4,9 @@ import tempfile
 from ..runtime import Runtime
 from ..machine import A2
 from ..performance_model.analytic import AnalyticPerformanceModel
-from ..transformer_model import TransformerModel, ModelConfig, ParallelConfig, QuantConfig
+from ..transformer_model import TransformerModel
+from ..model_config import ModelConfig, ParallelConfig, QuantConfig
+from ..attention import AttentionTensorCast
 
 class PerfAnalysisTestCase(unittest.TestCase):
     def test_simple_model_eager(self):
@@ -33,7 +35,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
     def test_qwen3_prefill_eager(self):
         num_tokens = 100
         model_id = "Qwen/Qwen3-32B"
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        model_config = ModelConfig(ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast)
         model = TransformerModel(model_id, model_config)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
@@ -42,12 +44,13 @@ class PerfAnalysisTestCase(unittest.TestCase):
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
-        self.assertEqual(len(runtime.event_list), 6049)
+        self.assertTrue("tensor_cast." in runtime.table_averages())
+        self.assertEqual(len(runtime.event_list), 6031)
 
     def test_qwen3_prefill_compile(self):
         num_tokens = 100
         model_id = "Qwen/Qwen3-32B"
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        model_config = ModelConfig(ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast)
         model = torch.compile(TransformerModel(model_id, model_config))
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")

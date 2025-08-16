@@ -1,6 +1,9 @@
 from typing import Optional
 import torch
 import dataclasses
+from . import quantization
+from .utils import register_tensor_cast_op
+from .model_config import AttentionQuantConfig
 
 
 # adapted from vLLM but trimmed to avoid redundancy
@@ -24,6 +27,8 @@ class AttentionMetadataBase:
 
 
 class AttentionBase(torch.nn.Module):
+    attn_implmentation = None
+
     def forward(
         self,
         query: torch.Tensor,
@@ -70,6 +75,8 @@ class AttentionMetadataTensorCast(AttentionMetadataBase):
 
 
 class AttentionTensorCast(AttentionBase):
+    attn_implmentation = "tensor_cast"
+
     def forward(
         self,
         query: torch.Tensor,
@@ -80,44 +87,94 @@ class AttentionTensorCast(AttentionBase):
         attention_meta: Optional[AttentionMetadataBase] = None,
         **kwargs,
     ) -> torch.Tensor:
-        attention_meta = kwargs.pop("attention_meta", None)
         query_start_loc = attention_meta.query_start_loc if attention_meta else None
         seq_lens = attention_meta.seq_lens if attention_meta else None
-        return torch.ops.tensor_cast.attention_forward(
-            query,
-            key,
-            value,
-            query_start_loc,
-            seq_lens,
-        )
+        if attention_meta is not None:
+            if hasattr(self, "quant_config"):
+                self.quant_config: AttentionQuantConfig
+                kv_scale = self.quant_config.kv_scale
+                kv_offset = self.quant_config.kv_offset
+                if kv_cache.dtype != torch.int8:
+                    raise ValueError(f"Only support int8 quantized kv cache dtype but got {kv_cache.dtype}")
+                key = torch.ops.tensor_cast.quantize(key, kv_scale, kv_offset, kv_cache.dtype)
+                value = torch.ops.tensor_cast.quantize(value, kv_scale, kv_offset, kv_cache.dtype)
+            if not (key.dtype == value.dtype == kv_cache.dtype):
+                raise ValueError(f"Expect key, value and kv_cache dtype match but got {key.dtype}, {value.dtype}, {kv_cache.dtype}")
+            torch.ops.tensor_cast.reshape_and_cache(key, value, kv_cache, attention_meta.slot_mapping)
+            key = kv_cache[0]
+            value = kv_cache[1]
+        if hasattr(self, "quant_config") and attention_meta is not None:
+            self.quant_config: AttentionQuantConfig
+            query = torch.ops.tensor_cast.quantize(
+                query,
+                self.quant_config.query_scale,
+                self.quant_config.query_offset,
+                kv_cache.dtype,
+            )
+            return torch.ops.tensor_cast.attention_quant(
+                query,
+                key,
+                value,
+                attention_mask,
+                attention_meta.block_table_tensor if attention_meta is not None else None,
+                query_start_loc,
+                seq_lens,
+                self.quant_config.query_scale,
+                self.quant_config.query_offset,
+                self.quant_config.kv_scale,
+                self.quant_config.kv_offset,
+                self.quant_config.attention_prob_scale,
+                self.quant_config.attention_prob_offset,
+            )
+        else:
+            return torch.ops.tensor_cast.attention(
+                query,
+                key,
+                value,
+                attention_mask,
+                attention_meta.block_table_tensor if attention_meta is not None else None,
+                query_start_loc,
+                seq_lens,
+            )
 
 
-@torch.library.custom_op("tensor_cast::attention_forward", mutates_args=())
-def _attention_forward(
+@register_tensor_cast_op("reshape_and_cache", mutates_args=("kv_cache",))
+def _reshape_and_cache(
+    key: torch.Tensor,
+    value: torch.Tensor,
+    kv_cache: torch.Tensor,
+    slot_mapping: torch.Tensor,
+) -> None:
+    pass
+
+
+@register_tensor_cast_op("attention")
+def _attention(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
+    attention_mask: torch.Tensor,
+    block_table: torch.Tensor,
     query_start_loc: torch.Tensor,
     seq_lens: torch.Tensor,
 ) -> torch.Tensor:
-    # TODO: estimate the compute and memory cost
-    if query_start_loc and seq_lens:
-        start_points = query_start_loc[:-1]
-        end_points = query_start_loc[1:]
-        query_lens = end_points - start_points
-        assert query_lens >= 0, "Query lengths must be non-negative."
-        assert query_lens <= seq_lens, "Query lengths must be less than or equal to sequence lengths."
-        
     return torch.empty_like(query).contiguous()
 
-def _attention_forward_fake(
+
+@register_tensor_cast_op("attention_quant")
+def _attention_quant(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
+    attention_mask: torch.Tensor,
+    block_table: torch.Tensor,
     query_start_loc: torch.Tensor,
     seq_lens: torch.Tensor,
+    query_scale: torch.Tensor,
+    query_offset: torch.Tensor,
+    kv_scale: torch.Tensor,
+    kv_offset: torch.Tensor,
+    attention_prob_scale: torch.Tensor,
+    attention_prob_offset: torch.Tensor,
 ) -> torch.Tensor:
     return torch.empty_like(query).contiguous()
-
-
-_attention_forward.register_fake(_attention_forward_fake)
