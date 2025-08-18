@@ -1,47 +1,88 @@
 import random
 import unittest
+from parameterized import parameterized
 import torch
 from ..transformer_model import TransformerModel
 from ..model_config import ModelConfig, ParallelConfig, QuantConfig
-from ..attention import AttentionMetadataTensorCast, AttentionTensorCast
-from ..patch_torch import support_autocast_for_meta
+from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
+from ..patch_torch import patch_torch
 
 class ModelLoadTestCase(unittest.TestCase):
-    def test_vanilla_transformer_model(self):
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B"],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        ["zai-org/GLM-4.5"],
+    ])
+    def test_vanilla_transformer_model_eager(self, model_id):
         num_tokens = 100
-        model_id = "Qwen/Qwen3-32B"
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        with torch.no_grad(), support_autocast_for_meta():
+        with torch.no_grad(), patch_torch():
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
 
-    def test_prefill_without_kvcache_eager(self):
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B"],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        ["zai-org/GLM-4.5"],
+    ])
+    def test_vanilla_transformer_model_compile(self, model_id):
         num_tokens = 100
-        model_id = "Qwen/Qwen3-32B"
-        model_config = ModelConfig(ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast)
-        model = TransformerModel(model_id, model_config)
-        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        with torch.no_grad(), support_autocast_for_meta():
-            outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
-
-    def test_prefill_without_kvcache_compile(self):
-        num_tokens = 100
-        model_id = "Qwen/Qwen3-32B"
-        model_config = ModelConfig(ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast)
+        model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         model_compiled = torch.compile(model, backend="eager")
-        with torch.no_grad(), support_autocast_for_meta():
+        with torch.no_grad(), patch_torch():
             outputs = model_compiled.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
 
-    def test_prefill_with_kvcache(self):
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B"],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        ["zai-org/GLM-4.5"],
+    ])
+    def test_prefill_without_kvcache_eager(self, model_id):
+        num_tokens = 100
+        model_config = ModelConfig(ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast)
+        model = TransformerModel(model_id, model_config)
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        with torch.no_grad(), patch_torch():
+            outputs = model.forward(inputs, position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B"],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        ["zai-org/GLM-4.5"],
+    ])
+    def test_prefill_without_kvcache_compile(self, model_id):
+        num_tokens = 100
+        model_config = ModelConfig(ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast)
+        model = TransformerModel(model_id, model_config)
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        model_compiled = torch.compile(model, backend="eager", fullgraph=True, dynamic=True)
+        with torch.no_grad(), patch_torch():
+            outputs = model_compiled.forward(inputs, position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B", False],
+        ["Qwen/Qwen3-32B", True],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        ["zai-org/GLM-4.5", False],
+        ["zai-org/GLM-4.5", True],
+    ])
+    def test_prefill_with_kvcache(self, model_id, do_compile):
         batch_size = 2
         query_len_1 = 55
         query_len_2 = 45
@@ -63,9 +104,10 @@ class ModelLoadTestCase(unittest.TestCase):
         attn_meta = AttentionMetadataTensorCast(query_start_loc=query_start_loc, seq_lens=seq_lens, block_table_tensor=block_table_tensor)
 
         num_tokens = query_len_1 + query_len_2
-        model_id = "Qwen/Qwen3-32B"
         model_config = ModelConfig(ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast)
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(model, backend="eager", dynamic=True, fullgraph=True)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         kv_cache_by_layers = {}
@@ -76,6 +118,6 @@ class ModelLoadTestCase(unittest.TestCase):
                 device="meta"
             )
 
-        with torch.no_grad(), support_autocast_for_meta():
+        with torch.no_grad(), patch_torch():
             outputs = model.forward(inputs, position_ids, attention_meta=attn_meta, kv_cache_by_layers=kv_cache_by_layers)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))

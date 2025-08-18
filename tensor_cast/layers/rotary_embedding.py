@@ -1,5 +1,5 @@
 import torch
-from .patch_torch import support_autocast_for_meta
+from ..patch_torch import support_autocast_for_meta
 
 
 class CachingRotaryEmb(torch.nn.Module):

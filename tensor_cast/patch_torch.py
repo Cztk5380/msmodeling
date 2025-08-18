@@ -55,3 +55,21 @@ def support_autocast_for_meta():
     torch.set_autocast_enabled = set_autocast_enabled_orig
     torch.is_autocast_enabled = is_autocast_enabled_orig
     torch.get_autocast_dtype = get_autocast_dtype_orig
+
+
+@contextlib.contextmanager
+def meta_nonzero_assume_all_nonzero():
+    """This allows the torch.nonzero call in the MoE models traceable with meta device"""
+    old_flag = torch.fx.experimental._config.meta_nonzero_assume_all_nonzero
+    torch.fx.experimental._config.meta_nonzero_assume_all_nonzero = True
+    yield
+    torch.fx.experimental._config.meta_nonzero_assume_all_nonzero = old_flag
+
+
+@contextlib.contextmanager
+def patch_torch():
+    """
+    Apply all patches to PyTorch.
+    """
+    with support_autocast_for_meta(), meta_nonzero_assume_all_nonzero():
+        yield

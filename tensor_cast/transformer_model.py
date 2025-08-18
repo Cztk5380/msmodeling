@@ -4,9 +4,11 @@ import contextlib
 
 from transformers import AutoConfig, AutoModel
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from .attention import flash_attention_forward
-from .rotary_embedding import CachingRotaryEmb
-from .model_config import ModelConfig
+from .layers.attention import flash_attention_forward
+from .layers.rotary_embedding import CachingRotaryEmb
+from .layers.moe_layer import MoELayer
+from .layers import moe_defaults
+from .model_config import MoEKey, ModelConfig, MoEConfig, MoEFieldNames
 
 
 ALL_ATTENTION_FUNCTIONS["tensor_cast"] = flash_attention_forward
@@ -110,7 +112,6 @@ class TransformerModel(ModelBase):
 
     def patch_model(self):
         """
-        TODO:
         Patch the transformer model for
         1. torch.compile compatible
         2. Frontend PyTorch module-level fusion
@@ -124,12 +125,66 @@ class TransformerModel(ModelBase):
                     self.attention_by_layers[i].quant_config = self.model_config.quant_config.attention_configs[i]
         
         # cache rotary embedding to avoid computing it each time per forward
-        if hasattr(self.model, "rotary_emb"):
+        if self.model_config.cache_rotary_embedding and hasattr(self.model, "rotary_emb"):
             self.model.rotary_emb = CachingRotaryEmb(
                 self.model.rotary_emb,
                 act_dtype=self.model_config.dtype,
                 max_position_embeddings=self.text_config.max_position_embeddings
             )
+
+        # replace the vanilla mixture-of-expert (MOE) module with the fused one
+        # so that it can be "meta" and torch.compile traced and easily optimized
+        # by the backend.
+        #
+        # NOTE: Why we have to replace the vanilla moe module with the fused one:
+        # 1. MOE is data-dependent and the vanilla MOE module usually uses the
+        #    data-dependent ops like torch.nonzero or torch.where to route the
+        #    experts. This makes it impossible to trace with the "meta" device and
+        #    torch.compile based on which we conduct the analysis and graph optimizations.
+        # 2. The vanilla MOE usually uses a naive python-based for-loop to distribute
+        #    the tokens to the experts, which is slow.
+        # 3. The vanilla MOE is not written in a way that can be easily scaled up/out
+        #    with expert-parallelism (EP).
+        self.fuse_moe(self.model_config.moe_config)
+
+    def fuse_moe(self, moe_config: Optional[MoEConfig]):
+        def get_default_config():
+            if self.model_id in moe_defaults.moe_modules:
+                if self.model_id in moe_defaults.moe_field_names_overrides:
+                    field_names = moe_defaults.moe_field_names_overrides[self.model_id]
+                else:
+                    field_names = MoEFieldNames()
+                return MoEConfig(
+                    module_name=moe_defaults.moe_modules[self.model_id],
+                    field_names=field_names,
+                )
+            return None
+
+        if not moe_config:
+            moe_config = get_default_config()
+            if not moe_config:
+                return
+
+        for name, module in self.model.named_modules():
+            if type(module).__name__ == moe_config.module_name:
+                gate = getattr(module, moe_config.field_names.gate, None)
+                experts = getattr(module, moe_config.field_names.experts, None)
+                shared_experts = getattr(module, moe_config.field_names.shared_experts, None)
+                top_k = getattr(module, moe_config.field_names.top_k, None)
+                norm_topk_prob = getattr(module, moe_config.field_names.norm_topk_prob, None)
+                if gate is None or experts is None:
+                    # TODO: also check intermediate_size and hidden_size
+                    continue
+                moe_layer = MoELayer(
+                    moe_config,
+                    gate,
+                    experts,
+                    self.text_config.hidden_act,
+                    shared_experts,
+                    top_k,
+                    norm_topk_prob,
+                )
+                self._replace_module(name, moe_layer)
 
     def shard_model(self):
         """TODO: Model parallel"""
@@ -145,23 +200,13 @@ class TransformerModel(ModelBase):
 
         for name, module in self.model.named_modules():
             # We need to find the parent module to replace the child
-            if isinstance(module, torch.nn.Linear):
-                # Split module path to get parent and child name
-                path = name.split('.')
-                parent_name = '.'.join(path[:-1])
-                child_name = path[-1]
-                
-                # Find the parent module
-                parent_module = self.model
-                if parent_name:
-                    parent_module = self.model.get_submodule(parent_name)
-                
+            if isinstance(module, torch.nn.Linear):                
                 # Check if a quantization config exists for this specific layer
                 if name in self.model_config.quant_config.linear_configs:
                     quant_config = self.model_config.quant_config.linear_configs[name]
                     # Create and set the new quantized module
                     quantized_module = self.model_config.quant_linear_cls(module, quant_config)
-                    setattr(parent_module, child_name, quantized_module)
+                    self._replace_module(name, quantized_module)
 
     def quantize_model(self):
         self.quant_linear()
@@ -170,6 +215,17 @@ class TransformerModel(ModelBase):
         """TODO: load real weights"""
         pass
 
+    def _replace_module(self, name: str, new_module: torch.nn.Module):
+        # Split module path to get parent and child name
+        path = name.split('.')
+        parent_name = '.'.join(path[:-1])
+        child_name = path[-1]
+        # Find the parent module
+        parent_module = self.model
+        if parent_name:
+            parent_module = self.model.get_submodule(parent_name)
+        setattr(parent_module, child_name, new_module)
+
     @property
     def num_hidden_layers(self):
         return self.text_config.num_hidden_layers
@@ -177,6 +233,10 @@ class TransformerModel(ModelBase):
     @property
     def hidden_size(self):
         return self.text_config.hidden_size
+
+    @property
+    def intermediate_size(self):
+        return self.text_config.intermediate_size
 
     def forward(
         self,

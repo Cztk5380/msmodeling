@@ -1,12 +1,13 @@
 import random
 import torch
 import unittest
+from parameterized import parameterized
 from ..model_config import AttentionQuantConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..transformer_model import TransformerModel
 from ..runtime import Runtime
 from ..machine import A2
 from ..performance_model.analytic import AnalyticPerformanceModel
-from ..attention import AttentionMetadataTensorCast, AttentionTensorCast
+from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
 
 
 def get_quant_config(start_layer_id, end_layer_id):
@@ -21,7 +22,13 @@ def get_quant_config(start_layer_id, end_layer_id):
 
 
 class TestQuantAttention(unittest.TestCase):
-    def test_model_quant_static_int8(self):
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B"],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        ["zai-org/GLM-4.5"],
+    ])
+    def test_model_quant_static_int8(self, model_id):
         batch_size = 2
         query_len_1 = 55
         query_len_2 = 45
@@ -45,7 +52,6 @@ class TestQuantAttention(unittest.TestCase):
         num_tokens = query_len_1 + query_len_2
         kv_quant_start_idx = 2
         kv_quant_end_idx = 9
-        model_id = "Qwen/Qwen3-32B"
         model_config = ModelConfig(ParallelConfig(), get_quant_config(kv_quant_start_idx, kv_quant_end_idx), attention_cls=AttentionTensorCast)
         model = TransformerModel(model_id, model_config)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")

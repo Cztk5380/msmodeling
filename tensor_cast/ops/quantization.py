@@ -1,6 +1,6 @@
 from typing import Optional
 import torch
-from .utils import register_tensor_cast_op
+from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("quantize")

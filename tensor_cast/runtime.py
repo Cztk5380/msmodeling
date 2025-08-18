@@ -10,7 +10,7 @@ from torch.utils._python_dispatch import TorchDispatchMode
 from .machine import MachineConfig
 from .performance_model import PerformanceModel, OpInvokeInfo
 from .performance_model.memory_tracker import MemoryTracker
-from .patch_torch import support_autocast_for_meta
+from .patch_torch import patch_torch
 
 logger = logging.getLogger(__name__)
 
@@ -54,7 +54,7 @@ class Runtime(TorchDispatchMode):
 
     def __enter__(self):
         super().__enter__()
-        self.exit_stack.enter_context(support_autocast_for_meta())
+        self.exit_stack.enter_context(patch_torch())
         _current_runtime.value = self
         return self
 

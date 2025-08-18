@@ -1,9 +1,10 @@
 import torch
 import unittest
-from ..quant_linear import QuantLinearBase, TensorCastQuantLinear
+from parameterized import parameterized
+from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
 from ..model_config import LinearQuantConfig, LinearQuantType, QuantGranularity, QuantScheme, ModelConfig, ParallelConfig, QuantConfig
 from ..transformer_model import TransformerModel
-from ..patch_torch import support_autocast_for_meta
+from ..patch_torch import patch_torch
 from ..runtime import Runtime
 from ..machine import A2
 from ..performance_model.analytic import AnalyticPerformanceModel
@@ -171,8 +172,13 @@ class TestQuantLinear(unittest.TestCase):
                 self.assertEqual(actual_output.shape, expected_output.shape)
                 self.assertEqual(actual_output.dtype, MODEL_DTYPE)
 
-    def test_model_quant(self):
-        model_id = "Qwen/Qwen3-32B"
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B"],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        # ["zai-org/GLM-4.5"],  # disable due to long test time
+    ])
+    def test_model_quant_base(self, model_id):
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
         num_linear_modules = len(list(module for _, module in model.named_modules() if isinstance(module, torch.nn.Linear)))
@@ -185,12 +191,17 @@ class TestQuantLinear(unittest.TestCase):
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        with torch.no_grad(), support_autocast_for_meta():
+        with torch.no_grad(), patch_torch():
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
 
-    def test_model_quant_tensorcast_dynamic_w4a8(self):
-        model_id = "Qwen/Qwen3-32B"
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B"],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        # ["zai-org/GLM-4.5"],  # disable due to long test time
+    ])
+    def test_model_quant_tensorcast_dynamic_w4a8(self, model_id):
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
 
@@ -212,8 +223,13 @@ class TestQuantLinear(unittest.TestCase):
         result = runtime.table_averages()
         self.assertTrue("tensor_cast.dynamic_quant_linear_int4.default" in result)
 
-    def test_model_quant_tensorcast_static_w8a8(self):
-        model_id = "Qwen/Qwen3-32B"
+    @parameterized.expand([
+        ["Qwen/Qwen3-32B"],
+        # ["Qwen/Qwen3-235B-A22B"],
+        # ["deepseek-ai/DeepSeek-V3"],
+        # ["zai-org/GLM-4.5"],  # disable due to long test time
+    ])
+    def test_model_quant_tensorcast_static_w8a8(self, model_id):
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
 

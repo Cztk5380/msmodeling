@@ -1,5 +1,5 @@
 import dataclasses
-from enum import Enum, auto
+from enum import Enum, auto, StrEnum
 from typing import Dict, Optional, Type
 import torch
 
@@ -99,12 +99,45 @@ class ParallelConfig:
     pass
 
 
+class MoEKey(StrEnum):
+  """Keys used in a Mixture of Experts model configuration."""
+  GATE = "gate"
+  EXPERTS = "experts"
+  SHARED_EXPERTS = "shared_experts"
+  TOP_K = "top_k"
+  NORM_TOPK_PROB = "norm_topk_prob"
+
+
+@dataclasses.dataclass(frozen=True)
+class MoEFieldNames:
+    gate: str = "gate"
+    experts: str = "experts"
+    shared_experts: str = "shared_experts"
+    top_k: str = "top_k"
+    norm_topk_prob: str = "norm_topk_prob"
+    gate_proj: str = "gate_proj"
+    up_proj: str = "up_proj"
+    down_proj: str = "down_proj"
+ 
+
+@dataclasses.dataclass
+class MoEConfig:
+    module_name: str
+    fused_moe_cls: Optional[Type["FusedMoEBase"]] = None
+    field_names: MoEFieldNames = MoEFieldNames()
+    gate_returns_raw_logits: bool = False
+    """whether the gate module returns raw logits or (topk_indices, topk_weights) tuple"""
+    # TODO: add expert-parallel configuration
+
+
 @dataclasses.dataclass
 class ModelConfig:
     parallel_config: ParallelConfig
     quant_config: QuantConfig
+    dtype: torch.dtype = torch.half
+    cache_rotary_embedding: bool = True
+    moe_config: Optional[MoEConfig] = None
     attention_cls: Optional[Type["AttentionBase"]] = None
     quant_linear_cls: Optional[Type["QuantLinearBase"]] = None
-    dtype: torch.dtype = torch.half
     trust_remote_code: bool = True
 
