@@ -1,14 +1,18 @@
-import torch
 import contextlib
 import threading
 
+import torch
+
 _meta_autocast_enabled = threading.local()
+
 
 def _is_meta_autocast_enabled():
     return getattr(_meta_autocast_enabled, "value", False)
 
+
 def _set_meta_autocast_enabled(enabled):
     _meta_autocast_enabled.value = enabled
+
 
 @contextlib.contextmanager
 def support_autocast_for_meta():

@@ -2,6 +2,7 @@ import torch
 
 _executed = set()
 
+
 def run_once(key, fn, *args, **kargs):
     if (key, fn) not in _executed:
         _executed.add((key, fn))

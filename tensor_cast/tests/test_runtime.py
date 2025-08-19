@@ -1,13 +1,16 @@
-import unittest
-from parameterized import parameterized
-import torch
 import tempfile
-from ..runtime import Runtime
-from ..machine import A2
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..transformer_model import TransformerModel
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
+import unittest
+
+import torch
+from parameterized import parameterized
+
 from ..layers.attention import AttentionTensorCast
+from ..machine import A2
+from ..model_config import ModelConfig, ParallelConfig, QuantConfig
+from ..performance_model.analytic import AnalyticPerformanceModel
+from ..runtime import Runtime
+from ..transformer_model import TransformerModel
+
 
 class PerfAnalysisTestCase(unittest.TestCase):
     def test_simple_model_eager(self):
@@ -18,7 +21,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             x = torch.randn([100], device="meta")
-            y = func(x)
+            _ = func(x)
         self.assertEqual(len(runtime.event_list), 3)
 
     def test_simple_model_compile(self):
@@ -30,19 +33,25 @@ class PerfAnalysisTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             x = torch.randn([100], device="meta")
-            y = func(x)
+            _ = func(x)
         self.assertEqual(len(runtime.event_list), 3)
 
-    @parameterized.expand([
-        ["Qwen/Qwen3-32B", False],
-        ["Qwen/Qwen3-32B", True],
-        # ["Qwen/Qwen3-235B-A22B"],
-        # ["deepseek-ai/DeepSeek-V3"],
-        ["zai-org/GLM-4.5", False],
-    ])
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B", False],
+            ["Qwen/Qwen3-32B", True],
+            ["Qwen/Qwen3-235B-A22B", False],
+            # ["Qwen/Qwen3-235B-A22B", True],
+            # ["deepseek-ai/DeepSeek-V3"],
+            ["zai-org/GLM-4.5", False],
+            # ["zai-org/GLM-4.5", True],
+        ]
+    )
     def test_model_prefill_eager(self, model_id, do_compile):
         num_tokens = 100
-        model_config = ModelConfig(ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast)
+        model_config = ModelConfig(
+            ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast
+        )
         model = TransformerModel(model_id, model_config)
         if do_compile:
             model = torch.compile(model, backend="eager", fullgraph=True)
@@ -63,7 +72,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             x = torch.randn([100], device="meta")
-            y = func(x)
+            _ = func(x)
         result = runtime.table_averages()
         self.assertTrue("analytic total" in result)
         self.assertTrue("analytic avg" in result)
@@ -81,7 +90,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             x = torch.randn([10, 10], device="meta")
             y = torch.randn([10, 1], device="meta")
-            z = func(x, y)
+            _ = func(x, y)
         result = runtime.table_averages(group_by_input_shapes=True)
         self.assertTrue("analytic total" in result)
         self.assertTrue("analytic avg" in result)
@@ -99,7 +108,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             x = torch.randn([100], device="meta")
-            y = func(x)
+            _ = func(x)
         with tempfile.TemporaryFile(mode="w+") as temp_file:
             runtime.export_chrome_trace(temp_file)
             temp_file.seek(0)

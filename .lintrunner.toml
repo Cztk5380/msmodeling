@@ -5,6 +5,7 @@ include_patterns = ['**/*.py']
 exclude_patterns = [
     '.git/**',
     '**/*.pyi',
+    'tools/**',
 ]
 command = [
     'python',
@@ -29,12 +30,17 @@ init_command = [
     'pyflakes==3.4.0',
     'torchfix==0.4.0 ; python_version >= "3.9" and python_version < "3.13"',
 ]
+is_formatter = true
 
 [[linter]]
 code = 'PYFMT'
 include_patterns = [
     '**/*.py',
     '**/*.pyi',
+]
+exclude_patterns = [
+    '.git/**',
+    'tools/**',
 ]
 command = [
     'python',
@@ -61,6 +67,10 @@ include_patterns = [
     '**/*.pyi',
     '**/*.ipynb',
     'pyproject.toml',
+]
+exclude_patterns = [
+    '.git/**',
+    'tools/**',
 ]
 command = [
     'python',

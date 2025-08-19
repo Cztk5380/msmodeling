@@ -1,5 +1,5 @@
 import torch
-from typing import Optional
+
 from ..utils import register_tensor_cast_op
 
 

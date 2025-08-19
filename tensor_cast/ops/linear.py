@@ -1,5 +1,7 @@
-import torch
 from typing import Optional
+
+import torch
+
 from ..utils import register_tensor_cast_op
 
 
@@ -9,9 +11,9 @@ def _dynamic_quant_linear(
     x: torch.Tensor,
     w: torch.Tensor,
     w_scale: torch.Tensor,
-    w_offset: Optional[torch.Tensor]=None,
-    bias: Optional[torch.Tensor]=None,
-    out_dtype: Optional[torch.dtype]=None
+    w_offset: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     """
     Semantically equivalent to
@@ -35,11 +37,11 @@ def _static_quant_linear(
     x: torch.Tensor,
     w: torch.Tensor,
     w_scale: torch.Tensor,
-    w_offset: Optional[torch.Tensor]=None,
-    x_scale: Optional[torch.Tensor]=None,
-    x_offset: Optional[torch.Tensor]=None,
-    bias: Optional[torch.Tensor]=None,
-    out_dtype: Optional[torch.dtype]=None
+    w_offset: Optional[torch.Tensor] = None,
+    x_scale: Optional[torch.Tensor] = None,
+    x_offset: Optional[torch.Tensor] = None,
+    bias: Optional[torch.Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
 ) -> torch.Tensor:
     """
     Semantically equivalent to

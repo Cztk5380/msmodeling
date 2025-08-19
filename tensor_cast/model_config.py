@@ -1,18 +1,21 @@
 import dataclasses
-from enum import Enum, auto, StrEnum
+from enum import auto, Enum, StrEnum
 from typing import Dict, Optional, Type
+
 import torch
 
 
 class LinearQuantType(Enum):
     W8A16 = auto()  # Weight in int8, activation in bfloat16 or half
-    W8A8 = auto()   # Weight in int8, activation in int8
-    W4A8 = auto()   # Weight in int4, activation in int8
+    W8A8 = auto()  # Weight in int8, activation in int8
+    W4A8 = auto()  # Weight in int4, activation in int8
 
 
 class QuantGranularity(Enum):
     PER_TENSOR = auto()  # use a single quant param for the entire tensor
-    PER_SAMPLE = auto()  # use quant param per sample in the batch (e.g. per-token for LLM)
+    PER_SAMPLE = (
+        auto()
+    )  # use quant param per sample in the batch (e.g. per-token for LLM)
 
 
 class QuantScheme(Enum):
@@ -32,6 +35,7 @@ class LinearQuantConfig:
 
     For dynamic quantization, the activation scale/offset is None.
     """
+
     # weight config
     weight_scale: torch.Tensor
     weight_offset: Optional[torch.Tensor] = None
@@ -86,10 +90,14 @@ class AttentionQuantConfig:
 
 @dataclasses.dataclass
 class QuantConfig:
-    linear_configs: Dict[str, LinearQuantConfig] = dataclasses.field(default_factory=dict)
+    linear_configs: Dict[str, LinearQuantConfig] = dataclasses.field(
+        default_factory=dict
+    )
     """Per-layer configs: full module path -> LinearQuantConfig"""
 
-    attention_configs: Dict[int, AttentionQuantConfig] = dataclasses.field(default_factory=dict)
+    attention_configs: Dict[int, AttentionQuantConfig] = dataclasses.field(
+        default_factory=dict
+    )
     """Per-layer configs: attn_layer_id -> AttentionQuantConfig"""
 
 
@@ -100,12 +108,13 @@ class ParallelConfig:
 
 
 class MoEKey(StrEnum):
-  """Keys used in a Mixture of Experts model configuration."""
-  GATE = "gate"
-  EXPERTS = "experts"
-  SHARED_EXPERTS = "shared_experts"
-  TOP_K = "top_k"
-  NORM_TOPK_PROB = "norm_topk_prob"
+    """Keys used in a Mixture of Experts model configuration."""
+
+    GATE = "gate"
+    EXPERTS = "experts"
+    SHARED_EXPERTS = "shared_experts"
+    TOP_K = "top_k"
+    NORM_TOPK_PROB = "norm_topk_prob"
 
 
 @dataclasses.dataclass(frozen=True)
@@ -118,12 +127,12 @@ class MoEFieldNames:
     gate_proj: str = "gate_proj"
     up_proj: str = "up_proj"
     down_proj: str = "down_proj"
- 
+
 
 @dataclasses.dataclass
 class MoEConfig:
     module_name: str
-    fused_moe_cls: Optional[Type["FusedMoEBase"]] = None
+    fused_moe_cls: Optional[Type["FusedMoEBase"]] = None  # noqa: F821
     field_names: MoEFieldNames = MoEFieldNames()
     gate_returns_raw_logits: bool = False
     """whether the gate module returns raw logits or (topk_indices, topk_weights) tuple"""
@@ -137,7 +146,6 @@ class ModelConfig:
     dtype: torch.dtype = torch.half
     cache_rotary_embedding: bool = True
     moe_config: Optional[MoEConfig] = None
-    attention_cls: Optional[Type["AttentionBase"]] = None
-    quant_linear_cls: Optional[Type["QuantLinearBase"]] = None
+    attention_cls: Optional[Type["AttentionBase"]] = None  # noqa: F821
+    quant_linear_cls: Optional[Type["QuantLinearBase"]] = None  # noqa: F821
     trust_remote_code: bool = True
-

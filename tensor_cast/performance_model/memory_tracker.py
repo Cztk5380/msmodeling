@@ -1,12 +1,15 @@
 import torch
-from ..performance_model import OpInvokeInfo
+
 from ..machine import MachineConfig
+from ..performance_model import OpInvokeInfo
+
 
 class MemoryTracker:
     """
     Tracks the memory allocation during the execution of a PyTorch program
     and gives its memory profiles.
     """
+
     def __init__(self, machine_config: MachineConfig):
         self.machine_config = machine_config
 

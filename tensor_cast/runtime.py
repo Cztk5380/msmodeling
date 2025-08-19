@@ -1,20 +1,23 @@
 import collections
 import contextlib
-import json
 import dataclasses
+import json
 import logging
 import threading
 from typing import Dict, List, Optional, Union
+
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
+
 from .machine import MachineConfig
-from .performance_model import PerformanceModel, OpInvokeInfo
-from .performance_model.memory_tracker import MemoryTracker
 from .patch_torch import patch_torch
+from .performance_model import OpInvokeInfo, PerformanceModel
+from .performance_model.memory_tracker import MemoryTracker
 
 logger = logging.getLogger(__name__)
 
 _current_runtime = threading.local()
+
 
 def current_runtime():
     return getattr(_current_runtime, "value", None)
@@ -23,15 +26,25 @@ def current_runtime():
 @dataclasses.dataclass
 class RuntimeEvent:
     op_invoke_info: OpInvokeInfo
-    perf_results: Dict[str, PerformanceModel.Result] = dataclasses.field(default_factory=dict)
+    perf_results: Dict[str, PerformanceModel.Result] = dataclasses.field(
+        default_factory=dict
+    )
 
 
 class Runtime(TorchDispatchMode):
     """
     Runtime of TensorCast that simulates the execution of a PyTorch program.
     """
-    def __init__(self, perf_models: Union[PerformanceModel, List[PerformanceModel]], machine_config: MachineConfig, memory_tracker: Optional[MemoryTracker]=None):
-        self.perf_models = perf_models if isinstance(perf_models, (list, tuple)) else [perf_models]
+
+    def __init__(
+        self,
+        perf_models: Union[PerformanceModel, List[PerformanceModel]],
+        machine_config: MachineConfig,
+        memory_tracker: Optional[MemoryTracker] = None,
+    ):
+        self.perf_models = (
+            perf_models if isinstance(perf_models, (list, tuple)) else [perf_models]
+        )
         self.machine_config = machine_config
         self.memory_tracker: Optional[MemoryTracker] = memory_tracker
         self.event_list: List[RuntimeEvent] = []
@@ -49,7 +62,9 @@ class Runtime(TorchDispatchMode):
         for perf_model in self.perf_models:
             result = perf_model.process_op(op_invoke_info)
             perf_results[perf_model.name] = result
-        self.event_list.append(RuntimeEvent(op_invoke_info=op_invoke_info, perf_results=perf_results))
+        self.event_list.append(
+            RuntimeEvent(op_invoke_info=op_invoke_info, perf_results=perf_results)
+        )
         return out
 
     def __enter__(self):
@@ -84,7 +99,7 @@ class Runtime(TorchDispatchMode):
                 return f"{seconds * 1e6:.3f}us"
             return f"{seconds * 1e9:.3f}ns"
 
-        def _get_input_shapes_str(op_info: 'OpInvokeInfo') -> str:
+        def _get_input_shapes_str(op_info: "OpInvokeInfo") -> str:
             """Extracts tensor shapes from operator arguments for display."""
             shapes = []
             # A simple search for tensors in args; can be expanded for kwargs or nested structures
@@ -154,16 +169,26 @@ class Runtime(TorchDispatchMode):
 
             if group_by_input_shapes:
                 shapes_str = key[1]
-                col_widths["Input Shapes"] = max(col_widths["Input Shapes"], len(shapes_str))
+                col_widths["Input Shapes"] = max(
+                    col_widths["Input Shapes"], len(shapes_str)
+                )
                 for model_name in model_names:
                     total_time_str = _format_time(data["total_runtimes"][model_name])
-                    col_widths[f"{model_name} total"] = max(col_widths[f"{model_name} total"], len(total_time_str))
-            col_widths["# of Calls"] = max(col_widths["# of Calls"], len(str(data["count"])))
+                    col_widths[f"{model_name} total"] = max(
+                        col_widths[f"{model_name} total"], len(total_time_str)
+                    )
+            col_widths["# of Calls"] = max(
+                col_widths["# of Calls"], len(str(data["count"]))
+            )
             for model_name in model_names:
                 total_time = data["total_runtimes"][model_name]
                 avg_time = total_time / data["count"]
-                col_widths[f"{model_name} total"] = max(col_widths[f"{model_name} total"], len(_format_time(total_time)))
-                col_widths[f"{model_name} avg"] = max(col_widths[f"{model_name} avg"], len(_format_time(avg_time)))
+                col_widths[f"{model_name} total"] = max(
+                    col_widths[f"{model_name} total"], len(_format_time(total_time))
+                )
+                col_widths[f"{model_name} avg"] = max(
+                    col_widths[f"{model_name} avg"], len(_format_time(avg_time))
+                )
 
         # --- Build Table String ---
         output_lines = []
@@ -191,8 +216,12 @@ class Runtime(TorchDispatchMode):
             for model_name in model_names:
                 total_time = data["total_runtimes"][model_name]
                 avg_time = total_time / data["count"]
-                row.append(_format_time(total_time).rjust(col_widths[f"{model_name} total"]))
-                row.append(_format_time(avg_time).rjust(col_widths[f"{model_name} avg"]))
+                row.append(
+                    _format_time(total_time).rjust(col_widths[f"{model_name} total"])
+                )
+                row.append(
+                    _format_time(avg_time).rjust(col_widths[f"{model_name} avg"])
+                )
             row.append(str(data["count"]).rjust(col_widths["# of Calls"]))
 
             output_lines.append("  ".join(row))
@@ -201,7 +230,7 @@ class Runtime(TorchDispatchMode):
 
         # --- Add Summary Footer ---
         summary_totals = collections.defaultdict(float)
-        for _, data in aggregated_data.items():
+        for data in aggregated_data.values():
             for model_name, total_time in data["total_runtimes"].items():
                 summary_totals[model_name] += total_time
 
@@ -228,20 +257,24 @@ class Runtime(TorchDispatchMode):
 
         # 1. Add Metadata Events to name the processes for readability in the trace viewer
         for model_name, pid in perf_model_pids.items():
-            trace_events.append({
-                "name": "process_name",
-                "ph": "M",  # Metadata event type
-                "pid": pid,
-                "args": {"name": f"{model_name} (PID: {pid})"}
-            })
+            trace_events.append(
+                {
+                    "name": "process_name",
+                    "ph": "M",  # Metadata event type
+                    "pid": pid,
+                    "args": {"name": f"{model_name} (PID: {pid})"},
+                }
+            )
             # Also name the default thread for this process
-            trace_events.append({
-                "name": "thread_name",
-                "ph": "M",
-                "pid": pid,
-                "tid": 0, # Assuming a single stream for now
-                "args": {"name": "Stream 0"}
-            })
+            trace_events.append(
+                {
+                    "name": "thread_name",
+                    "ph": "M",
+                    "pid": pid,
+                    "tid": 0,  # Assuming a single stream for now
+                    "args": {"name": "Stream 0"},
+                }
+            )
 
         # 2. Iterate through events and create trace entries
         for event in self.event_list:
@@ -260,16 +293,21 @@ class Runtime(TorchDispatchMode):
                 trace_event = {
                     "name": op_name,
                     "cat": model_name,  # Category can be the model name
-                    "ph": "X",          # 'X' denotes a "complete" event (start and end time)
+                    "ph": "X",  # 'X' denotes a "complete" event (start and end time)
                     "ts": start_time_us,
                     "dur": duration_us,
                     "pid": pid,
-                    "tid": 0,           # Hardcoded to thread 0 for now
-                    "args": {           # Add any extra useful info here
-                        "Inputs": str(event.op_invoke_info.args) + " kwargs: " + str(event.op_invoke_info.kwargs),
+                    "tid": 0,  # Hardcoded to thread 0 for now
+                    "args": {  # Add any extra useful info here
+                        "Inputs": str(event.op_invoke_info.args)
+                        + " kwargs: "
+                        + str(event.op_invoke_info.kwargs),
                         "Output": str(event.op_invoke_info.out),
-                        **{name: str(value) for name, value in result.statistics.items()}
-                    }
+                        **{
+                            name: str(value)
+                            for name, value in result.statistics.items()
+                        },
+                    },
                 }
                 trace_events.append(trace_event)
 
@@ -278,7 +316,7 @@ class Runtime(TorchDispatchMode):
 
         # 3. Write the final JSON object to the specified file
         if isinstance(trace_file, str):
-            f = open(trace_file, 'w')
+            f = open(trace_file, "w")  # noqa: SIM115
             file_context = f
         else:
             f = trace_file

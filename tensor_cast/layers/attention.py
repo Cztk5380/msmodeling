@@ -1,14 +1,17 @@
-from typing import Optional
-import torch
 import dataclasses
-from .. import ops
-from ..model_config import AttentionQuantConfig
+from typing import Optional, TYPE_CHECKING
+
+import torch
+
+if TYPE_CHECKING:
+    from ..model_config import AttentionQuantConfig
 
 
 # adapted from vLLM but trimmed to avoid redundancy
 @dataclasses.dataclass
 class AttentionMetadataBase:
     """Per-layer attention metadata"""
+
     query_start_loc: torch.Tensor
     """(batch_size + 1,), the start location of each request in query Tensor"""
 
@@ -43,30 +46,51 @@ class AttentionBase(torch.nn.Module):
 
 # adapted from vLLM
 def flash_attention_forward(
-        # Transformers args
-        module: torch.nn.Module,
-        query: torch.Tensor,
-        key: torch.Tensor,
-        value: torch.Tensor,
-        attention_mask: torch.Tensor,
-        **kwargs):
-    attention_by_layers: Optional[dict[int, AttentionBase]] = kwargs.pop("attention_by_layers", None)
+    # Transformers args
+    module: torch.nn.Module,
+    query: torch.Tensor,
+    key: torch.Tensor,
+    value: torch.Tensor,
+    attention_mask: torch.Tensor,
+    **kwargs,
+):
+    attention_by_layers: Optional[dict[int, AttentionBase]] = kwargs.pop(
+        "attention_by_layers", None
+    )
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
 
-    kv_cache_by_layers: Optional[dict[int, torch.Tensor]] = kwargs.pop("kv_cache_by_layers", None)
+    kv_cache_by_layers: Optional[dict[int, torch.Tensor]] = kwargs.pop(
+        "kv_cache_by_layers", None
+    )
     attention_meta: AttentionMetadataBase = kwargs.pop("attention_meta", None)
-    attention_meta_by_layers: Optional[dict[int, AttentionMetadataBase]] = kwargs.pop("attention_meta_by_layers", None)
-    assert attention_meta is None or attention_meta_by_layers is None, "Only one of attention_meta and attention_meta_by_layers can be provided."
+    attention_meta_by_layers: Optional[dict[int, AttentionMetadataBase]] = kwargs.pop(
+        "attention_meta_by_layers", None
+    )
+    assert attention_meta is None or attention_meta_by_layers is None, (
+        "Only one of attention_meta and attention_meta_by_layers can be provided."
+    )
 
     self_attn = attention_by_layers[module.layer_idx]
     kv_cache = kv_cache_by_layers[module.layer_idx] if kv_cache_by_layers else None
-    attention_meta = attention_meta_by_layers[module.layer_idx] if attention_meta_by_layers else attention_meta
+    attention_meta = (
+        attention_meta_by_layers[module.layer_idx]
+        if attention_meta_by_layers
+        else attention_meta
+    )
     # TODO: understand why we need these shape manipulation
     hidden = query.shape[-2]
     query, key, value = (x.transpose(1, 2) for x in (query, key, value))
     query, key, value = (x.reshape(hidden, -1) for x in (query, key, value))
     # return (attn_output, attn_weights) while we ignore attn_weights
-    return self_attn.forward(query, key, value, attention_mask, kv_cache=kv_cache, attention_meta=attention_meta, **kwargs), None
+    return self_attn.forward(
+        query,
+        key,
+        value,
+        attention_mask,
+        kv_cache=kv_cache,
+        attention_meta=attention_meta,
+        **kwargs,
+    ), None
 
 
 class AttentionMetadataTensorCast(AttentionMetadataBase):
@@ -94,12 +118,22 @@ class AttentionTensorCast(AttentionBase):
                 kv_scale = self.quant_config.kv_scale
                 kv_offset = self.quant_config.kv_offset
                 if kv_cache.dtype != torch.int8:
-                    raise ValueError(f"Only support int8 quantized kv cache dtype but got {kv_cache.dtype}")
-                key = torch.ops.tensor_cast.quantize(key, kv_scale, kv_offset, kv_cache.dtype)
-                value = torch.ops.tensor_cast.quantize(value, kv_scale, kv_offset, kv_cache.dtype)
+                    raise ValueError(
+                        f"Only support int8 quantized kv cache dtype but got {kv_cache.dtype}"
+                    )
+                key = torch.ops.tensor_cast.quantize(
+                    key, kv_scale, kv_offset, kv_cache.dtype
+                )
+                value = torch.ops.tensor_cast.quantize(
+                    value, kv_scale, kv_offset, kv_cache.dtype
+                )
             if not (key.dtype == value.dtype == kv_cache.dtype):
-                raise ValueError(f"Expect key, value and kv_cache dtype match but got {key.dtype}, {value.dtype}, {kv_cache.dtype}")
-            torch.ops.tensor_cast.reshape_and_cache(key, value, kv_cache, attention_meta.slot_mapping)
+                raise ValueError(
+                    f"Expect key, value and kv_cache dtype match but got {key.dtype}, {value.dtype}, {kv_cache.dtype}"
+                )
+            torch.ops.tensor_cast.reshape_and_cache(
+                key, value, kv_cache, attention_meta.slot_mapping
+            )
             key = kv_cache[0]
             value = kv_cache[1]
         if hasattr(self, "quant_config") and attention_meta is not None:
@@ -115,7 +149,9 @@ class AttentionTensorCast(AttentionBase):
                 key,
                 value,
                 attention_mask,
-                attention_meta.block_table_tensor if attention_meta is not None else None,
+                attention_meta.block_table_tensor
+                if attention_meta is not None
+                else None,
                 query_start_loc,
                 seq_lens,
                 self.quant_config.query_scale,
@@ -131,7 +167,9 @@ class AttentionTensorCast(AttentionBase):
                 key,
                 value,
                 attention_mask,
-                attention_meta.block_table_tensor if attention_meta is not None else None,
+                attention_meta.block_table_tensor
+                if attention_meta is not None
+                else None,
                 query_start_loc,
                 seq_lens,
             )

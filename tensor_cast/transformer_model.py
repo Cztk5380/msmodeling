@@ -1,14 +1,16 @@
-from typing import Dict, Optional, Union
-import torch
 import contextlib
+from typing import Dict, Optional, Union
+
+import torch
 
 from transformers import AutoConfig, AutoModel
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
-from .layers.attention import flash_attention_forward
-from .layers.rotary_embedding import CachingRotaryEmb
-from .layers.moe_layer import MoELayer
+
 from .layers import moe_defaults
-from .model_config import MoEKey, ModelConfig, MoEConfig, MoEFieldNames
+from .layers.attention import flash_attention_forward
+from .layers.moe_layer import MoELayer
+from .layers.rotary_embedding import CachingRotaryEmb
+from .model_config import ModelConfig, MoEConfig
 
 
 ALL_ATTENTION_FUNCTIONS["tensor_cast"] = flash_attention_forward
@@ -51,7 +53,8 @@ def init_on_device_without_buffers(device: torch.device):
             kwargs = module._parameters[name].__dict__
             kwargs["requires_grad"] = param.requires_grad
             module._parameters[name] = param_cls(
-                module._parameters[name].to(device), **kwargs)
+                module._parameters[name].to(device), **kwargs
+            )
 
     tensor_constructors_to_patch = [
         # Not a full list of tensor factory functions
@@ -67,7 +70,6 @@ def init_on_device_without_buffers(device: torch.device):
     old_tensor_constructors = {}
 
     def patch_tensor_constructor(fn):
-
         def wrapper(*args, **kwargs):
             kwargs["device"] = device
             return fn(*args, **kwargs)
@@ -77,20 +79,22 @@ def init_on_device_without_buffers(device: torch.device):
     try:
         torch.nn.Module.register_parameter = register_empty_parameter
         for torch_function_name in tensor_constructors_to_patch:
-            old_tensor_constructors[torch_function_name] = getattr(torch, torch_function_name)
+            old_tensor_constructors[torch_function_name] = getattr(
+                torch, torch_function_name
+            )
             setattr(
-                torch, torch_function_name,
-                patch_tensor_constructor(getattr(torch, torch_function_name)))
+                torch,
+                torch_function_name,
+                patch_tensor_constructor(getattr(torch, torch_function_name)),
+            )
         yield
     finally:
         torch.nn.Module.register_parameter = old_register_parameter
-        for torch_function_name, old_torch_function in (
-                old_tensor_constructors.items()):
+        for torch_function_name, old_torch_function in old_tensor_constructors.items():
             setattr(torch, torch_function_name, old_torch_function)
 
 
 class TransformerModel(ModelBase):
-
     def __init__(self, model_id: str, model_config: ModelConfig):
         super().__init__()
         self.model_id = model_id
@@ -98,8 +102,13 @@ class TransformerModel(ModelBase):
         with init_on_device_without_buffers("meta"):
             self.hf_config = AutoConfig.from_pretrained(model_id)
             self.text_config = self.hf_config.get_text_config()
-            if self.model_config.attention_cls and self.model_config.attention_cls.attn_implmentation:
-                self.text_config._attn_implementation = self.model_config.attention_cls.attn_implmentation
+            if (
+                self.model_config.attention_cls
+                and self.model_config.attention_cls.attn_implmentation
+            ):
+                self.text_config._attn_implementation = (
+                    self.model_config.attention_cls.attn_implmentation
+                )
             self.model = AutoModel.from_config(
                 self.hf_config,
                 torch_dtype=self.model_config.dtype,
@@ -122,14 +131,18 @@ class TransformerModel(ModelBase):
             for i in range(self.text_config.num_hidden_layers):
                 self.attention_by_layers[i] = self.model_config.attention_cls()
                 if i in self.model_config.quant_config.attention_configs:
-                    self.attention_by_layers[i].quant_config = self.model_config.quant_config.attention_configs[i]
-        
+                    self.attention_by_layers[
+                        i
+                    ].quant_config = self.model_config.quant_config.attention_configs[i]
+
         # cache rotary embedding to avoid computing it each time per forward
-        if self.model_config.cache_rotary_embedding and hasattr(self.model, "rotary_emb"):
+        if self.model_config.cache_rotary_embedding and hasattr(
+            self.model, "rotary_emb"
+        ):
             self.model.rotary_emb = CachingRotaryEmb(
                 self.model.rotary_emb,
                 act_dtype=self.model_config.dtype,
-                max_position_embeddings=self.text_config.max_position_embeddings
+                max_position_embeddings=self.text_config.max_position_embeddings,
             )
 
         # replace the vanilla mixture-of-expert (MOE) module with the fused one
@@ -148,20 +161,8 @@ class TransformerModel(ModelBase):
         self.fuse_moe(self.model_config.moe_config)
 
     def fuse_moe(self, moe_config: Optional[MoEConfig]):
-        def get_default_config():
-            if self.model_id in moe_defaults.moe_modules:
-                if self.model_id in moe_defaults.moe_field_names_overrides:
-                    field_names = moe_defaults.moe_field_names_overrides[self.model_id]
-                else:
-                    field_names = MoEFieldNames()
-                return MoEConfig(
-                    module_name=moe_defaults.moe_modules[self.model_id],
-                    field_names=field_names,
-                )
-            return None
-
         if not moe_config:
-            moe_config = get_default_config()
+            moe_config = moe_defaults.model_id_to_config.setdefault(self.model_id, None)
             if not moe_config:
                 return
 
@@ -169,9 +170,13 @@ class TransformerModel(ModelBase):
             if type(module).__name__ == moe_config.module_name:
                 gate = getattr(module, moe_config.field_names.gate, None)
                 experts = getattr(module, moe_config.field_names.experts, None)
-                shared_experts = getattr(module, moe_config.field_names.shared_experts, None)
+                shared_experts = getattr(
+                    module, moe_config.field_names.shared_experts, None
+                )
                 top_k = getattr(module, moe_config.field_names.top_k, None)
-                norm_topk_prob = getattr(module, moe_config.field_names.norm_topk_prob, None)
+                norm_topk_prob = getattr(
+                    module, moe_config.field_names.norm_topk_prob, None
+                )
                 if gate is None or experts is None:
                     # TODO: also check intermediate_size and hidden_size
                     continue
@@ -188,7 +193,6 @@ class TransformerModel(ModelBase):
 
     def shard_model(self):
         """TODO: Model parallel"""
-        pass
 
     def quant_linear(self):
         """
@@ -200,25 +204,27 @@ class TransformerModel(ModelBase):
 
         for name, module in self.model.named_modules():
             # We need to find the parent module to replace the child
-            if isinstance(module, torch.nn.Linear):                
-                # Check if a quantization config exists for this specific layer
-                if name in self.model_config.quant_config.linear_configs:
-                    quant_config = self.model_config.quant_config.linear_configs[name]
-                    # Create and set the new quantized module
-                    quantized_module = self.model_config.quant_linear_cls(module, quant_config)
-                    self._replace_module(name, quantized_module)
+            if (
+                isinstance(module, torch.nn.Linear)
+                and name in self.model_config.quant_config.linear_configs
+            ):
+                quant_config = self.model_config.quant_config.linear_configs[name]
+                # Create and set the new quantized module
+                quantized_module = self.model_config.quant_linear_cls(
+                    module, quant_config
+                )
+                self._replace_module(name, quantized_module)
 
     def quantize_model(self):
         self.quant_linear()
 
     def load_weights(self):
         """TODO: load real weights"""
-        pass
 
     def _replace_module(self, name: str, new_module: torch.nn.Module):
         # Split module path to get parent and child name
-        path = name.split('.')
-        parent_name = '.'.join(path[:-1])
+        path = name.split(".")
+        parent_name = ".".join(path[:-1])
         child_name = path[-1]
         # Find the parent module
         parent_module = self.model
@@ -252,5 +258,6 @@ class TransformerModel(ModelBase):
             inputs_embeds=inputs_embeds,
             attention_by_layers=getattr(self, "attention_by_layers", None),
             return_dict=False,
-            **kwargs)[0]
+            **kwargs,
+        )[0]
         return hidden_states

@@ -1,6 +1,9 @@
-import torch
 from typing import List, Optional
+
+import torch
+
 from ..utils import register_tensor_cast_op
+
 
 @register_tensor_cast_op("fused_moe")
 def _fused_moe(

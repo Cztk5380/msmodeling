@@ -1,16 +1,16 @@
-from collections import namedtuple
-from abc import ABC, abstractmethod
-from typing import Any, Dict
-import torch
 import dataclasses
 import itertools
 import logging
+from abc import ABC, abstractmethod
+from typing import Any, Dict
 
-from overrides import override
+import torch
+
 from ..machine import MachineConfig
-from .utils import run_once, is_view_op
+from .utils import is_view_op, run_once
 
 logger = logging.getLogger(__name__)
+
 
 class OpInvokeInfo:
     _op_properties_functors = {}
@@ -22,7 +22,9 @@ class OpInvokeInfo:
 
     @dataclasses.dataclass
     class PerformanceProperties:
-        compute_ops: Dict[torch.dtype, "OpInvokeInfo.ComputeOps"] = dataclasses.field(default_factory=dict)
+        compute_ops: Dict[torch.dtype, "OpInvokeInfo.ComputeOps"] = dataclasses.field(
+            default_factory=dict
+        )
         memory_read_bytes: int = 0
         """Read-only bytes"""
         memory_write_bytes: int = 0
@@ -59,9 +61,12 @@ class OpInvokeInfo:
     @classmethod
     def register_op_properties(cls, op):
         def decorator(functor):
-            assert op not in OpInvokeInfo._op_properties_functors, f"Op properties functor for {op} already registered"
+            assert op not in OpInvokeInfo._op_properties_functors, (
+                f"Op properties functor for {op} already registered"
+            )
             OpInvokeInfo._op_properties_functors[op] = functor
             return functor
+
         return decorator
 
     def get_memory_access_properties(self) -> "OpInvokeInfo.PerformanceProperties":
@@ -80,7 +85,7 @@ class OpInvokeInfo:
                 else:
                     memory_read_bytes += access_bytes
         out = self.out if isinstance(self.out, (list, tuple)) else [self.out]
-        for i, arg in enumerate(out):
+        for arg in out:
             if isinstance(arg, torch.Tensor):
                 access_bytes = arg.element_size() * arg.nelement()
                 memory_write_bytes += access_bytes
@@ -121,7 +126,6 @@ class PerformanceModel(ABC):
         Returns:
             op execution time in seconds and misc runtime statistics
         """
-        pass
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.bmm.default)
