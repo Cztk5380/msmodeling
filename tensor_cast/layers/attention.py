@@ -3,6 +3,8 @@ from typing import Optional, TYPE_CHECKING
 
 import torch
 
+from .. import ops  # noqa: F401
+
 if TYPE_CHECKING:
     from ..model_config import AttentionQuantConfig
 

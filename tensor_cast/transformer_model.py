@@ -95,7 +95,20 @@ def init_on_device_without_buffers(device: torch.device):
 
 
 class TransformerModel(ModelBase):
-    def __init__(self, model_id: str, model_config: ModelConfig):
+    def __init__(
+        self, model_id: str, model_config: ModelConfig, disable_auto_map=False
+    ):
+        """
+        Construct a transformer model wrapper that auto-loads a transformer model and converts
+        it into a model according to the given model configuration.
+
+        Args:
+            model_id: transformer model id
+            model_config: specify how we should load and convert the transformer model
+            disable_auto_map: set it to True if we want to use a local model definition, not
+                loading it from remote. Useful when the local transformer model is known to
+                be newer than the remote one, such as DeepSeek-V3.
+        """
         super().__init__()
         self.model_id = model_id
         self.model_config = model_config
@@ -109,6 +122,8 @@ class TransformerModel(ModelBase):
                 self.text_config._attn_implementation = (
                     self.model_config.attention_cls.attn_implmentation
                 )
+            if disable_auto_map and hasattr(self.hf_config, "auto_map"):
+                delattr(self.hf_config, "auto_map")
             self.model = AutoModel.from_config(
                 self.hf_config,
                 torch_dtype=self.model_config.dtype,

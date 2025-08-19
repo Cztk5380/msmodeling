@@ -2,6 +2,7 @@ from typing import Optional
 
 import torch
 
+from .. import ops  # noqa: F401
 from ..model_config import (
     LinearQuantConfig,
     LinearQuantType,
