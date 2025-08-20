@@ -240,7 +240,7 @@ class TestQuantLinear(unittest.TestCase):
     def test_model_quant_base(self, model_id):
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
-        num_linear_modules = len(
+        num_linear_modules = sum(
             1
             for _, module in model.named_modules()
             if isinstance(module, torch.nn.Linear)
