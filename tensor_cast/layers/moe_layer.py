@@ -13,12 +13,12 @@ class FusedMoEBase(torch.nn.Module, ABC):
         self,
         moe_config: MoEConfig,
         experts: torch.nn.ModuleList,
-        hidden_act: str,
         shared_experts: Optional[torch.nn.Module],
     ):
         super().__init__()
         self.moe_config = moe_config
-        self.hidden_act = hidden_act
+        self.experts = experts
+        self.shared_experts = shared_experts
 
     @abstractmethod
     def forward(
@@ -38,7 +38,6 @@ class MoELayer(torch.nn.Module):
         moe_config: MoEConfig,
         gate: torch.nn.Module,
         experts: torch.nn.ModuleList,
-        hidden_act: str,
         shared_experts: Optional[torch.nn.Module],
         top_k: Optional[int],
         norm_topk_prob: Optional[bool],
@@ -51,9 +50,7 @@ class MoELayer(torch.nn.Module):
         fused_moe_cls = (
             moe_config.fused_moe_cls if moe_config.fused_moe_cls else FusedMoETensorCast
         )
-        self.fused_moe = fused_moe_cls(
-            self.moe_config, experts, hidden_act, shared_experts
-        )
+        self.fused_moe = fused_moe_cls(self.moe_config, experts, shared_experts)
 
     def forward(self, hidden_states: torch.Tensor):
         if self.moe_config.gate_returns_raw_logits:
@@ -78,48 +75,9 @@ class FusedMoETensorCast(FusedMoEBase):
         self,
         moe_config: MoEConfig,
         experts: torch.nn.ModuleList,
-        hidden_act: str,
         shared_experts: Optional[torch.nn.Module],
     ):
-        super().__init__(moe_config, experts, hidden_act, shared_experts)
-        self.experts_gate = [
-            getattr(expert, moe_config.field_names.gate_proj).weight.data.transpose(
-                0, 1
-            )
-            for expert in experts
-        ]
-        self.experts_up = [
-            getattr(expert, moe_config.field_names.up_proj).weight.data.transpose(0, 1)
-            for expert in experts
-        ]
-        self.experts_down = [
-            getattr(expert, moe_config.field_names.down_proj).weight.data.transpose(
-                0, 1
-            )
-            for expert in experts
-        ]
-        for i in range(len(experts)):
-            self.register_buffer(f"experts_gate_{i}", self.experts_gate[i])
-            self.register_buffer(f"experts_up_{i}", self.experts_up[i])
-            self.register_buffer(f"experts_down_{i}", self.experts_down[i])
-
-        if shared_experts:
-            shared_experts_gate = getattr(
-                shared_experts, moe_config.field_names.gate_proj
-            ).weight.data.transpose(0, 1)
-            shared_experts_up = getattr(
-                shared_experts, moe_config.field_names.up_proj
-            ).weight.data.transpose(0, 1)
-            shared_experts_down = getattr(
-                shared_experts, moe_config.field_names.down_proj
-            ).weight.data.transpose(0, 1)
-            self.register_buffer("shared_experts_gate", shared_experts_gate)
-            self.register_buffer("shared_experts_up", shared_experts_up)
-            self.register_buffer("shared_experts_down", shared_experts_down)
-        else:
-            self.register_buffer("shared_experts_gate", None)
-            self.register_buffer("shared_experts_up", None)
-            self.register_buffer("shared_experts_down", None)
+        super().__init__(moe_config, experts, shared_experts)
 
     def forward(
         self,
@@ -127,18 +85,30 @@ class FusedMoETensorCast(FusedMoEBase):
         topk_indices: torch.Tensor,
         topk_weights: torch.Tensor,
     ) -> torch.Tensor:
-        # TODO: call experts and shared_experts explicitly here by distributing tokens evenly or according to
-        #       some configuration, then do GMM fusion in the graph pass
         # TODO: support quantization
-        return torch.ops.tensor_cast.fused_moe(
-            hidden_states,
-            self.experts_gate,
-            self.experts_up,
-            self.experts_down,
-            self.shared_experts_gate,
-            self.shared_experts_up,
-            self.shared_experts_down,
-            topk_indices,
-            topk_weights,
-            self.hidden_act,
+        final_hidden_states = torch.zeros_like(hidden_states, dtype=topk_weights.dtype)
+        dispatched_hidden_states, dispatched_indices, dispatched_weights = (
+            torch.ops.tensor_cast.dispatch_tokens(
+                hidden_states, topk_indices, topk_weights, len(self.experts)
+            )
         )
+        assert (
+            len(dispatched_hidden_states)
+            == len(dispatched_weights)
+            == len(self.experts)
+        )
+        for expert_idx in range(len(self.experts)):
+            expert_output = self.experts[expert_idx](
+                dispatched_hidden_states[expert_idx]
+            )
+            weighted_output = expert_output * dispatched_weights[expert_idx].unsqueeze(
+                -1
+            )
+            final_hidden_states.index_add_(
+                0, dispatched_indices[expert_idx], weighted_output
+            )
+        if self.shared_experts:
+            final_hidden_states = final_hidden_states + self.shared_experts(
+                hidden_states
+            )
+        return final_hidden_states.to(hidden_states.dtype)

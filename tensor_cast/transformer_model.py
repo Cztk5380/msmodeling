@@ -199,7 +199,6 @@ class TransformerModel(ModelBase):
                     moe_config,
                     gate,
                     experts,
-                    self.text_config.hidden_act,
                     shared_experts,
                     top_k,
                     norm_topk_prob,

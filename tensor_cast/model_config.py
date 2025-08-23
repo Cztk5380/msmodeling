@@ -124,9 +124,6 @@ class MoEFieldNames:
     shared_experts: str = "shared_experts"
     top_k: str = "top_k"
     norm_topk_prob: str = "norm_topk_prob"
-    gate_proj: str = "gate_proj"
-    up_proj: str = "up_proj"
-    down_proj: str = "down_proj"
 
 
 @dataclasses.dataclass

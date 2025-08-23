@@ -26,11 +26,11 @@ class ModelLoadTestCase(unittest.TestCase):
         num_tokens = 100
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
-        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        inputs = torch.empty([2, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([2, num_tokens], dtype=torch.long, device="meta")
         with torch.no_grad(), patch_torch():
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (2, num_tokens, model.hidden_size))
 
     @parameterized.expand(
         [

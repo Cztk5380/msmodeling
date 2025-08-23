@@ -1,21 +1,43 @@
-from typing import List, Optional
+from typing import List, Tuple
 
 import torch
 
 from ..utils import register_tensor_cast_op
 
 
-@register_tensor_cast_op("fused_moe")
-def _fused_moe(
+@register_tensor_cast_op("dispatch_tokens")
+def _dispatch_tokens(
     x: torch.Tensor,
-    experts_gate: List[torch.Tensor],
-    experts_up: List[torch.Tensor],
-    experts_down: List[torch.Tensor],
-    shared_experts_gate: Optional[torch.Tensor],
-    shared_experts_up: Optional[torch.Tensor],
-    shared_experts_down: Optional[torch.Tensor],
     topk_indices: torch.Tensor,
     topk_weights: torch.Tensor,
-    hidden_act: str,
-) -> torch.Tensor:
-    return torch.empty_like(x)
+    num_experts: int,
+) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+    num_tokens = topk_indices.numel()
+    num_tokens_per_expert = num_tokens // num_experts
+    num_tokens_last_expert = num_tokens - num_tokens_per_expert * (num_experts - 1)
+    dispatched_x = [
+        torch.empty(
+            (num_tokens_per_expert, x.shape[-1]), dtype=x.dtype, device=x.device
+        )
+        for _ in range(num_experts - 1)
+    ]
+    dispatched_x.append(
+        torch.empty(
+            (num_tokens_last_expert, x.shape[-1]), dtype=x.dtype, device=x.device
+        )
+    )
+    dispatched_indices = [
+        torch.empty((num_tokens_per_expert,), dtype=torch.long, device=x.device)
+        for _ in range(num_experts - 1)
+    ]
+    dispatched_indices.append(
+        torch.empty((num_tokens_last_expert,), dtype=torch.long, device=x.device)
+    )
+    dispatched_weights = [
+        torch.empty((num_tokens_per_expert,), dtype=x.dtype, device=x.device)
+        for _ in range(num_experts - 1)
+    ]
+    dispatched_weights.append(
+        torch.empty((num_tokens_last_expert,), dtype=torch.long, device=x.device)
+    )
+    return dispatched_x, dispatched_indices, dispatched_weights
