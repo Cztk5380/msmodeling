@@ -4,6 +4,8 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from ..compilation import get_backend
+
 from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
 from ..model_config import ModelConfig, ParallelConfig, QuantConfig
 from ..patch_torch import patch_torch
@@ -46,7 +48,9 @@ class ModelLoadTestCase(unittest.TestCase):
         model = TransformerModel(model_id, model_config)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        model = torch.compile(model, backend="eager", fullgraph=True, dynamic=True)
+        model = torch.compile(
+            model, backend=get_backend(), fullgraph=True, dynamic=True
+        )
         with torch.no_grad(), patch_torch():
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
@@ -88,7 +92,7 @@ class ModelLoadTestCase(unittest.TestCase):
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         model_compiled = torch.compile(
-            model, backend="eager", fullgraph=True, dynamic=True
+            model, backend=get_backend(), fullgraph=True, dynamic=True
         )
         with torch.no_grad(), patch_torch():
             outputs = model_compiled.forward(inputs, position_ids)
@@ -138,7 +142,9 @@ class ModelLoadTestCase(unittest.TestCase):
         )
         model = TransformerModel(model_id, model_config)
         if do_compile:
-            model = torch.compile(model, backend="eager", dynamic=True, fullgraph=True)
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         kv_cache_by_layers = {}

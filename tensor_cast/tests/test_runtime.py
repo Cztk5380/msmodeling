@@ -4,6 +4,8 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from ..compilation import get_backend
+
 from ..layers.attention import AttentionTensorCast
 from ..machine import A2
 from ..model_config import ModelConfig, ParallelConfig, QuantConfig
@@ -25,7 +27,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         self.assertEqual(len(runtime.event_list), 3)
 
     def test_simple_model_compile(self):
-        @torch.compile(backend="eager")
+        @torch.compile(backend=get_backend())
         def func(x):
             return x + x
 
@@ -54,7 +56,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         )
         model = TransformerModel(model_id, model_config)
         if do_compile:
-            model = torch.compile(model, backend="eager", fullgraph=True)
+            model = torch.compile(model, backend=get_backend(), fullgraph=True)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         machine_config = A2
