@@ -64,7 +64,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
-        self.assertTrue("tensor_cast." in runtime.table_averages())
+        self.assertIn("tensor_cast.", runtime.table_averages())
 
     def test_table_averages_default(self):
         def func(x):
@@ -76,12 +76,12 @@ class PerfAnalysisTestCase(unittest.TestCase):
             x = torch.randn([100], device="meta")
             _ = func(x)
         result = runtime.table_averages()
-        self.assertTrue("analytic total" in result)
-        self.assertTrue("analytic avg" in result)
-        self.assertTrue("aten.randn" in result)
-        self.assertTrue("aten.add" in result)
-        self.assertTrue("aten.mul" in result)
-        self.assertTrue("# of Calls" in result)
+        self.assertIn("analytic total", result)
+        self.assertIn("analytic avg", result)
+        self.assertIn("aten.randn", result)
+        self.assertIn("aten.add", result)
+        self.assertIn("aten.mul", result)
+        self.assertIn("# of Calls", result)
 
     def test_table_averages_group_by_shape(self):
         def func(x, y):
@@ -94,13 +94,13 @@ class PerfAnalysisTestCase(unittest.TestCase):
             y = torch.randn([10, 1], device="meta")
             _ = func(x, y)
         result = runtime.table_averages(group_by_input_shapes=True)
-        self.assertTrue("analytic total" in result)
-        self.assertTrue("analytic avg" in result)
-        self.assertTrue("Input Shapes" in result)
-        self.assertTrue("aten.randn" in result)
-        self.assertTrue("aten.add" in result)
-        self.assertTrue("aten.mul" in result)
-        self.assertTrue("# of Calls" in result)
+        self.assertIn("analytic total", result)
+        self.assertIn("analytic avg", result)
+        self.assertIn("Input Shapes", result)
+        self.assertIn("aten.randn", result)
+        self.assertIn("aten.add", result)
+        self.assertIn("aten.mul", result)
+        self.assertIn("# of Calls", result)
 
     def test_export_chrome_trace(self):
         def func(x):
@@ -115,6 +115,6 @@ class PerfAnalysisTestCase(unittest.TestCase):
             runtime.export_chrome_trace(temp_file)
             temp_file.seek(0)
             content = temp_file.read()
-            self.assertTrue("aten.randn" in content)
-            self.assertTrue("aten.add" in content)
-            self.assertTrue("aten.mul" in content)
+            self.assertIn("aten.randn", content)
+            self.assertIn("aten.add", content)
+            self.assertIn("aten.mul", content)

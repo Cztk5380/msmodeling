@@ -28,6 +28,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         ]
     )
     def test_rms_norm_pattern(self, model_id):
+        # FIXME: this test cannot pass with torch>=2.8, we should fix it
         num_tokens = 100
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
@@ -37,7 +38,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         model = torch.compile(
             model, backend=self.compile_backend, fullgraph=True, dynamic=True
         )
-        # Comiple the FX graph by first run and Check output shape
+        # Compile the FX graph by first run and Check output shape
         with torch.no_grad(), patch_torch():
             outputs = model.forward(self.inputs, self.position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))

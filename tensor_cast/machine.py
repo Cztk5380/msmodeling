@@ -8,6 +8,8 @@ import torch
 class MachineConfig:
     name: str
 
+    all_machines: ClassVar[Dict[str, "MachineConfig"]] = {}
+
     DTYPES: ClassVar[List[torch.dtype]] = [
         torch.float32,
         torch.half,
@@ -17,11 +19,16 @@ class MachineConfig:
     ]
 
     ops: Dict[torch.dtype, float] = field(default_factory=dict)
+    compute_efficiency: float = 1.0
     memory_size_bytes: float = 0
     memory_bandwidth_bytes_ps: float = 0  # Bytes/s
+    memory_efficiency: float = 1.0
 
     # TODO: add cache properties
     # TODO: add interconnnect properties
+
+    def __post_init__(self):
+        self.all_machines[self.name] = self
 
 
 # TODO: name various SKUs correctly
@@ -38,7 +45,7 @@ class MachineConfig:
 # )
 
 A2 = MachineConfig(
-    name="910B",
+    name="A2",
     ops={
         torch.float32: 44 * 1e12,
         torch.bfloat16: 280 * 1e12,
@@ -47,4 +54,7 @@ A2 = MachineConfig(
     },
     memory_size_bytes=64 * (1024**3),
     memory_bandwidth_bytes_ps=1.6 * (1024**4),
+    # The efficiencies are something we need to calibrate
+    compute_efficiency=0.7,
+    memory_efficiency=0.6,
 )

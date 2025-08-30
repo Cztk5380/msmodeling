@@ -1,3 +1,5 @@
+from typing import Optional
+
 import torch
 
 from ..utils import register_tensor_cast_op
@@ -18,11 +20,27 @@ def _attention(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    attention_mask: torch.Tensor,
-    block_table: torch.Tensor,
-    query_start_loc: torch.Tensor,
-    seq_lens: torch.Tensor,
+    attention_mask: Optional[torch.Tensor],
+    block_table: Optional[torch.Tensor],
+    query_start_loc: Optional[torch.Tensor],
+    seq_lens: Optional[torch.Tensor],
 ) -> torch.Tensor:
+    """
+    Normal attention: MHA/GQA/MQA
+
+    Args:
+        query: (num_tokens, hidden_size)
+        key:
+            (total_num_blocks, block_size, kv_head_num, head_size) if block_table exists,
+            otherwise (*, kv_head_num, head_size)
+        value:
+            (total_num_blocks, block_size, kv_head_num, head_size) if block_table exists,
+            otherwise (*, kv_head_num, head_size)
+        attention_mask: (batch_size, num_heads, max_q_len, max_seq_len)
+        block_table: (batch_size, max_blocks_per_seq)
+        query_start_loc: (batch_size + 1,), the start location of each request in query Tensor
+        seq_len: (batch_size,), the length of each request including both computed tokens and newly scheduled tokens
+    """
     return torch.empty_like(query).contiguous()
 
 
@@ -31,15 +49,34 @@ def _attention_quant(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    attention_mask: torch.Tensor,
-    block_table: torch.Tensor,
-    query_start_loc: torch.Tensor,
-    seq_lens: torch.Tensor,
+    attention_mask: Optional[torch.Tensor],
+    block_table: Optional[torch.Tensor],
+    query_start_loc: Optional[torch.Tensor],
+    seq_lens: Optional[torch.Tensor],
     query_scale: torch.Tensor,
-    query_offset: torch.Tensor,
+    query_offset: Optional[torch.Tensor],
     kv_scale: torch.Tensor,
-    kv_offset: torch.Tensor,
+    kv_offset: Optional[torch.Tensor],
     attention_prob_scale: torch.Tensor,
-    attention_prob_offset: torch.Tensor,
+    attention_prob_offset: Optional[torch.Tensor],
 ) -> torch.Tensor:
+    """
+    Quantized version of normal attention: MHA/GQA/MQA
+
+    Args:
+        query: (num_tokens, hidden_size)
+        key:
+            (total_num_blocks, block_size, kv_head_num, head_size) if block_table exists,
+            otherwise (*, kv_head_num, head_size)
+        value:
+            (total_num_blocks, block_size, kv_head_num, head_size) if block_table exists,
+            otherwise (*, kv_head_num, head_size)
+        attention_mask: (batch_size, num_heads, max_q_len, max_seq_len)
+        block_table: (batch_size, max_blocks_per_seq)
+        query_start_loc: (batch_size + 1,), the start location of each request in query Tensor
+        seq_len: (batch_size,), the length of each request including both computed tokens and newly scheduled tokens
+        query_scale/query_offset: quant param for query, per-tensor or per-token
+        kv_scale/kv_offset: quant param for KV cache, per-tensor or per channel (along head_size)
+        attention_prob_scale/attention_prob_offset: quant param for input of the second BMM
+    """
     return torch.empty_like(query).contiguous()

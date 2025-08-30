@@ -27,8 +27,6 @@ class AttentionMetadataBase:
     """(num_tokens,) The indices of the token slots that input tokens will be
     stored into."""
 
-    causal: bool = True
-
 
 class AttentionBase(torch.nn.Module):
     attn_implmentation = None
@@ -38,7 +36,7 @@ class AttentionBase(torch.nn.Module):
         query: torch.Tensor,
         key: torch.Tensor,
         value: torch.Tensor,
-        attention_mask: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
         kv_cache: Optional[torch.Tensor] = None,
         attention_meta: Optional[AttentionMetadataBase] = None,
         **kwargs,
@@ -53,7 +51,7 @@ def flash_attention_forward(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
-    attention_mask: torch.Tensor,
+    attention_mask: Optional[torch.Tensor],
     **kwargs,
 ):
     attention_by_layers: Optional[dict[int, AttentionBase]] = kwargs.pop(
@@ -107,7 +105,7 @@ class AttentionTensorCast(AttentionBase):
         query: torch.Tensor,
         key: torch.Tensor,
         value: torch.Tensor,
-        attention_mask: torch.Tensor,
+        attention_mask: Optional[torch.Tensor],
         kv_cache: Optional[torch.Tensor] = None,
         attention_meta: Optional[AttentionMetadataBase] = None,
         **kwargs,

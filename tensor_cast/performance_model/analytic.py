@@ -55,20 +55,15 @@ def _estimate_default(
                 )
                 continue
             compute_ops = perf_properties.compute_ops[dtype]
-            compute_time_s += (
-                compute_ops.fused_multiply_add_ops / machine_config.ops[dtype]
-            )
-            compute_time_s += compute_ops.arithmetic_ops / machine_config.ops[dtype]
-    memory_read_time_s = (
-        perf_properties.memory_read_bytes / machine_config.memory_bandwidth_bytes_ps
+            machine_ops = machine_config.ops[dtype] * machine_config.compute_efficiency
+            compute_time_s += compute_ops.fused_multiply_add_ops / machine_ops
+            compute_time_s += compute_ops.arithmetic_ops / machine_ops
+    memory_bandwidth = (
+        machine_config.memory_bandwidth_bytes_ps * machine_config.memory_efficiency
     )
-    memory_write_time_s = (
-        perf_properties.memory_write_bytes / machine_config.memory_bandwidth_bytes_ps
-    )
-    memory_readwrite_time_s = (
-        perf_properties.memory_readwrite_bytes
-        / machine_config.memory_bandwidth_bytes_ps
-    )
+    memory_read_time_s = perf_properties.memory_read_bytes / memory_bandwidth
+    memory_write_time_s = perf_properties.memory_write_bytes / memory_bandwidth
+    memory_readwrite_time_s = perf_properties.memory_readwrite_bytes / memory_bandwidth
     memory_access_time_s = (
         memory_read_time_s + memory_write_time_s + memory_readwrite_time_s
     )
@@ -86,16 +81,33 @@ def _estimate_default(
     return result
 
 
-@register_op_estimator(None, "910B")
+def _estimate_static_cost(
+    op_invoke_info: OpInvokeInfo, machine_config: MachineConfig
+) -> float:
+    perf_properties = op_invoke_info.get_perf_properties()
+    if (
+        perf_properties.network_send_bytes > 0
+        or perf_properties.network_receive_bytes > 0
+    ):
+        return 10 * 1e-6
+    for dtype in MachineConfig.DTYPES:
+        if dtype in perf_properties.compute_ops:
+            if dtype not in machine_config.ops:
+                continue
+            compute_ops = perf_properties.compute_ops[dtype]
+            if compute_ops.fused_multiply_add_ops > 0:
+                return 5 * 1e-6
+    return 2 * 1e-6
+
+
+@register_op_estimator(None, "A2")
 def _estimate_default_A2(
     op_invoke_info: OpInvokeInfo, machine_config: MachineConfig
 ) -> PerformanceModel.Result:
     if is_view_op(op_invoke_info.func):
         return PerformanceModel.Result(0.0)
     result = _estimate_default(op_invoke_info, machine_config)
-    # XXX: what is the right static cost? 5us?
-    static_cost = 5 * 1e-6
-    result.execution_time_s += static_cost
+    result.execution_time_s += _estimate_static_cost(op_invoke_info, machine_config)
     return result
 
 

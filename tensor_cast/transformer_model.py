@@ -1,8 +1,8 @@
 import contextlib
+import fnmatch
 from typing import Dict, Optional, Union
 
 import torch
-
 from transformers import AutoConfig, AutoModel
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
@@ -216,18 +216,32 @@ class TransformerModel(ModelBase):
         if self.model_config.quant_linear_cls is None:
             return
 
+        # get all the wildcard names from the configuration
+        wild_card_linear_configs = {}
+        for name in self.model_config.quant_config.linear_configs:
+            if "*" in name or "?" in name:
+                wild_card_linear_configs[name] = (
+                    self.model_config.quant_config.linear_configs[name]
+                )
+
         for name, module in self.model.named_modules():
             # We need to find the parent module to replace the child
-            if (
-                isinstance(module, torch.nn.Linear)
-                and name in self.model_config.quant_config.linear_configs
-            ):
-                quant_config = self.model_config.quant_config.linear_configs[name]
-                # Create and set the new quantized module
-                quantized_module = self.model_config.quant_linear_cls(
-                    module, quant_config
-                )
-                self._replace_module(name, quantized_module)
+            if isinstance(module, torch.nn.Linear):
+                quant_config = None
+                if name in self.model_config.quant_config.linear_configs:
+                    quant_config = self.model_config.quant_config.linear_configs[name]
+                else:
+                    for wildcard_name in self.model_config.quant_config.linear_configs:
+                        if fnmatch.fnmatch(name, wildcard_name):
+                            # we only count in the first match
+                            quant_config = wild_card_linear_configs[wildcard_name]
+                            break
+                if quant_config:
+                    # Create and set the new quantized module
+                    quantized_module = self.model_config.quant_linear_cls(
+                        module, quant_config
+                    )
+                    self._replace_module(name, quantized_module)
 
     def quantize_model(self):
         self.quant_linear()

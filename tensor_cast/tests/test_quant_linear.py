@@ -40,8 +40,15 @@ def get_linear_quant_config(quant_type, weight, **kwargs):
     return LinearQuantConfig(**config_args)
 
 
-def get_quant_config(model, quant_type=LinearQuantType.W4A8, **kwargs):
+def get_quant_config(model=None, quant_type=LinearQuantType.W4A8, **kwargs):
     quant_config = QuantConfig()
+    if model is None:
+        quant_config.linear_configs["*"] = get_linear_quant_config(
+            quant_type,
+            torch.randn(1),
+            **kwargs,
+        )
+        return quant_config
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.Linear):
             quant_config.linear_configs[name] = get_linear_quant_config(
@@ -237,6 +244,39 @@ class TestQuantLinear(unittest.TestCase):
             # ["zai-org/GLM-4.5"],  # disable due to long test time
         ]
     )
+    def test_model_quant_wildcard(self, model_id):
+        import time
+
+        model_config_with_quant = ModelConfig(
+            ParallelConfig(),
+            get_quant_config(),
+            quant_linear_cls=TensorCastQuantLinear,
+        )
+        start = time.time()
+        qmodel = TransformerModel(model_id, model_config_with_quant)
+        print(f"model init time: {time.time() - start}")
+        num_linear_modules = sum(
+            1
+            for _, module in qmodel.named_modules()
+            if isinstance(module, torch.nn.Linear)
+        )
+        self.assertEqual(num_linear_modules, 0)
+
+        num_tokens = 100
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        with torch.no_grad(), patch_torch():
+            outputs = qmodel.forward(inputs, position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B"],
+            # ["Qwen/Qwen3-235B-A22B"],
+            # ["deepseek-ai/DeepSeek-V3"],
+            # ["zai-org/GLM-4.5"],  # disable due to long test time
+        ]
+    )
     def test_model_quant_base(self, model_id):
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
@@ -330,5 +370,5 @@ class TestQuantLinear(unittest.TestCase):
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
         result = runtime.table_averages()
-        self.assertTrue("tensor_cast.quantize.default" in result)
-        self.assertTrue("tensor_cast.static_quant_linear.default" in result)
+        self.assertIn("tensor_cast.quantize.default", result)
+        self.assertIn("tensor_cast.static_quant_linear.default", result)
