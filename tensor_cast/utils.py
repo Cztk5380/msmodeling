@@ -1,6 +1,3 @@
-import logging
-import os
-
 import torch
 
 
@@ -19,12 +16,3 @@ def register_tensor_cast_op(name, mutates_args=(), **kwargs):
         return func
 
     return decorator
-
-
-_LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
-
-
-def init_logger(name: str):
-    logger = logging.getLogger(name)
-    logger.setLevel(_LOG_LEVEL)
-    return logger

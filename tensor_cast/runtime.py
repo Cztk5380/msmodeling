@@ -52,6 +52,10 @@ class Runtime(TorchDispatchMode):
 
         self.exit_stack = contextlib.ExitStack()
 
+    @classmethod
+    def is_infra_mode(cls):
+        return True
+
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         kwargs = {} if kwargs is None else kwargs
         out = func(*args, **kwargs)

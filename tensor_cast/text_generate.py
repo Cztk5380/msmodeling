@@ -1,9 +1,13 @@
 import argparse
+import logging
 import random
 from enum import StrEnum
 from typing import Optional
 
 import torch
+
+from . import config
+from .compilation import get_backend
 
 from .layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
 from .layers.quant_linear import TensorCastQuantLinear
@@ -147,7 +151,9 @@ def run_inference(
     model = TransformerModel(model_id, model_config)
     if do_compile:
         print("   Compiling model with torch.compile...")
-        model = torch.compile(model, backend="eager", dynamic=True, fullgraph=True)
+        model = torch.compile(
+            model, backend=get_backend(), dynamic=True, fullgraph=True
+        )
         print("   ...compilation complete.")
 
     print("Preparing dummy input tensors...")
@@ -248,8 +254,26 @@ def main():
         default=None,
         help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
     )
+    parser.add_argument(
+        "--graph-log-url",
+        type=str,
+        default=None,
+        help="For debug: the path for dumping the compiled graphs if compile is on",
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default=None,
+        help="Logging level",
+    )
 
     args = parser.parse_args()
+
+    if args.log_level:
+        logging.basicConfig(level=args.log_level.upper())
+
+    if args.graph_log_url:
+        config.compilation.debug.graph_log_url = args.graph_log_url
 
     run_inference(
         machine=args.machine,
