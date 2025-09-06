@@ -433,14 +433,159 @@ def _attention_properties(
     # Total FLOPs = FMA_ops * 2
     bmm2_ops = context_len_product_sum * num_q_heads * head_size * 2
 
-    total_ops = bmm1_ops + softmax_ops + bmm2_ops
-
     properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={1, 2})
     # KV cache access: query i accesses 2 * seq_len_i slots with kv_head_num * head_size * element_size each.
     properties.memory_read_bytes += torch.sum(
         seq_lens * 2 * kv_head_num * head_size * key.element_size()
     ).item()
     properties.compute_ops[query.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[query.dtype].fused_multiply_add_ops = int(total_ops)
+    properties.compute_ops[query.dtype].fused_multiply_add_ops = bmm1_ops + bmm2_ops
+    properties.compute_ops[query.dtype].arithmetic_ops = softmax_ops
+
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.concat_and_cache_mla.default)
+def _concat_and_cache_mla_properties(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 4
+    kv_c_normed = op_invoke_info.args[0]
+    k_rot = op_invoke_info.args[1]
+    kv_cache = op_invoke_info.args[2]
+
+    properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={2})
+    properties.memory_write_bytes += (
+        kv_c_normed.nelement() + k_rot.nelement()
+    ) * kv_cache.element_size()
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.multihead_latent_attention.default
+)
+def _multihead_latent_attention_properties(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    # 1. Argument and Dimension Extraction
+    assert len(op_invoke_info.args) == 11
+    (
+        q,
+        kv_c_normed,
+        k_rot,
+        kv_cache,
+        _,
+        query_start_loc,
+        seq_lens,
+        W_UK_T,
+        W_UV,
+        kv_b_proj,
+        v_head_dim,
+    ) = op_invoke_info.args
+
+    # Extract dimensions from input tensors
+    num_heads = q.size(1)
+    q_head_dim = q.size(2)
+    kv_lora_rank = kv_c_normed.size(1)
+    qk_rope_head_dim = k_rot.size(1)
+    qk_nope_head_dim = q_head_dim - qk_rope_head_dim
+
+    # 2. Separate Prefill and Decode Sequences
+    # A sequence is in "decode" if it's processing only one query token.
+    # Otherwise, it's in "prefill".
+    num_tokens_per_seq = query_start_loc[1:] - query_start_loc[:-1]
+    PREDICTIVE_DECODING_THRESHOLD = 5
+    is_decode = num_tokens_per_seq < PREDICTIVE_DECODING_THRESHOLD
+    is_prefill = ~is_decode
+
+    total_fma_ops = 0
+    total_arith_ops = 0
+
+    # 3. Calculate FLOPs for the Prefill Phase
+    num_prefill_tokens = torch.sum(num_tokens_per_seq[is_prefill]).item()
+    if num_prefill_tokens > 0:
+        assert kv_b_proj is not None
+        prefill_seq_lens = seq_lens[is_prefill]
+        prefill_num_tokens_per_seq = num_tokens_per_seq[is_prefill]
+
+        # Op 1: Project compressed KV: `kv_c_normed @ kv_b_proj`
+        # Shapes: (num_prefill_tokens, kv_lora_rank) @ (kv_lora_rank, num_heads * (qk_nope_head_dim + v_head_dim))
+        kv_proj_out_dim = num_heads * (qk_nope_head_dim + v_head_dim)
+        prefill_op1_ops = num_prefill_tokens * kv_proj_out_dim * kv_lora_rank * 2
+
+        # For attention ops, we need the sum of (query_len * key_len) over the batch
+        prefill_context_sum = torch.sum(
+            prefill_num_tokens_per_seq.to(prefill_seq_lens.dtype) * prefill_seq_lens
+        ).item()
+
+        # Op 2: Score calculation: `q @ K`
+        prefill_op2_ops = prefill_context_sum * num_heads * q_head_dim * 2
+
+        # Op 3: Softmax
+        prefill_op3_ops = prefill_context_sum * num_heads * 4
+
+        # Op 4: Score aggregation: `Scores @ V`
+        prefill_op4_ops = prefill_context_sum * num_heads * v_head_dim * 2
+
+        total_fma_ops += prefill_op1_ops + prefill_op2_ops + prefill_op4_ops
+        total_arith_ops += prefill_op3_ops
+
+    # 4. Calculate FLOPs for the Decode Phase
+    num_decode_tokens = torch.sum(is_decode).item()
+    if num_decode_tokens > 0:
+        assert W_UK_T is not None and W_UV is not None
+        decode_seq_lens = seq_lens[is_decode]
+        decode_num_tokens_per_seq = num_tokens_per_seq[is_decode]
+
+        # The total number of key/value tokens to attend to across all decode sequences
+        decode_context_sum = torch.sum(
+            decode_num_tokens_per_seq.to(decode_seq_lens.dtype) * decode_seq_lens
+        ).item()
+
+        # The decode formula is: softmax(q_nope @ W_UK_T @ k_cache) @ v_cache @ W_UV
+        # Op 1: `q_nope @ W_UK_T`
+        # Shapes: (num_decode_tokens, num_heads, qk_nope_head_dim) @ (num_heads, qk_nope_head_dim, kv_lora_rank)
+        decode_op1_ops = (
+            num_decode_tokens * num_heads * qk_nope_head_dim * kv_lora_rank * 2
+        )
+
+        # Op 2: `(result_op1, q_rope) @ kv_cache`
+        decode_op2_ops = (
+            decode_context_sum * num_heads * (kv_lora_rank + qk_rope_head_dim) * 2
+        )
+
+        # Op 3: Softmax
+        decode_op3_ops = decode_context_sum * num_heads * 4
+
+        # Op 4: `Scores @ v_cache`
+        decode_op4_ops = decode_context_sum * num_heads * kv_lora_rank * 2
+
+        # Op 5: `(result_op4) @ W_UV`
+        # Shapes: (num_decode_tokens, num_heads, kv_lora_rank) @ (num_heads, kv_lora_rank, v_head_dim)
+        decode_op5_ops = num_decode_tokens * num_heads * kv_lora_rank * v_head_dim * 2
+
+        total_fma_ops += (
+            decode_op1_ops + decode_op2_ops + decode_op4_ops + decode_op5_ops
+        )
+        total_arith_ops += decode_op3_ops
+
+    properties = op_invoke_info.get_memory_access_properties(
+        exclude_input_ids={3}
+    )  # exclude kv_cache
+
+    # Estimate memory read from the KV Cache.
+    # Each token in a sequence reads all previous key/value states for that sequence.
+    # The size of a cached entry is (kv_lora_rank + qk_rope_head_dim).
+    cache_entry_size = (kv_lora_rank + qk_rope_head_dim) * kv_cache.element_size()
+
+    # `context_len_product_sum` from the previous example can be reused here.
+    context_len_product_sum = torch.sum(
+        num_tokens_per_seq.to(seq_lens.dtype) * seq_lens
+    ).item()
+    properties.memory_read_bytes += context_len_product_sum * cache_entry_size
+
+    properties.compute_ops[q.dtype] = OpInvokeInfo.ComputeOps()
+    properties.compute_ops[q.dtype].fused_multiply_add_ops = total_fma_ops
+    properties.compute_ops[q.dtype].arithmetic_ops = total_arith_ops
 
     return properties

@@ -1,0 +1,163 @@
+from abc import ABC, abstractmethod
+from typing import Any, Optional
+
+import torch
+
+from .. import ops  # noqa: F401
+from ..model_config import MlaConfig
+from .attention import AttentionMetadataBase
+
+
+class MultiheadLatentAttentionBase(torch.nn.Module, ABC):
+    def __init__(
+        self,
+        mla_config: MlaConfig,
+        mla_module: torch.nn.Module,
+        decode_only: bool = False,
+    ) -> None:
+        super().__init__()
+        self.mla_config = mla_config
+        self._inner = mla_module
+        self.decode_only = decode_only
+
+    @abstractmethod
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor],
+        attention_mask: Optional[torch.Tensor],
+        kv_cache: Optional[torch.Tensor] = None,
+        attention_meta: Optional[AttentionMetadataBase] = None,
+        **kwargs,
+    ) -> tuple[torch.Tensor, None]:
+        pass
+
+    def __getattr__(self, name: str) -> Any:
+        if hasattr(self.mla_config.field_names, name):
+            return getattr(self._inner, getattr(self.mla_config.field_names, name))
+        return super().__getattr__(name)
+
+
+# rotary embedding functions copied from DeepSeek-v3 model in Transformers
+def rotate_half(x):
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]  # noqa: E203
+    return torch.cat((-x2, x1), dim=-1)
+
+
+def apply_rotary_pos_emb(q, k, cos, sin):
+    cos = cos.view(-1, cos.shape[-1])
+    sin = sin.view(-1, sin.shape[-1])
+    q_embed = (q * cos.unsqueeze(1)) + (rotate_half(q) * sin.unsqueeze(1))
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+
+
+def apply_rotary_pos_emb_interleave(q, k, cos, sin, unsqueeze_dim=1):
+    cos = cos.view(-1, cos.shape[-1])
+    sin = sin.view(-1, sin.shape[-1])
+
+    s, n, d = q.shape
+    q = q.view(s, n, d // 2, 2).transpose(-1, -2).reshape(s, n, d)
+
+    s, d = k.shape
+    k = k.view(s, d // 2, 2).transpose(-1, -2).reshape(s, d)
+
+    q_embed = (q * cos.unsqueeze(1)) + (rotate_half(q) * sin.unsqueeze(1))
+    k_embed = (k * cos) + (rotate_half(k) * sin)
+    return q_embed, k_embed
+
+
+class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
+    def __init__(
+        self,
+        mla_config: MlaConfig,
+        mla_module: torch.nn.Module,
+        decode_only: bool = False,
+    ):
+        super().__init__(mla_config, mla_module, decode_only)
+        kv_b_proj_view = self.kv_b_proj.weight.transpose(0, 1).view(
+            self.kv_lora_rank,
+            self.num_heads,
+            self.qk_nope_head_dim + self.v_head_dim,
+        )
+        W_UK, W_UV = kv_b_proj_view.split(
+            [self.qk_nope_head_dim, self.v_head_dim], dim=-1
+        )
+        self.W_UV = W_UV.transpose(0, 1)  # (num_heads, kv_lora_rank, v_head_dim)
+        self.W_UK_T = W_UK.permute(
+            1, 2, 0
+        )  # (num_heads, qk_nope_head_dim, kv_lora_rank)
+
+    def forward(
+        self,
+        hidden_states: torch.Tensor,
+        position_embeddings: tuple[torch.Tensor, torch.Tensor],
+        attention_mask: Optional[torch.Tensor],
+        kv_cache_unused: Optional[Any] = None,
+        attention_meta: Optional[AttentionMetadataBase] = None,
+        **kwargs,
+    ) -> tuple[torch.Tensor, None]:
+        kv_cache_by_layers = kwargs.pop("kv_cache_by_layers", None)
+        kv_cache = kv_cache_by_layers[self.layer_idx] if kv_cache_by_layers else None
+        batch_size, seq_length = hidden_states.shape[:-1]
+        num_tokens = batch_size * seq_length
+        hidden_states = hidden_states.view(num_tokens, -1)  # (num_tokens, hidden_size)
+        query_shape = (num_tokens, -1, self.qk_head_dim)
+
+        if self.q_lora_rank is None:
+            q_states = self.q_proj(hidden_states)
+        else:
+            q_states = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
+        q_states = q_states.view(query_shape)  # (num_tokens, num_heads, qk_head_dim)
+        # q_pass: (num_tokens, num_heads, qk_nope_head_dim)
+        # q_rot: (num_tokens, num_heads, qk_rope_head_dim)
+        q_pass, q_rot = torch.split(
+            q_states, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1
+        )
+
+        compressed_kv = self.kv_a_proj_with_mqa(
+            hidden_states
+        )  # (num_tokens, kv_lora_rank + qk_rope_head_dim)
+        # k_pass: (num_tokens, kv_lora_rank), k_rot: (num_tokens, qk_rope_head_dim)
+        k_pass, k_rot = torch.split(
+            compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1
+        )
+        kv_c_normed = self.kv_a_layernorm(k_pass)  # (num_tokens, kv_lora_rank)
+
+        cos, sin = position_embeddings
+        # TODO: only two rope algorithms are provided below, needed by DeepSeek but
+        #       other models might need more alternatives
+        if self.config.rope_interleave:
+            q_rot, k_rot = apply_rotary_pos_emb_interleave(q_rot, k_rot, cos, sin)
+        else:
+            q_rot, k_rot = apply_rotary_pos_emb(q_rot, k_rot, cos, sin)
+
+        # TODO: do inplace rotary embedding and save this torch.cat? Perhaps we can do this in graph rewrites?
+        q_states = torch.cat((q_pass, q_rot), dim=-1)
+
+        # TODO: support quantization
+        if attention_meta is not None:
+            torch.ops.tensor_cast.concat_and_cache_mla(
+                kv_c_normed, k_rot, kv_cache, attention_meta.slot_mapping
+            )
+
+        query_start_loc = attention_meta.query_start_loc if attention_meta else None
+        seq_lens = attention_meta.seq_lens if attention_meta else None
+        # we wrap the attention operation in a custom op since it behaves differently between prefill and decode shapes
+        attn_output = torch.ops.tensor_cast.multihead_latent_attention(
+            q_states,
+            kv_c_normed,
+            k_rot,
+            kv_cache,
+            attention_meta.block_table_tensor if attention_meta is not None else None,
+            query_start_loc,
+            seq_lens,
+            self.W_UK_T,
+            self.W_UV,
+            self.kv_b_proj.weight.transpose(0, 1),
+            self.v_head_dim,
+        )
+        attn_output = attn_output.reshape(batch_size, seq_length, -1).contiguous()
+        attn_output = self.o_proj(attn_output)
+        return attn_output, None

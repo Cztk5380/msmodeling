@@ -1,17 +1,25 @@
 import contextlib
+import dataclasses
 import fnmatch
+import importlib
+import json
+import logging
+import os
+import re
+import types
 from typing import Dict, Optional, Union
 
 import torch
-from transformers import AutoConfig, AutoModel
+from transformers import AutoConfig, AutoModel, PretrainedConfig
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
-from .layers import moe_defaults
 from .layers.attention import flash_attention_forward
 from .layers.moe_layer import MoELayer
 from .layers.rotary_embedding import CachingRotaryEmb
-from .model_config import ModelConfig, MoEConfig
+from .model_config import MlaFieldNames, ModelConfig, MoEConfig
+from .transformer_utils import model_id_to_moe_config
 
+logger = logging.getLogger(__name__)
 
 ALL_ATTENTION_FUNCTIONS["tensor_cast"] = flash_attention_forward
 
@@ -96,7 +104,11 @@ def init_on_device_without_buffers(device: torch.device):
 
 class TransformerModel(ModelBase):
     def __init__(
-        self, model_id: str, model_config: ModelConfig, disable_auto_map=False
+        self,
+        model_id: str,
+        model_config: ModelConfig,
+        hf_config_json: Optional[str] = None,
+        disable_auto_map: Optional[bool] = None,
     ):
         """
         Construct a transformer model wrapper that auto-loads a transformer model and converts
@@ -105,15 +117,30 @@ class TransformerModel(ModelBase):
         Args:
             model_id: transformer model id
             model_config: specify how we should load and convert the transformer model
+            hf_config_json: load transformer configuration from a local json file. When this
+                is specified, `disable_auto_map` is assumed to be True.
             disable_auto_map: set it to True if we want to use a local model definition, not
-                loading it from remote. Useful when the local transformer model is known to
-                be newer than the remote one, such as DeepSeek-V3.
+                loading it from remote. Useful when the local transformer model is preferred.
         """
         super().__init__()
         self.model_id = model_id
         self.model_config = model_config
         with init_on_device_without_buffers("meta"):
-            self.hf_config = AutoConfig.from_pretrained(model_id)
+            if hf_config_json is not None:
+                if not os.path.isabs(hf_config_json):
+                    hf_config_json = os.path.join(
+                        os.path.dirname(os.path.abspath(__file__)),
+                        "transformers_conf",
+                        hf_config_json,
+                    )
+                self.hf_config = self.load_hf_config_from_json(hf_config_json)
+                if disable_auto_map is not None and not disable_auto_map:
+                    raise ValueError(
+                        "When hf_config_json is specified, `disable_auto_map` should not be set to False."
+                    )
+                disable_auto_map = True
+            else:
+                self.hf_config = AutoConfig.from_pretrained(model_id)
             self.text_config = self.hf_config.get_text_config()
             if (
                 self.model_config.attention_cls
@@ -126,13 +153,33 @@ class TransformerModel(ModelBase):
                 delattr(self.hf_config, "auto_map")
             self.model = AutoModel.from_config(
                 self.hf_config,
-                torch_dtype=self.model_config.dtype,
+                dtype=self.model_config.dtype,
                 trust_remote_code=self.model_config.trust_remote_code,
             )
         self.patch_model()
         self.shard_model()
         self.quantize_model()
         self.load_weights()
+
+    def load_hf_config_from_json(self, hf_config_json: str) -> PretrainedConfig:
+        with open(hf_config_json) as f:
+            data = json.load(f)
+        if "auto_map" not in data or "AutoConfig" not in data["auto_map"]:
+            raise ValueError(f"Missing auto_map/AutoConfig in {hf_config_json}")
+        autoconfig_name: str = data["auto_map"]["AutoConfig"]
+        match = re.match(
+            r"configuration_([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)", autoconfig_name
+        )
+        if not match:
+            raise ValueError(
+                f"Unable to find model name or class name according to pattern"
+                f"'configuration_<model_name>.<class_name>' from the value of {autoconfig_name}"
+            )
+        model_name = match.group(1)
+        class_name = match.group(2)
+        module = importlib.import_module(f"transformers.models.{model_name}")
+        config_cls = getattr(module, class_name)
+        return config_cls.from_json_file(hf_config_json)
 
     def patch_model(self):
         """
@@ -149,6 +196,8 @@ class TransformerModel(ModelBase):
                     self.attention_by_layers[
                         i
                     ].quant_config = self.model_config.quant_config.attention_configs[i]
+
+        self.patch_mla()
 
         # cache rotary embedding to avoid computing it each time per forward
         if self.model_config.cache_rotary_embedding and hasattr(
@@ -175,13 +224,41 @@ class TransformerModel(ModelBase):
         #    with expert-parallelism (EP).
         self.fuse_moe(self.model_config.moe_config)
 
+    def patch_mla(self):
+        def is_optional(annotation):
+            if isinstance(annotation, types.UnionType):
+                return type(None) in annotation.__args__
+            return False
+
+        if self.model_config.mla_config:
+            mla_config = self.model_config.mla_config
+            named_modules = list(self.model.named_modules())
+            for name, module in named_modules:
+                if type(module).__name__ == mla_config.module_name:
+                    # check if all the required fields exist
+                    for field in dataclasses.fields(mla_config.field_names):
+                        if not is_optional(
+                            MlaFieldNames.__annotations__[field.name]
+                        ) and not hasattr(
+                            module, getattr(mla_config.field_names, field.name)
+                        ):
+                            logger.warning(
+                                "Field %s not found in module %s",
+                                getattr(mla_config.field_names, field.name),
+                                module,
+                            )
+                            continue
+                    mla = mla_config.mla_cls(mla_config, module)
+                    self._replace_module(name, mla)
+
     def fuse_moe(self, moe_config: Optional[MoEConfig]):
         if not moe_config:
-            moe_config = moe_defaults.model_id_to_config.setdefault(self.model_id, None)
+            moe_config = model_id_to_moe_config(self.model_id)
             if not moe_config:
                 return
 
-        for name, module in self.model.named_modules():
+        named_modules = list(self.model.named_modules())
+        for name, module in named_modules:
             if type(module).__name__ == moe_config.module_name:
                 gate = getattr(module, moe_config.field_names.gate, None)
                 experts = getattr(module, moe_config.field_names.experts, None)

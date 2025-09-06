@@ -136,6 +136,42 @@ class MoEConfig:
     # TODO: add expert-parallel configuration
 
 
+@dataclasses.dataclass(frozen=True)
+class MlaFieldNames:
+    config: str = "config"
+    layer_idx: str = "layer_idx"
+    num_heads: str = "num_heads"
+    q_lora_rank: str = "q_lora_rank"
+    qk_nope_head_dim: str = "qk_nope_head_dim"
+    qk_rope_head_dim: str = "qk_rope_head_dim"
+    qk_head_dim: str = "qk_head_dim"
+    kv_lora_rank: str = "kv_lora_rank"
+    v_head_dim: str = "v_head_dim"
+    q_proj: Optional[str] = "q_proj"
+    q_a_proj: Optional[str] = "q_a_proj"
+    q_b_proj: Optional[str] = "q_b_proj"
+    kv_a_proj_with_mqa: str = "kv_a_proj_with_mqa"
+    kv_b_proj: str = "kv_b_proj"
+    o_proj: str = "o_proj"
+    q_a_layernorm: Optional[str] = "q_a_layernorm"
+    kv_a_layernorm: str = "kv_a_layernorm"
+
+    def __post_init__(self):
+        if self.q_proj is None and (
+            self.q_a_proj is None or self.q_b_proj is None or self.q_a_layernorm is None
+        ):
+            raise ValueError(
+                "Either q_proj or all of q_a_proj/q_b_proj/q_a_layernorm must be specified"
+            )
+
+
+@dataclasses.dataclass
+class MlaConfig:
+    module_name: str
+    mla_cls: Optional[Type["MultiheadLatentAttentionBase"]] = None  # noqa: F821
+    field_names: MlaFieldNames = MlaFieldNames()
+
+
 @dataclasses.dataclass
 class ModelConfig:
     parallel_config: ParallelConfig
@@ -143,6 +179,7 @@ class ModelConfig:
     dtype: torch.dtype = torch.half
     cache_rotary_embedding: bool = True
     moe_config: Optional[MoEConfig] = None
+    mla_config: Optional[MlaConfig] = None
     attention_cls: Optional[Type["AttentionBase"]] = None  # noqa: F821
     quant_linear_cls: Optional[Type["QuantLinearBase"]] = None  # noqa: F821
     trust_remote_code: bool = True

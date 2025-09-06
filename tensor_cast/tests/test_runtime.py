@@ -7,11 +7,15 @@ from parameterized import parameterized
 from ..compilation import get_backend
 
 from ..layers.attention import AttentionTensorCast
+from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..machine import A2
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
+from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformer_model import TransformerModel
+from ..transformer_utils import model_id_to_json
+
+from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 
 
 class PerfAnalysisTestCase(unittest.TestCase):
@@ -49,7 +53,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
             # ["zai-org/GLM-4.5", True],
         ]
     )
-    def test_model_prefill_eager(self, model_id, do_compile):
+    def test_model(self, model_id, do_compile):
         num_tokens = 100
         model_config = ModelConfig(
             ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast
@@ -65,6 +69,46 @@ class PerfAnalysisTestCase(unittest.TestCase):
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
         self.assertIn("tensor_cast.", runtime.table_averages())
+
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1"],
+            ["moonshotai/Kimi-K2-Base"],
+        ]
+    )
+    def test_deepseek(self, model_id):
+        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        mla_config = MlaConfig(
+            module_name="DeepseekV3Attention",
+            mla_cls=MultiheadLatentAttentionTensorCast,
+        )
+        model_config.mla_config = mla_config
+        hf_config_json = model_id_to_json(model_id)
+        self.assertIsNotNone(hf_config_json)
+        model = TransformerModel(model_id, model_config, hf_config_json=hf_config_json)
+        attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
+            model, model_config
+        )
+        # make sure all original attention modules have been replaced
+        self.assertTrue(
+            has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
+        )
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        machine_config = A2
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(
+                inputs,
+                position_ids,
+                attention_meta=attn_meta,
+                kv_cache_by_layers=kv_cache_by_layers,
+            )
+            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.dispatch_tokens", result)
+        self.assertIn("tensor_cast.concat_and_cache_mla", result)
+        self.assertIn("tensor_cast.multihead_latent_attention", result)
 
     def test_table_averages_default(self):
         def func(x):
