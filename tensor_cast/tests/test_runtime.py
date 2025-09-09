@@ -12,8 +12,8 @@ from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
-from ..transformer_model import TransformerModel
-from ..transformer_utils import model_id_to_json
+from ..transformers.model import TransformerModel
+from ..transformers.utils import model_id_to_json
 
 from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 

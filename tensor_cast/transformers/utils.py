@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from .model_config import MoEConfig
+from liuren_modeling.tensor_cast.model_config import MoEConfig
 
 # TODO: Allow users to extend these default configurations from config.py
 

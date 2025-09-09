@@ -13,11 +13,11 @@ import torch
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
-from .layers.attention import flash_attention_forward
-from .layers.moe_layer import MoELayer
-from .layers.rotary_embedding import CachingRotaryEmb
-from .model_config import ModelConfig, MoEConfig
-from .transformer_utils import model_id_to_moe_config
+from ..layers.attention import flash_attention_forward
+from ..layers.moe_layer import MoELayer
+from ..layers.rotary_embedding import CachingRotaryEmb
+from ..model_config import ModelConfig, MoEConfig
+from .utils import model_id_to_moe_config
 
 logger = logging.getLogger(__name__)
 
@@ -130,7 +130,7 @@ class TransformerModel(ModelBase):
                 if not os.path.isabs(hf_config_json):
                     hf_config_json = os.path.join(
                         os.path.dirname(os.path.abspath(__file__)),
-                        "transformers_conf",
+                        "conf",
                         hf_config_json,
                     )
                 self.hf_config = self.load_hf_config_from_json(hf_config_json)

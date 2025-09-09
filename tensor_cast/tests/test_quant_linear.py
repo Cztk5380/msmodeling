@@ -18,7 +18,7 @@ from ..model_config import (
 from ..patch_torch import patch_torch
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
-from ..transformer_model import TransformerModel
+from ..transformers.model import TransformerModel
 
 
 # Define common parameters for tests

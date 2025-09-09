@@ -16,7 +16,7 @@ from ..model_config import (
 )
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
-from ..transformer_model import TransformerModel
+from ..transformers.model import TransformerModel
 
 
 def get_linear_quant_config():
