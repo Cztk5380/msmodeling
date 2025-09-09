@@ -1,5 +1,5 @@
 import dataclasses
-from enum import auto, Enum, StrEnum
+from enum import auto, Enum
 from typing import Dict, Optional, Type
 
 import torch
@@ -107,23 +107,13 @@ class ParallelConfig:
     pass
 
 
-class MoEKey(StrEnum):
-    """Keys used in a Mixture of Experts model configuration."""
-
-    GATE = "gate"
-    EXPERTS = "experts"
-    SHARED_EXPERTS = "shared_experts"
-    TOP_K = "top_k"
-    NORM_TOPK_PROB = "norm_topk_prob"
-
-
 @dataclasses.dataclass(frozen=True)
 class MoEFieldNames:
     gate: str = "gate"
     experts: str = "experts"
-    shared_experts: str = "shared_experts"
-    top_k: str = "top_k"
-    norm_topk_prob: str = "norm_topk_prob"
+    shared_experts: Optional[str] = "shared_experts"
+    top_k: Optional[str] = "top_k"
+    norm_topk_prob: Optional[str] = "norm_topk_prob"
 
 
 @dataclasses.dataclass

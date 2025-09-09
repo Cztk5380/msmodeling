@@ -8,10 +8,10 @@ import torch
 
 from . import config
 from .compilation import get_backend
+from .device import DeviceProfile
 
 from .layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
 from .layers.quant_linear import TensorCastQuantLinear
-from .machine import MachineConfig
 from .model_config import (
     LinearQuantConfig,
     LinearQuantType,
@@ -77,9 +77,9 @@ def run_inference(
     """
     Sets up and runs a simulated LLM inference pass.
     """
-    if str(machine) not in MachineConfig.all_machines:
+    if str(machine) not in DeviceProfile.all_machines:
         raise ValueError(f"Machine '{machine}' not recognized.")
-    machine_config = MachineConfig.all_machines[str(machine)]
+    machine_config = DeviceProfile.all_machines[str(machine)]
 
     print("--- Configuration ---")
     print(f"machine: {machine_config}")

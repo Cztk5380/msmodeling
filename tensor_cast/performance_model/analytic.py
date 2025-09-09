@@ -3,7 +3,7 @@ from typing import Callable, List, Union
 
 from overrides import override
 
-from ..machine import MachineConfig
+from ..device import DeviceProfile
 
 from ..performance_model import OpInvokeInfo, PerformanceModel
 from .utils import is_view_op
@@ -30,7 +30,7 @@ def register_op_estimator(op, machine_names: Union[str, List[str]]):
 
 def _get_op_estimator(
     op, machine_name
-) -> Callable[[OpInvokeInfo, MachineConfig], PerformanceModel.Result]:
+) -> Callable[[OpInvokeInfo, DeviceProfile], PerformanceModel.Result]:
     if machine_name not in _op_estimator_table:
         machine_name = None
     if op not in _op_estimator_table[machine_name]:
@@ -39,25 +39,39 @@ def _get_op_estimator(
 
 
 def _estimate_default(
-    op_invoke_info: OpInvokeInfo, machine_config: MachineConfig
+    op_invoke_info: OpInvokeInfo, machine_config: DeviceProfile
 ) -> PerformanceModel.Result:
     perf_properties = op_invoke_info.get_perf_properties()
     # By default, we do not consider instruction-level parallelism when counting computation time
     compute_time_s = 0
-    for dtype in MachineConfig.DTYPES:
+    for dtype in DeviceProfile.DTYPES:
         if dtype in perf_properties.compute_ops:
-            if dtype not in machine_config.ops:
+            if dtype in machine_config.mma_ops:
+                compute_ops = perf_properties.compute_ops[dtype]
+                machine_mma_ops = (
+                    machine_config.mma_ops[dtype] * machine_config.compute_efficiency
+                )
+                compute_time_s += compute_ops.mma_ops / machine_mma_ops
+            else:
                 logger.warning(
                     "Ignoring compute ops of %s for %s since it is not supported on %s",
                     dtype,
                     op_invoke_info,
                     machine_config,
                 )
-                continue
-            compute_ops = perf_properties.compute_ops[dtype]
-            machine_ops = machine_config.ops[dtype] * machine_config.compute_efficiency
-            compute_time_s += compute_ops.fused_multiply_add_ops / machine_ops
-            compute_time_s += compute_ops.arithmetic_ops / machine_ops
+            if dtype in machine_config.gp_ops:
+                compute_ops = perf_properties.compute_ops[dtype]
+                machine_gp_ops = (
+                    machine_config.gp_ops[dtype] * machine_config.compute_efficiency
+                )
+                compute_time_s += compute_ops.gp_ops / machine_gp_ops
+            else:
+                logger.warning(
+                    "Ignoring compute ops of %s for %s since it is not supported on %s",
+                    dtype,
+                    op_invoke_info,
+                    machine_config,
+                )
     memory_bandwidth = (
         machine_config.memory_bandwidth_bytes_ps * machine_config.memory_efficiency
     )
@@ -82,7 +96,7 @@ def _estimate_default(
 
 
 def _estimate_static_cost(
-    op_invoke_info: OpInvokeInfo, machine_config: MachineConfig
+    op_invoke_info: OpInvokeInfo, machine_config: DeviceProfile
 ) -> float:
     perf_properties = op_invoke_info.get_perf_properties()
     if (
@@ -90,19 +104,19 @@ def _estimate_static_cost(
         or perf_properties.network_receive_bytes > 0
     ):
         return 10 * 1e-6
-    for dtype in MachineConfig.DTYPES:
+    for dtype in DeviceProfile.DTYPES:
         if dtype in perf_properties.compute_ops:
-            if dtype not in machine_config.ops:
+            if dtype not in machine_config.mma_ops:
                 continue
             compute_ops = perf_properties.compute_ops[dtype]
-            if compute_ops.fused_multiply_add_ops > 0:
+            if compute_ops.mma_ops > 0:
                 return 5 * 1e-6
     return 2 * 1e-6
 
 
 @register_op_estimator(None, "A2")
 def _estimate_default_A2(
-    op_invoke_info: OpInvokeInfo, machine_config: MachineConfig
+    op_invoke_info: OpInvokeInfo, machine_config: DeviceProfile
 ) -> PerformanceModel.Result:
     if is_view_op(op_invoke_info.func):
         return PerformanceModel.Result(0.0)
@@ -121,7 +135,7 @@ class AnalyticPerformanceModel(PerformanceModel):
     TODO: add cache model to more accurately estimate the execution time.
     """
 
-    def __init__(self, machine_config: MachineConfig):
+    def __init__(self, machine_config: DeviceProfile):
         super().__init__("analytic", machine_config)
 
     @override

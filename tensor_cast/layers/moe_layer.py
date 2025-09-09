@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Optional
+from typing import Any, Optional
 
 import torch
 import torch.nn.functional as F
@@ -36,21 +36,21 @@ class MoELayer(torch.nn.Module):
     def __init__(
         self,
         moe_config: MoEConfig,
-        gate: torch.nn.Module,
-        experts: torch.nn.ModuleList,
-        shared_experts: Optional[torch.nn.Module],
-        top_k: Optional[int],
-        norm_topk_prob: Optional[bool],
+        module: torch.nn.Module,
     ):
         super().__init__()
         self.moe_config = moe_config
-        self.top_k = top_k
-        self.norm_topk_prob = norm_topk_prob
-        self.gate = gate
+        self.gate = self.get_attr(module, "gate", None)
+        self.top_k = self.get_attr(module, "top_k", None)
+        self.norm_topk_prob = self.get_attr(module, "norm_topk_prob", None)
         fused_moe_cls = (
             moe_config.fused_moe_cls if moe_config.fused_moe_cls else FusedMoETensorCast
         )
-        self.fused_moe = fused_moe_cls(self.moe_config, experts, shared_experts)
+        self.fused_moe = fused_moe_cls(
+            self.moe_config,
+            self.get_attr(module, "experts", None),
+            self.get_attr(module, "shared_experts", None),
+        )
 
     def forward(self, hidden_states: torch.Tensor):
         if self.moe_config.gate_returns_raw_logits:
@@ -68,6 +68,11 @@ class MoELayer(torch.nn.Module):
             topk_indices, topk_weights = self.gate(hidden_states)
         hidden_states = self.fused_moe(hidden_states, topk_indices, topk_weights)
         return hidden_states
+
+    def get_attr(self, module: torch.nn.Module, name: str, default: Any) -> Any:
+        if hasattr(self.moe_config.field_names, name):
+            return getattr(module, getattr(self.moe_config.field_names, name), default)
+        return default
 
 
 class FusedMoETensorCast(FusedMoEBase):

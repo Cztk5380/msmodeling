@@ -4,8 +4,9 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from ..device import A2
+
 from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
-from ..machine import A2
 from ..model_config import (
     AttentionQuantConfig,
     ModelConfig,

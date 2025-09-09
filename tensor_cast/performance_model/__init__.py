@@ -6,7 +6,7 @@ from typing import Any, Dict, Optional
 
 import torch
 
-from ..machine import MachineConfig
+from ..device import DeviceProfile
 from .utils import is_view_op, run_once
 
 logger = logging.getLogger(__name__)
@@ -17,8 +17,10 @@ class OpInvokeInfo:
 
     @dataclasses.dataclass
     class ComputeOps:
-        fused_multiply_add_ops: int = 0
-        arithmetic_ops: int = 0
+        mma_ops: int = 0
+        """Number of Matrix-Multiply-Accumulate ops"""
+        gp_ops: int = 0
+        """Number of General-Purpose ops"""
 
     @dataclasses.dataclass
     class PerformanceProperties:
@@ -121,7 +123,7 @@ class PerformanceModel(ABC):
         statistics: Dict[str, Any] = dataclasses.field(default_factory=dict)
         """Misc runtime statistics produced by implementation"""
 
-    def __init__(self, name, machine_config: MachineConfig):
+    def __init__(self, name, machine_config: DeviceProfile):
         self.name = name
         self.machine_config = machine_config
 
@@ -151,7 +153,7 @@ def _bmm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformancePro
     assert mat2.size(1) == k
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[mat1.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[mat1.dtype].fused_multiply_add_ops = b * m * n * k * 2
+    properties.compute_ops[mat1.dtype].mma_ops = b * m * n * k * 2
     return properties
 
 
@@ -170,7 +172,7 @@ def _mm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProp
     assert mat2.size(0) == k
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[mat1.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[mat1.dtype].fused_multiply_add_ops = m * n * k * 2
+    properties.compute_ops[mat1.dtype].mma_ops = m * n * k * 2
     return properties
 
 
@@ -227,15 +229,10 @@ def _dynamic_quant_linear_properties_helper(
 
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[torch.int8] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[torch.int8].fused_multiply_add_ops = matmul_ops
-    # TODO: we should use x.dtype instead of float32 here
-    #       but this needs to revise the machine model, separating
-    #       the FLOPS for FMA and arithmetic ops. Currently we assume
-    #       arithmetic ops always map to fp32.
-    properties.compute_ops[torch.float32] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[torch.float32].arithmetic_ops = (
-        dynamic_quant_ops + dequant_ops + bias_ops
-    )
+    properties.compute_ops[torch.int8].mma_ops = matmul_ops
+    assert torch.is_floating_point(x)
+    properties.compute_ops[x.dtype] = OpInvokeInfo.ComputeOps()
+    properties.compute_ops[x.dtype].gp_ops = dynamic_quant_ops + dequant_ops + bias_ops
 
     return properties
 
@@ -303,13 +300,20 @@ def _static_quant_linear_properties_helper(
 
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[x.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[x.dtype].fused_multiply_add_ops = matmul_ops
-    # TODO: we should use bias.dtype or out_dtype instead of float32 here
-    #       but this needs to revise the machine model, separating
-    #       the FLOPS for FMA and arithmetic ops. Currently we assume
-    #       arithmetic ops always map to fp32.
-    properties.compute_ops[torch.float32] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[torch.float32].arithmetic_ops = dequant_ops + bias_ops
+    properties.compute_ops[x.dtype].mma_ops = matmul_ops
+    if is_int4:
+        # TODO(jgong5): use fp32 flops for int4->int8, should use something more accurate
+        compute_ops = properties.compute_ops.setdefault(
+            torch.float32, OpInvokeInfo.ComputeOps()
+        )
+        compute_ops.gp_ops = dequant_ops
+        properties.compute_ops[torch.float32] = OpInvokeInfo.ComputeOps()
+    if bias is not None:
+        compute_ops = properties.compute_ops.setdefault(
+            bias.dtype, OpInvokeInfo.ComputeOps()
+        )
+        compute_ops.gp_ops = bias_ops
+        properties.compute_ops[bias.dtype] = compute_ops
 
     return properties
 
@@ -439,8 +443,8 @@ def _attention_properties(
         seq_lens * 2 * kv_head_num * head_size * key.element_size()
     ).item()
     properties.compute_ops[query.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[query.dtype].fused_multiply_add_ops = bmm1_ops + bmm2_ops
-    properties.compute_ops[query.dtype].arithmetic_ops = softmax_ops
+    properties.compute_ops[query.dtype].mma_ops = bmm1_ops + bmm2_ops
+    properties.compute_ops[query.dtype].gp_ops = softmax_ops
 
     return properties
 
@@ -499,7 +503,7 @@ def _multihead_latent_attention_properties(
     is_prefill = ~is_decode
 
     total_fma_ops = 0
-    total_arith_ops = 0
+    total_gp_ops = 0
 
     # 3. Calculate FLOPs for the Prefill Phase
     num_prefill_tokens = torch.sum(num_tokens_per_seq[is_prefill]).item()
@@ -528,7 +532,7 @@ def _multihead_latent_attention_properties(
         prefill_op4_ops = prefill_context_sum * num_heads * v_head_dim * 2
 
         total_fma_ops += prefill_op1_ops + prefill_op2_ops + prefill_op4_ops
-        total_arith_ops += prefill_op3_ops
+        total_gp_ops += prefill_op3_ops
 
     # 4. Calculate FLOPs for the Decode Phase
     num_decode_tokens = torch.sum(is_decode).item()
@@ -567,7 +571,7 @@ def _multihead_latent_attention_properties(
         total_fma_ops += (
             decode_op1_ops + decode_op2_ops + decode_op4_ops + decode_op5_ops
         )
-        total_arith_ops += decode_op3_ops
+        total_gp_ops += decode_op3_ops
 
     properties = op_invoke_info.get_memory_access_properties(
         exclude_input_ids={3}
@@ -585,7 +589,7 @@ def _multihead_latent_attention_properties(
     properties.memory_read_bytes += context_len_product_sum * cache_entry_size
 
     properties.compute_ops[q.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[q.dtype].fused_multiply_add_ops = total_fma_ops
-    properties.compute_ops[q.dtype].arithmetic_ops = total_arith_ops
+    properties.compute_ops[q.dtype].mma_ops = total_fma_ops
+    properties.compute_ops[q.dtype].gp_ops = total_gp_ops
 
     return properties

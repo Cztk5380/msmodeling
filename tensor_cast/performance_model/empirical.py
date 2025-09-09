@@ -1,13 +1,13 @@
 from overrides import override
 
-from ..machine import MachineConfig
+from ..device import DeviceProfile
 from ..performance_model import OpInvokeInfo, PerformanceModel
 
 
 class EmpiricalPerformanceModel(PerformanceModel):
     """Performance model based on measured data"""
 
-    def __init__(self, machine_config: MachineConfig):
+    def __init__(self, machine_config: DeviceProfile):
         super().__init__("empirical", machine_config)
 
     @override

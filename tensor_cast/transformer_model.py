@@ -6,7 +6,7 @@ import json
 import logging
 import os
 import re
-import types
+import typing
 from typing import Dict, Optional, Union
 
 import torch
@@ -16,7 +16,7 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from .layers.attention import flash_attention_forward
 from .layers.moe_layer import MoELayer
 from .layers.rotary_embedding import CachingRotaryEmb
-from .model_config import MlaFieldNames, ModelConfig, MoEConfig
+from .model_config import ModelConfig, MoEConfig
 from .transformer_utils import model_id_to_moe_config
 
 logger = logging.getLogger(__name__)
@@ -222,36 +222,41 @@ class TransformerModel(ModelBase):
         #    the tokens to the experts, which is slow.
         # 3. The vanilla MOE is not written in a way that can be easily scaled up/out
         #    with expert-parallelism (EP).
-        self.fuse_moe(self.model_config.moe_config)
+        self.patch_moe(self.model_config.moe_config)
 
-    def patch_mla(self):
+    def _all_required_fields_exist(self, module: torch.nn.Module, field_names):
         def is_optional(annotation):
-            if isinstance(annotation, types.UnionType):
-                return type(None) in annotation.__args__
+            if typing.get_origin(annotation) is Union:
+                return type(None) in typing.get_args(annotation)
             return False
 
+        for field in dataclasses.fields(field_names):
+            if not is_optional(
+                type(field_names).__annotations__[field.name]
+            ) and not hasattr(module, getattr(field_names, field.name)):
+                logger.warning(
+                    "Field %s not found in module %s",
+                    getattr(field_names, field.name),
+                    module,
+                )
+                return False
+        return True
+
+    def patch_mla(self):
         if self.model_config.mla_config:
             mla_config = self.model_config.mla_config
             named_modules = list(self.model.named_modules())
             for name, module in named_modules:
                 if type(module).__name__ == mla_config.module_name:
                     # check if all the required fields exist
-                    for field in dataclasses.fields(mla_config.field_names):
-                        if not is_optional(
-                            MlaFieldNames.__annotations__[field.name]
-                        ) and not hasattr(
-                            module, getattr(mla_config.field_names, field.name)
-                        ):
-                            logger.warning(
-                                "Field %s not found in module %s",
-                                getattr(mla_config.field_names, field.name),
-                                module,
-                            )
-                            continue
+                    if not self._all_required_fields_exist(
+                        module, mla_config.field_names
+                    ):
+                        continue
                     mla = mla_config.mla_cls(mla_config, module)
                     self._replace_module(name, mla)
 
-    def fuse_moe(self, moe_config: Optional[MoEConfig]):
+    def patch_moe(self, moe_config: Optional[MoEConfig]):
         if not moe_config:
             moe_config = model_id_to_moe_config(self.model_id)
             if not moe_config:
@@ -260,25 +265,11 @@ class TransformerModel(ModelBase):
         named_modules = list(self.model.named_modules())
         for name, module in named_modules:
             if type(module).__name__ == moe_config.module_name:
-                gate = getattr(module, moe_config.field_names.gate, None)
-                experts = getattr(module, moe_config.field_names.experts, None)
-                shared_experts = getattr(
-                    module, moe_config.field_names.shared_experts, None
-                )
-                top_k = getattr(module, moe_config.field_names.top_k, None)
-                norm_topk_prob = getattr(
-                    module, moe_config.field_names.norm_topk_prob, None
-                )
-                if gate is None or experts is None:
-                    # TODO: also check intermediate_size and hidden_size
+                if not self._all_required_fields_exist(module, moe_config.field_names):
                     continue
                 moe_layer = MoELayer(
                     moe_config,
-                    gate,
-                    experts,
-                    shared_experts,
-                    top_k,
-                    norm_topk_prob,
+                    module,
                 )
                 self._replace_module(name, moe_layer)
 
@@ -294,25 +285,34 @@ class TransformerModel(ModelBase):
             return
 
         # get all the wildcard names from the configuration
-        wild_card_linear_configs = {}
+        wildcard_linear_configs = {}
         for name in self.model_config.quant_config.linear_configs:
             if "*" in name or "?" in name:
-                wild_card_linear_configs[name] = (
+                wildcard_linear_configs[name] = (
                     self.model_config.quant_config.linear_configs[name]
                 )
+
+        def get_quant_config(name):
+            quant_config = None
+            if name in self.model_config.quant_config.linear_configs:
+                quant_config = self.model_config.quant_config.linear_configs[name]
+            else:
+                for wildcard_name in wildcard_linear_configs:
+                    if fnmatch.fnmatch(name, wildcard_name):
+                        # we only count in the first match
+                        quant_config = wildcard_linear_configs[wildcard_name]
+                        break
+            return quant_config
 
         for name, module in self.model.named_modules():
             # We need to find the parent module to replace the child
             if isinstance(module, torch.nn.Linear):
-                quant_config = None
-                if name in self.model_config.quant_config.linear_configs:
-                    quant_config = self.model_config.quant_config.linear_configs[name]
-                else:
-                    for wildcard_name in self.model_config.quant_config.linear_configs:
-                        if fnmatch.fnmatch(name, wildcard_name):
-                            # we only count in the first match
-                            quant_config = wild_card_linear_configs[wildcard_name]
-                            break
+                quant_config = get_quant_config(name)
+                if not quant_config:
+                    # remove "_inner" from the module path since we may wrap original
+                    # module with "_inner".
+                    # TODO(jgong5): avoid name clashing?
+                    quant_config = get_quant_config(name.replace("._inner.", "."))
                 if quant_config:
                     # Create and set the new quantized module
                     quantized_module = self.model_config.quant_linear_cls(

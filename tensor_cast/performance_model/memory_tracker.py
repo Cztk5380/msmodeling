@@ -1,6 +1,6 @@
 import torch
 
-from ..machine import MachineConfig
+from ..device import DeviceProfile
 from ..performance_model import OpInvokeInfo
 
 
@@ -10,7 +10,7 @@ class MemoryTracker:
     and gives its memory profiles.
     """
 
-    def __init__(self, machine_config: MachineConfig):
+    def __init__(self, machine_config: DeviceProfile):
         self.machine_config = machine_config
 
     def track_tensor(tensor: torch.Tensor):

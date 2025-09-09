@@ -4,8 +4,8 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
+from ..device import A2
 from ..layers.quant_linear import TensorCastQuantLinear
-from ..machine import A2
 
 from ..model_config import (
     LinearQuantConfig,

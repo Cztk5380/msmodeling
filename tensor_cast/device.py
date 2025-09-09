@@ -5,10 +5,10 @@ import torch
 
 
 @dataclass
-class MachineConfig:
+class DeviceProfile:
     name: str
 
-    all_machines: ClassVar[Dict[str, "MachineConfig"]] = {}
+    all_machines: ClassVar[Dict[str, "DeviceProfile"]] = {}
 
     DTYPES: ClassVar[List[torch.dtype]] = [
         torch.float32,
@@ -18,7 +18,8 @@ class MachineConfig:
         torch.int8,
     ]
 
-    ops: Dict[torch.dtype, float] = field(default_factory=dict)
+    mma_ops: Dict[torch.dtype, float] = field(default_factory=dict)
+    gp_ops: Dict[torch.dtype, float] = field(default_factory=dict)
     compute_efficiency: float = 1.0
     memory_size_bytes: float = 0
     memory_bandwidth_bytes_ps: float = 0  # Bytes/s
@@ -44,13 +45,18 @@ class MachineConfig:
 #     memory_bandwidth_bytes_ps=1.6*2*(1024**4),
 # )
 
-A2 = MachineConfig(
+A2 = DeviceProfile(
     name="A2",
-    ops={
+    mma_ops={
         torch.float32: 44 * 1e12,
         torch.bfloat16: 280 * 1e12,
         torch.half: 280 * 1e12,
         torch.int8: 280 * 2 * 1e12,
+    },
+    gp_ops={
+        torch.float32: 11 / 2 * 1e12,
+        torch.bfloat16: 11 / 2 * 1e12,
+        torch.half: 11 * 1e12,
     },
     memory_size_bytes=64 * (1024**3),
     memory_bandwidth_bytes_ps=1.6 * (1024**4),

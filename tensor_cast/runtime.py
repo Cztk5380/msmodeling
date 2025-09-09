@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Union
 import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
-from .machine import MachineConfig
+from .device import DeviceProfile
 from .patch_torch import patch_torch
 from .performance_model import OpInvokeInfo, PerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
@@ -39,7 +39,7 @@ class Runtime(TorchDispatchMode):
     def __init__(
         self,
         perf_models: Union[PerformanceModel, List[PerformanceModel]],
-        machine_config: MachineConfig,
+        machine_config: DeviceProfile,
         memory_tracker: Optional[MemoryTracker] = None,
     ):
         self.perf_models = (

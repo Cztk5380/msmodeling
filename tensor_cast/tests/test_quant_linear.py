@@ -3,8 +3,9 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from ..device import A2
+
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
-from ..machine import A2
 from ..model_config import (
     LinearQuantConfig,
     LinearQuantType,

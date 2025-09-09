@@ -5,10 +5,10 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
+from ..device import A2
 
 from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
-from ..machine import A2
 from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
