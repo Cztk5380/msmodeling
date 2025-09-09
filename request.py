@@ -14,6 +14,7 @@ class RequestState(Enum):
     ARRIVES_SERVER = auto()  # The request arrives at the server side and ready to be served
     PREFILLING = auto()      # The prefill stage is in progress
     PREFILL_DONE = auto()    # Prefill completed
+    KVS_TRANSFERRING = auto() # The request's kv cache is trasnferring from prefill node to decode node
     DECODING = auto()        # The decode stage is in progress
     DECODE_DONE = auto()     # Decode completed
     COMPLETED = DECODE_DONE
@@ -21,10 +22,18 @@ class RequestState(Enum):
 
 class Request:
     id_counter = itertools.count()
+    _copied_id = {} # request id -> copied times
 
     def __init__(self, **kwargs):
-        # generate global unique counting id
-        self.id = next(self.id_counter)
+        # generate global unique counting id if id is not given
+        given_id = kwargs.get("id", None)
+        if given_id is not None:
+            if isinstance(given_id, int):
+                self.id = given_id
+            else:
+                raise ValueError("Request.__init__ failed: given id should be int")
+        else:
+            self.id = next(self.id_counter)
 
         # The following fields are requirement to the serving system
         # TOBEDONE: support multiple sequences such as beam search and best-of-N
@@ -39,15 +48,23 @@ class Request:
         self._state: RequestState = RequestState.INITIAL
         self.state_change_signal = signal(f"state_changed_{self.id}")  # general signal
         self.before_prefill_done_signal = signal(f"before_prefill_done_{self.id}")
+        self.kvs_transferring_signal = signal(f"kvs_transferring_{self.id}")
         self.prefill_done_signal = signal(f"prefill_done_{self.id}")
         self.decode_done_signal = signal(f"decode_done_{self.id}")
         self.num_decoded_tokens: int = 0
+        self.num_current_max_new_tokens = self.num_input_tokens
 
         # The following fields are metrics
         self.leaves_client_time = 0
         self.arrives_server_time = 0
         self.prefill_done_time = 0
         self.decode_done_time = 0
+        self.prefill_done_time_already_recorded = False
+        self.decode_done_time_already_recorded = False
+        
+
+        self.need_kv_transfer = False
+        self.kv_transfer_done = False
 
     def __str__(self) -> str:
         ttft = ""
@@ -77,15 +94,22 @@ class Request:
         self._state = new_state
         self.state_change_signal.send(self, old_state=old_state, new_state=new_state)
         if new_state == RequestState.DECODE_DONE:
-            self.decode_done_time = stime.now()
+            if not self.decode_done_time_already_recorded:
+                self.decode_done_time = stime.now()
+                self.decode_done_time_already_recorded = True
             self.decode_done_signal.send(self)
         elif new_state == RequestState.PREFILL_DONE:
-            self.prefill_done_time = stime.now()
+            if not self.prefill_done_time_already_recorded:
+                self.prefill_done_time = stime.now()
+                self.prefill_done_time_already_recorded = True
             self.prefill_done_signal.send(self)
         elif new_state == RequestState.ARRIVES_SERVER:
             self.arrives_server_time = stime.now()
         elif new_state == RequestState.LEAVES_CLIENT:
             self.leaves_client_time = stime.now()
+        elif new_state == RequestState.KVS_TRANSFERRING:
+            self.kvs_transferring_time = stime.now()
+            self.kvs_transferring_signal.send(self)
 
     def time_to_first_token(self):
         return self.prefill_done_time - self.leaves_client_time
