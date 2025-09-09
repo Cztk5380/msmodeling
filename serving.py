@@ -27,7 +27,7 @@ class Serving(ABC):
         self.requests_condition = stime.Condition()
 
     @abstractmethod
-    def serve(self, request: Request) -> None:
+    def serve(self, args, **kwargs) -> None:
         """
         Serves a request.
         """
@@ -74,7 +74,7 @@ class PdDisaggregationServing(Serving):
 
     The overall request serving flow looks like below:
     Requests are firstly dispatched to a prefill server instance, then the instance dispatches the requests to
-    an Engine which corresponds to a Data-Parallel partition. Then the Engine batches on the incoming Requests.
+    an Engine which corresponds to a Data-Parallel partition. Then the Engine schedules the incoming Requests.
 
     After request have done prefilling, it is sent to decode server instance, and do the similar thing as that in
     prefill server instance.
@@ -92,12 +92,14 @@ class PdDisaggregationServing(Serving):
         self.prefill_balancer = InstanceLoadBalancer(prefill_instances)
         self.decode_balancer = InstanceLoadBalancer(decode_instances)
 
-    def serve(self, request: Request):
+
+    def serve(self, request):
         """Handle the request from the client side"""
         self._before_serve(request)
+        request.need_kv_transfer = True
 
+        request.kvs_transferring_signal.connect(self._continue_serve_callback)
         request.decode_done_signal.connect(self._complete_serve_callback)
-        request.prefill_done_signal.connect(self._continue_serve_callback)
 
         prefill_instance = self.prefill_balancer.select(request)
         prefill_instance.handle(request)
@@ -109,9 +111,9 @@ class PdDisaggregationServing(Serving):
             if request.id not in self.requests:
                 raise ValueError("request.id not in self.requests")
 
-        if request.state != RequestState.PREFILL_DONE:
+        if request.state != RequestState.KVS_TRANSFERRING:
             raise ValueError(
-                "In continue serving: request.state shoulf be PREFILL_DONE, "
+                "In continue serving: request.state shoulf be KVS_TRANSFERRING, "
                 "but get %s" % request.state
             )
         decode_instance = self.decode_balancer.select(request)
@@ -124,10 +126,10 @@ class PdAggregationServing(Serving):
 
     The overall request serving flow looks like below:
     Requests are firstly dispatched to a server instance, then the instance dispatches the requests to
-    an Engine which corresponds to a Data-Parallel partition. Then the Engine batches on the incoming Requests.
-    After the requests finish the prefill period inference, the requests are directed to serving and then dispatched
-    to the same server instance to finish the decode period inference.
-
+    an Engine which corresponds to a Data-Parallel partition. 
+    Then the Engine schedule the incoming requests to waiting queue or running queue.
+    After the requests are scheduled to running queue, the ModelRunner will start to execute the requests.
+    
     """
 
     def __init__(self, prefill_decode_instances: List[Instance]):
@@ -135,35 +137,13 @@ class PdAggregationServing(Serving):
         super().__init__()
         self.prefill_decode_instances = prefill_decode_instances
         self.prefill_decode_balancer = InstanceLoadBalancer(prefill_decode_instances)
-        self.request2instance: Dict[int, Instance] = {}
 
     def serve(self, request: Request):
         """Handle the request from the client side"""
         self._before_serve(request)
 
         request.decode_done_signal.connect(self._complete_serve_callback)
-        request.prefill_done_signal.connect(self._continue_serve_callback)
 
         prefill_decode_instance = self.prefill_decode_balancer.select(request)
-        self.request2instance[request.id] = prefill_decode_instance
         prefill_decode_instance.handle(request)
 
-    def _continue_serve_callback(self, request: Request):
-        """Continue serving"""
-        logger.debug("Continue serving %s", request)
-        with self.requests_condition:
-            if request.id not in self.requests:
-                raise ValueError("request.id not in self.requests")
-
-        if request.state != RequestState.PREFILL_DONE:
-            raise ValueError(
-                "In continue serving: request.state should be PREFILL_DONE, but get %s"
-                % request.state
-            )
-        prefill_decode_instance = self.request2instance.get(request.id)
-        if not prefill_decode_instance:
-            raise ValueError(
-                "PdAggregationServing._continue_serve_callback failed, request id: %d "
-                "is not found in self.request2instance" % request.id
-            )
-        prefill_decode_instance.handle(request)

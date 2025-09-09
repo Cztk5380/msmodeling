@@ -47,10 +47,7 @@ class FixedLengthLoadGen(LoadGen):
         self.request_rate = request_rate
         self.requests: Dict[int, Request] = {}
         for _ in range(num_requests):
-            request = Request(
-                num_input_tokens=num_input_tokens, num_output_tokens=num_output_tokens
-            )
-            request.decode_done_signal.connect(self._on_complete)
+            request = Request(num_input_tokens=num_input_tokens, num_output_tokens=num_output_tokens)
             self.requests[request.id] = request
 
     def next_request(self) -> Request:
@@ -64,8 +61,3 @@ class FixedLengthLoadGen(LoadGen):
 
     def has_request(self) -> Request:
         return self.requests
-
-    def _on_complete(self, request: Request):
-        # TOBEDONE: record metrics of this request
-        if request.state != RequestState.DECODE_DONE:
-            raise ValueError("request.state != RequestState.DECODE_DONE")

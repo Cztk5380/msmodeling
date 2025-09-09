@@ -22,7 +22,6 @@ class Instance(ABC):
         self.machine_manager = MachineManager(machine_config)
         self.machine_config = machine_config
         self.model_config = model_config
-        self.requests: Dict[int, Request] = {}
         if self.machine_config.num_devices % self.model_config.num_dp_partitions != 0:
             raise ValueError(
                 "In instance __init__, num_devices must be divisible by num_dp_partitions,"
@@ -44,47 +43,23 @@ class Instance(ABC):
         ]
         self.load_balancer = EngineLoadBalancer(self.engines)
 
-        # serving metrics
-        self.max_concurrent_requests = 0
 
     def handle(self, request: Request):
-        logger.debug(
-            "Instance %d capacity %d handling %s", self.id, len(self.requests), request
-        )
-        if request.id in self.requests:
-            raise ValueError("In Instance handle, request.id already in self.requests")
-        if request.state not in [
-            RequestState.ARRIVES_SERVER,
-            RequestState.PREFILL_DONE,
-        ]:
-            raise ValueError(
-                "Instance.handle failed, request.state should be ARRIVES_SERVER "
-                "or PREFILL_DONE, but get %s" % request.state
-            )
+        logger.debug("Instance %d handling %s", self.id, request)
+        if request.state not in [RequestState.ARRIVES_SERVER, RequestState.KVS_TRANSFERRING]:
+            raise ValueError("Instance.handle failed, request.state should be ARRIVES_SERVER " \
+                "or KVS_TRANSFERRING, but get %s" % request.state)
 
         if request.state == RequestState.ARRIVES_SERVER:
-            request.before_prefill_done_signal.connect(self._on_infer_period_done)
             request.state = RequestState.PREFILLING
-        if request.state == RequestState.PREFILL_DONE:
-            request.decode_done_signal.connect(self._on_infer_period_done)
+        else:
             request.state = RequestState.DECODING
 
-        self.requests[request.id] = request
-        self.max_concurrent_requests = max(
-            self.max_concurrent_requests, len(self.requests)
-        )
         engine = self.load_balancer.select(request)
         engine.handle(request)
 
     def get_work_load(self):
         return sum(engine.get_work_load() for engine in self.engines)
-
-    def _on_infer_period_done(self, request: Request):
-        if request.id not in self.requests:
-            raise ValueError(
-                "In Instance _on_infer_period_done, request.id not in self.requests"
-            )
-        self.requests.pop(request.id)
 
 
 class InstanceLoadBalancer:
