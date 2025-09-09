@@ -103,6 +103,17 @@ def elapse(ts: float):
     set_now(now() + ts)
 
 
+def elapse_till(ts: float):
+    """
+    Explicitly advance the logical time of the current thread to a specified time.
+
+    Args:
+        ts (float): The logical time (in seconds) to set.
+    """
+    if ts > now():
+        set_now(ts)
+
+
 class DurationDecorator:
     """
     A decorator to specify a duration to elapse after a function call.
@@ -342,6 +353,16 @@ class Queue(Generic[T]):
                 snapshot.append(item)
         return iter(snapshot)
 
+    def __getitem__(self, i: int):
+        """
+        Get the i-th item in the queue, without timestamp.
+
+        Args:
+            i: The index of the item to get.
+        """
+        with self._condition:
+            return self._heap[i][2]
+
     def put(self, item: T) -> None:
         """
         Puts an item into the queue, ordered by current thread's timestamp.
@@ -433,6 +454,26 @@ class Queue(Generic[T]):
             current_ts = now()
             return [item for item_ts, _, item in self._heap if item_ts <= current_ts]
 
+
+    def peek_latest_due(self) -> Optional[T]:
+        """
+        Return the item with the latest timestamp, without removing it.
+        But only if its timestamp is less than or equal to the current thread's logical time.
+
+        Returns:
+            The latest item if it is due, otherwise None.
+        """
+        with self._condition:
+            if not self._heap:
+                return None
+            res_item = None
+            for item_ts, _, item in self._heap:
+                if item_ts <= now():
+                    res_item = item
+                else:
+                    break
+            return res_item
+
     def get_due(self) -> Optional[T]:
         """
         Removes and returns the item with the earliest timestamp that is due.
@@ -467,6 +508,7 @@ class Queue(Generic[T]):
                 _, _, item = heapq.heappop(self._heap)
                 result.append(item)
             return result
+
 
     def wait_till_due(self, timeout_unit: float = 0):
         """
@@ -536,6 +578,18 @@ class Queue(Generic[T]):
                 waiting_timeout = num_waiting * timeout_unit
             elapse(waiting_timeout)
             self.allowed_earliest_ts = now()
+
+    def remove(self, item):
+        """
+        Remove an item from the heap.
+        
+        Args:
+            item: The item to remove.
+        """
+        with self._condition:
+            for i, req in enumerate(self._heap):
+                if req[2] == item:
+                    del self._heap[i]
 
     def shutdown(self):
         return
