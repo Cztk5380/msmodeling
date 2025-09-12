@@ -103,8 +103,86 @@ class QuantConfig:
 
 @dataclasses.dataclass
 class ParallelConfig:
-    # TODO
-    pass
+    world_size: int = 1
+    rank: int = 0
+    local_rank: int = 0
+    tensor_parallel_size: int = 1
+    data_parallel_size: Optional[int] = None
+    pipeline_parallel_size: int = 1
+    mlp_tensor_parallel_size: Optional[int] = None
+    mlp_data_parallel_size: Optional[int] = None
+    lmhead_parallel: bool = False
+    lmhead_tensor_parallel_size: Optional[int] = None
+    lmhead_data_parallel_size: Optional[int] = None
+    embedding_parallel: bool = False
+
+    def has_attn_tp(self) -> bool:
+        return self.tensor_parallel_size > 1
+
+    def has_mlp_tp(self) -> bool:
+        return self.mlp_tensor_parallel_size > 1
+
+    def has_lmhead_tp(self) -> bool:
+        return self.lmhead_tensor_parallel_size > 1
+
+    def __post_init__(self) -> None:
+        if self.data_parallel_size is None:
+            self.data_parallel_size = (
+                self.world_size
+                // self.tensor_parallel_size
+                // self.pipeline_parallel_size
+            )
+
+        if (
+            self.tensor_parallel_size
+            * self.data_parallel_size
+            * self.pipeline_parallel_size
+            != self.world_size
+        ):
+            raise ValueError(
+                f"tensor_parallel_size ({self.tensor_parallel_size}) * "
+                f"data_parallel_size ({self.data_parallel_size}) * "
+                f"pipeline_parallel_size ({self.pipeline_parallel_size}) "
+                f"must equal world_size ({self.world_size})"
+            )
+
+        if self.mlp_tensor_parallel_size is None:
+            self.mlp_tensor_parallel_size = self.tensor_parallel_size
+        if self.mlp_data_parallel_size is None:
+            self.mlp_data_parallel_size = self.data_parallel_size
+        if (
+            self.mlp_tensor_parallel_size
+            * self.mlp_data_parallel_size
+            * self.pipeline_parallel_size
+            != self.world_size
+        ):
+            raise ValueError(
+                f"mlp_tensor_parallel_size ({self.mlp_tensor_parallel_size}) * "
+                f"mlp_data_parallel_size ({self.mlp_data_parallel_size}) * "
+                f"pipeline_parallel_size ({self.pipeline_parallel_size}) "
+                f"must equal world_size ({self.world_size})"
+            )
+
+        if not self.lmhead_parallel:
+            self.lmhead_tensor_parallel_size = 1
+            self.lmhead_data_parallel_size = self.world_size
+        else:
+            if self.lmhead_tensor_parallel_size is None:
+                self.lmhead_tensor_parallel_size = self.tensor_parallel_size
+            if self.lmhead_data_parallel_size is None:
+                self.lmhead_data_parallel_size = self.data_parallel_size
+            if (
+                self.lmhead_tensor_parallel_size
+                * self.lmhead_data_parallel_size
+                * self.pipeline_parallel_size
+                != self.world_size
+            ):
+                raise ValueError(
+                    f"lmhead_tensor_parallel_size ({self.lmhead_tensor_parallel_size}) * "
+                    f"lmhead_data_parallel_size ({self.lmhead_data_parallel_size}) * "
+                    f"pipeline_parallel_size ({self.pipeline_parallel_size}) "
+                    f"must equal world_size ({self.world_size})"
+                )
 
 
 @dataclasses.dataclass(frozen=True)
