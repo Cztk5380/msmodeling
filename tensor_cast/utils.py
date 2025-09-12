@@ -16,3 +16,10 @@ def register_tensor_cast_op(name, mutates_args=(), **kwargs):
         return func
 
     return decorator
+
+
+def exact_division(numerator, denominator):
+    assert numerator % denominator == 0, (
+        f"{numerator} is not divisible by {denominator}"
+    )
+    return numerator // denominator

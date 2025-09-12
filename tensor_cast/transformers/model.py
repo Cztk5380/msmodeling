@@ -16,8 +16,11 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 from ..layers.attention import flash_attention_forward
 from ..layers.moe_layer import MoELayer
 from ..layers.mtp import MtpWrapper
+
+from ..layers.parallel_linear import COLWISE_LINEAR, PARALLEL_MODULE_CLS, ROWWISE_LINEAR
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..model_config import ModelConfig, MoEConfig
+from ..parallel_group import ParallelGroupManager
 from .utils import model_id_to_moe_config
 
 if typing.TYPE_CHECKING:
@@ -364,8 +367,87 @@ class TransformerModel(ModelBase):
                 )
                 self._replace_module(name, moe_layer)
 
+    def get_shard_plan(self):
+        tp_group = self.parallel_group_manager.tp_group
+        dp_group = self.parallel_group_manager.dp_group
+        mlp_tp_group = self.parallel_group_manager.mlp_tp_group
+        mlp_dp_group = self.parallel_group_manager.mlp_dp_group
+        lmhead_tp_group = self.parallel_group_manager.lmhead_tp_group
+        lmhead_dp_group = self.parallel_group_manager.lmhead_dp_group
+
+        def get_tp_plan():
+            # TODO:
+            # 1. the name of modules should be configured;
+            # 2. we can define a class to represent the data with clearer semantics
+            tp_plan = dict()
+
+            groups = {
+                "tp_group": tp_group,
+                "dp_group": dp_group,
+                "global_dp_group": dp_group,
+            }
+            tp_plan.update(
+                {
+                    "layers.*.self_attn.q_proj": (COLWISE_LINEAR, groups),
+                    "layers.*.self_attn.k_proj": (COLWISE_LINEAR, groups),
+                    "layers.*.self_attn.v_proj": (COLWISE_LINEAR, groups),
+                    "layers.*.self_attn.o_proj": (ROWWISE_LINEAR, groups),
+                }
+            )
+
+            groups = {
+                "tp_group": mlp_tp_group,
+                "dp_group": mlp_dp_group,
+                "global_dp_group": dp_group,
+            }
+            tp_plan.update(
+                {
+                    "layers.*.mlp.gate_proj": (COLWISE_LINEAR, groups),
+                    "layers.*.mlp.up_proj": (COLWISE_LINEAR, groups),
+                    "layers.*.mlp.down_proj": (ROWWISE_LINEAR, groups),
+                }
+            )
+
+            groups = {
+                "tp_group": lmhead_tp_group,
+                "dp_group": lmhead_dp_group,
+                "global_dp_group": dp_group,
+            }
+            params = {"gather_output": True}
+            tp_plan.update({"lm_head": (COLWISE_LINEAR, {**groups, **params})})
+            return tp_plan
+
+        return {"tp_plan": get_tp_plan()}
+
     def shard_model(self):
-        """TODO: Model parallel"""
+        """
+        Replaces all nn.Linear modules with ParallelLinear modules based on the
+        parallel configuration stored in self.model_config.
+        """
+        self.parallel_group_manager = ParallelGroupManager(
+            self.model_config.parallel_config
+        )
+
+        shard_plan = self.get_shard_plan()
+        tp_plan = shard_plan["tp_plan"]
+
+        def get_tp_config(name):
+            for pattern, tp_config in tp_plan.items():
+                if re.search(pattern, name) is not None:
+                    return tp_config
+
+            return None
+
+        for name, module in self.model.named_modules():
+            if isinstance(module, torch.nn.Linear):
+                tp_config = get_tp_config(name)
+                if not tp_config:
+                    tp_config = get_tp_config(name.replace("._inner.", "."))
+                if tp_config:
+                    parallel_module = PARALLEL_MODULE_CLS[tp_config[0]](
+                        module, **tp_config[1]
+                    )
+                    self._replace_module(name, parallel_module)
 
     def quant_linear(self):
         """
@@ -442,6 +524,10 @@ class TransformerModel(ModelBase):
     @property
     def intermediate_size(self):
         return self.text_config.intermediate_size
+
+    @property
+    def vocab_size(self):
+        return self.text_config.vocab_size
 
     def forward(
         self,
