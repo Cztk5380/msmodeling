@@ -163,6 +163,12 @@ class MlaConfig:
 
 
 @dataclasses.dataclass
+class MtpConfig:
+    num_mtp_layers: int
+    mtp_block_module_name: str
+
+
+@dataclasses.dataclass
 class ModelConfig:
     parallel_config: ParallelConfig
     quant_config: QuantConfig
@@ -170,6 +176,14 @@ class ModelConfig:
     cache_rotary_embedding: bool = True
     moe_config: Optional[MoEConfig] = None
     mla_config: Optional[MlaConfig] = None
+    mtp_config: Optional[MtpConfig] = None
     attention_cls: Optional[Type["AttentionBase"]] = None  # noqa: F821
     quant_linear_cls: Optional[Type["QuantLinearBase"]] = None  # noqa: F821
     trust_remote_code: bool = True
+    hf_config_json: Optional[str] = None
+    """load transformer configuration from a local json file. When this is specified,
+    `disable_auto_map` is assumed to be True."""
+    disable_auto_map: Optional[bool] = None
+    """set it to True if we want to use a local model definition, not
+    loading it from remote. Useful when the local transformer model is preferred."""
+    enable_lmhead: Optional[bool] = None

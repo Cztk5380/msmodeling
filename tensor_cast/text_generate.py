@@ -11,17 +11,27 @@ from .compilation import get_backend
 from .device import DeviceProfile
 
 from .layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
+from .layers.mla import MultiheadLatentAttentionTensorCast
 from .layers.quant_linear import TensorCastQuantLinear
+
+from .layers.sampler import SamplingMetadata
 from .model_config import (
     LinearQuantConfig,
     LinearQuantType,
+    MlaConfig,
     ModelConfig,
+    MtpConfig,
     ParallelConfig,
     QuantConfig,
 )
 from .performance_model.analytic import AnalyticPerformanceModel
 from .runtime import Runtime
 from .transformers.model import TransformerModel
+from .transformers.utils import (
+    model_id_to_json,
+    model_id_to_mla_module_name,
+    model_id_to_mtp_block_module_name,
+)
 
 
 class MachineAction(StrEnum):
@@ -73,6 +83,8 @@ def run_inference(
     dump_input_shapes: bool = False,
     chrome_trace: Optional[str] = None,
     quantize_linear_action: Optional[QuantLinearAction] = None,
+    num_mtp_layers: int = 0,
+    is_decode: bool = False,
 ):
     """
     Sets up and runs a simulated LLM inference pass.
@@ -87,6 +99,9 @@ def run_inference(
     print(f"Number of Queries (Batch Size): {num_queries}")
     print(f"Input Length (per query): {input_length}")
     print(f"Context Length (per query): {context_length}")
+    print(f"Decode: {is_decode}")
+    if num_mtp_layers > 0:
+        print(f"Number of MTP layers: {num_mtp_layers}")
     print(f"Use torch.compile: {do_compile}")
     print(f"Group table averages by input shapes: {dump_input_shapes}")
     if chrome_trace:
@@ -148,6 +163,28 @@ def run_inference(
         attention_cls=AttentionTensorCast,
         quant_linear_cls=TensorCastQuantLinear,
     )
+    mla_module_name = model_id_to_mla_module_name(model_id)
+    if mla_module_name is not None:
+        mla_config = MlaConfig(
+            module_name=mla_module_name,
+            mla_cls=MultiheadLatentAttentionTensorCast,
+        )
+        model_config.mla_config = mla_config
+
+    if num_mtp_layers > 0:
+        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
+        if not mtp_block_module_name:
+            raise ValueError(
+                f"Could not find mtp block module name for {model_id}. Check if the model supports MTP."
+            )
+        mtp_config = MtpConfig(
+            num_mtp_layers=num_mtp_layers,
+            mtp_block_module_name=mtp_block_module_name,
+        )
+        model_config.mtp_config = mtp_config
+    hf_config_json = model_id_to_json(model_id)
+    if hf_config_json:
+        model_config.hf_config_json = hf_config_json
     model = TransformerModel(model_id, model_config)
     if do_compile:
         print("   Compiling model with torch.compile...")
@@ -164,19 +201,36 @@ def run_inference(
     # Initialize the KV cache structure (also on 'meta' device).
     kv_cache_by_layers = {}
     for i in range(model.num_hidden_layers):
-        # Shape: [2 (K/V), num_blocks, block_size, num_heads, head_dim]
-        kv_cache_by_layers[i] = torch.empty(
-            [
-                2,
-                num_blocks,
-                block_size,
-                model.text_config.num_key_value_heads,
-                model.text_config.head_dim,
-            ],
-            dtype=model_config.dtype,
-            device="meta",
-        )
-
+        if mla_module_name is not None:
+            # Shape: [num_blocks, block_size, kv_lora_head_dim + qk_rope_head_dim]
+            kv_cache_by_layers[i] = torch.empty(
+                [
+                    num_blocks,
+                    block_size,
+                    model.text_config.kv_lora_rank + model.text_config.qk_rope_head_dim,
+                ],
+                dtype=model_config.dtype,
+                device="meta",
+            )
+        else:
+            # Shape: [2 (K/V), num_blocks, block_size, num_heads, head_dim]
+            kv_cache_by_layers[i] = torch.empty(
+                [
+                    2,
+                    num_blocks,
+                    block_size,
+                    model.text_config.num_key_value_heads,
+                    model.text_config.head_dim,
+                ],
+                dtype=model_config.dtype,
+                device="meta",
+            )
+    sampling_metadata = SamplingMetadata(
+        query_start_loc=attn_meta.query_start_loc,
+    )
+    if is_decode:
+        # do not prune logits
+        sampling_metadata.selected_token_indices = None
     print("Running simulated inference...")
     with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
         _ = model.forward(
@@ -184,6 +238,7 @@ def run_inference(
             position_ids,
             attention_meta=attn_meta,
             kv_cache_by_layers=kv_cache_by_layers,
+            sampling_metadata=sampling_metadata,
         )
     result = runtime.table_averages(group_by_input_shapes=dump_input_shapes)
     print(result)
@@ -266,6 +321,17 @@ def main():
         default=None,
         help="Logging level",
     )
+    parser.add_argument(
+        "--decode",
+        action="store_true",
+        help="Whether we are doing decode",
+    )
+    parser.add_argument(
+        "--num-mtp-layers",
+        type=int,
+        default=0,
+        help="Number of MTP layers, 0 means disabled - only support models having MTP like DeepSeek",
+    )
 
     args = parser.parse_args()
 
@@ -285,6 +351,8 @@ def main():
         dump_input_shapes=args.dump_input_shapes,
         chrome_trace=args.chrome_trace,
         quantize_linear_action=args.quantize_linear_action,
+        num_mtp_layers=args.num_mtp_layers,
+        is_decode=args.decode,
     )
 
 

@@ -49,15 +49,17 @@ class ModelLoadTestCase(unittest.TestCase):
     )
     def test_deepseek_eager_without_kvcache(self, model_id):
         num_tokens = 100
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        hf_config_json = model_id_to_json(model_id)
+        self.assertIsNotNone(hf_config_json)
+        model_config = ModelConfig(
+            ParallelConfig(), QuantConfig(), hf_config_json=hf_config_json
+        )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
             mla_cls=MultiheadLatentAttentionTensorCast,
         )
         model_config.mla_config = mla_config
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
-        model = TransformerModel(model_id, model_config, hf_config_json=hf_config_json)
+        model = TransformerModel(model_id, model_config)
         # make sure all original attention modules have been replaced
         self.assertTrue(
             has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
@@ -75,15 +77,17 @@ class ModelLoadTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_eager_with_kvcache(self, model_id):
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        hf_config_json = model_id_to_json(model_id)
+        self.assertIsNotNone(hf_config_json)
+        model_config = ModelConfig(
+            ParallelConfig(), QuantConfig(), hf_config_json=hf_config_json
+        )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
             mla_cls=MultiheadLatentAttentionTensorCast,
         )
         model_config.mla_config = mla_config
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
-        model = TransformerModel(model_id, model_config, hf_config_json=hf_config_json)
+        model = TransformerModel(model_id, model_config)
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
             model, model_config
         )

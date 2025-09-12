@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from liuren_modeling.tensor_cast.model_config import MoEConfig
+from ..model_config import MoEConfig
 
 # TODO: Allow users to extend these default configurations from config.py
 
@@ -35,3 +35,23 @@ _model_id_to_moe_config: Dict[str, MoEConfig] = {
 
 def model_id_to_moe_config(model_id: str) -> Optional[MoEConfig]:
     return _model_id_to_moe_config.setdefault(model_id, None)
+
+
+_model_id_to_mla_module_name: Dict[str, str] = {
+    "deepseek-ai/DeepSeek-V3.1": "DeepseekV3Attention",
+    "moonshotai/Kimi-K2-Base": "DeepseekV3Attention",
+}
+
+
+def model_id_to_mla_module_name(model_id: str):
+    return _model_id_to_mla_module_name.setdefault(model_id, None)
+
+
+_model_id_to_mtp_block_module_name: Dict[str, str] = {
+    "deepseek-ai/DeepSeek-V3.1": "DeepseekV3DecoderLayer",
+    "moonshotai/Kimi-K2-Base": "DeepseekV3DecoderLayer",
+}
+
+
+def model_id_to_mtp_block_module_name(model_id: str) -> str:
+    return _model_id_to_mtp_block_module_name.setdefault(model_id, None)

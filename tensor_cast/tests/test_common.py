@@ -3,9 +3,10 @@ import random
 import torch
 
 from ..layers.attention import AttentionMetadataTensorCast
+from ..model_config import ModelConfig
 
 
-def create_attn_metadata_and_kv_cache(model, model_config):
+def create_attn_metadata_and_kv_cache(model, model_config: ModelConfig):
     batch_size = 2
     query_len_1 = 55
     query_len_2 = 45
@@ -49,10 +50,10 @@ def create_attn_metadata_and_kv_cache(model, model_config):
     return attn_meta, kv_cache_by_layers, num_tokens
 
 
-def create_mla_metadata_and_kv_cache(model, model_config):
+def create_mla_metadata_and_kv_cache(
+    model, model_config: ModelConfig, query_len_1=55, query_len_2=45
+):
     batch_size = 2
-    query_len_1 = 55
-    query_len_2 = 45
     seq_len_1 = 2000
     seq_len_2 = 1500
     num_blocks = 10000

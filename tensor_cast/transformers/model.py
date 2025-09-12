@@ -15,9 +15,13 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
 from ..layers.attention import flash_attention_forward
 from ..layers.moe_layer import MoELayer
+from ..layers.mtp import MtpWrapper
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..model_config import ModelConfig, MoEConfig
 from .utils import model_id_to_moe_config
+
+if typing.TYPE_CHECKING:
+    from ..layers.sampler import SamplingMetadata
 
 logger = logging.getLogger(__name__)
 
@@ -102,13 +106,72 @@ def init_on_device_without_buffers(device: torch.device):
             setattr(torch, torch_function_name, old_torch_function)
 
 
+class CausalLmWrapper(torch.nn.Module):
+    def __init__(self, hf_config, model: torch.nn.Module):
+        super().__init__()
+        self._inner = model
+        self.hf_config = hf_config
+        self.lm_head = torch.nn.Linear(
+            self.hf_config.hidden_size, self.hf_config.vocab_size, bias=False
+        )
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor],
+        position_ids: torch.Tensor,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        output_intermediate_hidden_states: bool = False,  # output hidden_states before lm_head
+        **kwargs: object,  # NOTE: extra args should be torch.compile compatible
+    ) -> Union[torch.Tensor, TensorDict]:
+        hidden_states = self._inner(
+            input_ids=input_ids,
+            use_cache=False,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+            return_dict=False,
+            **kwargs,
+        )[0]
+        intermediate_hidden_states = hidden_states
+        sampling_metadata: SamplingMetadata = kwargs.get("sampling_metadata")
+        if sampling_metadata and sampling_metadata.selected_token_indices:
+            hidden_states = hidden_states.index_select(
+                1, sampling_metadata.selected_token_indices
+            )
+        hidden_states = self.lm_head(hidden_states)
+        if output_intermediate_hidden_states:
+            return hidden_states, intermediate_hidden_states
+        else:
+            return hidden_states
+
+
+class ModelWrapper(torch.nn.Module):
+    def __init__(self, model: torch.nn.Module):
+        super().__init__()
+        self._inner = model
+
+    def forward(
+        self,
+        input_ids: Optional[torch.Tensor],
+        position_ids: torch.Tensor,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        **kwargs: object,  # NOTE: extra args should be torch.compile compatible
+    ) -> Union[torch.Tensor, TensorDict]:
+        hidden_states = self._inner(
+            input_ids=input_ids,
+            use_cache=False,
+            position_ids=position_ids,
+            inputs_embeds=inputs_embeds,
+            return_dict=False,
+            **kwargs,
+        )[0]
+        return hidden_states
+
+
 class TransformerModel(ModelBase):
     def __init__(
         self,
         model_id: str,
         model_config: ModelConfig,
-        hf_config_json: Optional[str] = None,
-        disable_auto_map: Optional[bool] = None,
     ):
         """
         Construct a transformer model wrapper that auto-loads a transformer model and converts
@@ -117,14 +180,12 @@ class TransformerModel(ModelBase):
         Args:
             model_id: transformer model id
             model_config: specify how we should load and convert the transformer model
-            hf_config_json: load transformer configuration from a local json file. When this
-                is specified, `disable_auto_map` is assumed to be True.
-            disable_auto_map: set it to True if we want to use a local model definition, not
-                loading it from remote. Useful when the local transformer model is preferred.
         """
         super().__init__()
         self.model_id = model_id
         self.model_config = model_config
+        hf_config_json = self.model_config.hf_config_json
+        disable_auto_map = self.model_config.disable_auto_map
         with init_on_device_without_buffers("meta"):
             if hf_config_json is not None:
                 if not os.path.isabs(hf_config_json):
@@ -156,9 +217,14 @@ class TransformerModel(ModelBase):
                 dtype=self.model_config.dtype,
                 trust_remote_code=self.model_config.trust_remote_code,
             )
-        self.patch_model()
-        self.shard_model()
-        self.quantize_model()
+
+            # the order of these functions matters!
+            self.pre_patch_model()
+            self.wrap_model()
+            self.maybe_enable_mtp()
+            self.patch_model()
+            self.shard_model()
+            self.quantize_model()
         self.load_weights()
 
     def load_hf_config_from_json(self, hf_config_json: str) -> PretrainedConfig:
@@ -181,6 +247,41 @@ class TransformerModel(ModelBase):
         config_cls = getattr(module, class_name)
         return config_cls.from_json_file(hf_config_json)
 
+    def wrap_model(self):
+        """
+        Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
+        1. We already return torch.Tensor or a tuple of tensors when intermediates are needed
+        2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
+        This makes other wrappers' life simpler.
+        """
+        self.enable_lmhead = self.model_config.enable_lmhead is True
+        if self.model_config.mtp_config and not self.enable_lmhead:
+            assert self.model_config.enable_lmhead is None, "MTP on but lmhead is off"
+            self.enable_lmhead = True
+        if self.enable_lmhead:
+            self.model = CausalLmWrapper(hf_config=self.hf_config, model=self.model)
+        else:
+            self.model = ModelWrapper(self.model)
+
+    def maybe_enable_mtp(self):
+        if not self.model_config.mtp_config:
+            return
+
+        self.model = MtpWrapper(
+            self.model_config.mtp_config, self.hf_config, self.model
+        )
+
+    def pre_patch_model(self):
+        # cache rotary embedding to avoid computing it each time per forward
+        if self.model_config.cache_rotary_embedding and hasattr(
+            self.model, "rotary_emb"
+        ):
+            self.model.rotary_emb = CachingRotaryEmb(
+                self.model.rotary_emb,
+                act_dtype=self.model_config.dtype,
+                max_position_embeddings=self.text_config.max_position_embeddings,
+            )
+
     def patch_model(self):
         """
         Patch the transformer model for
@@ -198,16 +299,6 @@ class TransformerModel(ModelBase):
                     ].quant_config = self.model_config.quant_config.attention_configs[i]
 
         self.patch_mla()
-
-        # cache rotary embedding to avoid computing it each time per forward
-        if self.model_config.cache_rotary_embedding and hasattr(
-            self.model, "rotary_emb"
-        ):
-            self.model.rotary_emb = CachingRotaryEmb(
-                self.model.rotary_emb,
-                act_dtype=self.model_config.dtype,
-                max_position_embeddings=self.text_config.max_position_embeddings,
-            )
 
         # replace the vanilla mixture-of-expert (MOE) module with the fused one
         # so that it can be "meta" and torch.compile traced and easily optimized
@@ -339,7 +430,10 @@ class TransformerModel(ModelBase):
 
     @property
     def num_hidden_layers(self):
-        return self.text_config.num_hidden_layers
+        num_hidden_layers = self.text_config.num_hidden_layers
+        if self.model_config.mtp_config:
+            num_hidden_layers += self.model_config.mtp_config.num_mtp_layers
+        return num_hidden_layers
 
     @property
     def hidden_size(self):
@@ -356,13 +450,10 @@ class TransformerModel(ModelBase):
         inputs_embeds: Optional[torch.Tensor] = None,
         **kwargs: object,  # NOTE: extra args should be torch.compile compatible
     ) -> Union[torch.Tensor, TensorDict]:
-        hidden_states = self.model(
+        return self.model(
             input_ids=input_ids,
-            use_cache=False,
             position_ids=position_ids,
             inputs_embeds=inputs_embeds,
             attention_by_layers=getattr(self, "attention_by_layers", None),
-            return_dict=False,
             **kwargs,
-        )[0]
-        return hidden_states
+        )
