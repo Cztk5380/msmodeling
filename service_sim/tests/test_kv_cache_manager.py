@@ -1,6 +1,6 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
-from kv_cache_manager import KVCacheManager  # Implementation file above
+from service_sim.kv_cache_manager import KVCacheManager  # Implementation file above
 
 
 class TestKVCacheManager(unittest.TestCase):

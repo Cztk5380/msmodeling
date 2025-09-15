@@ -5,16 +5,16 @@ from abc import ABC
 from typing import Dict, List
 
 import stime
-from device import MachineConfig, MachineManager
-from engine import Engine, EngineLoadBalancer
-from model import ModelConfig
-from request import Request, RequestState
+from service_sim.device import MachineConfig, MachineManager
+from service_sim.engine import Engine, EngineLoadBalancer
+from service_sim.model_runner import ModelConfig
+from service_sim.request import Request, RequestState
 
 
 logger = stime.get_logger(__name__)
 
 
-class Instance(ABC):
+class Instance:
     id_counter = itertools.count()
 
     def __init__(self, machine_config: MachineConfig, model_config: ModelConfig):

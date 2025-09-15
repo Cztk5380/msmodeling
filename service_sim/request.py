@@ -3,9 +3,8 @@ import itertools
 from enum import auto, Enum
 from typing import Optional
 
-import stime
-
 from blinker import signal
+import stime
 
 
 class RequestState(Enum):
@@ -25,6 +24,7 @@ class Request:
     _copied_id = {} # request id -> copied times
 
     def __init__(self, **kwargs):
+        super().__init__()
         # generate global unique counting id if id is not given
         given_id = kwargs.get("id", None)
         if given_id is not None:

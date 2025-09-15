@@ -1,18 +1,19 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
-from device import DummyDeviceConfig, MachineConfig
+from service_sim.device import DummyDeviceConfig, MachineConfig
 
-from instance import Instance
-from load_gen import FixedLengthLoadGen
-from model import ModelConfig
-from request import Request
-from serving import PdDisaggregationServing, PdAggregationServing
+from service_sim.instance import Instance
+from service_sim.load_gen import FixedLengthLoadGen
+from service_sim.model_runner import ModelConfig
+from service_sim.request import Request
+from service_sim.serving import PdDisaggregationServing, PdAggregationServing
 import stime
+from service_sim.utils import main_processing
 
 
 class ServingTestCase(unittest.TestCase):
     def setUp(self):
-        stime.set_now(0)
+        stime.init_simulation()
 
     def test_pd_disaggregation_dummy_model(self):
         dummy_duration = 0.3
@@ -41,17 +42,11 @@ class ServingTestCase(unittest.TestCase):
             num_output_tokens=num_output_tokens,
             request_rate=1.0,
         )
-        requests = {}
 
-        def count_completed(request: Request):
-            nonlocal requests
-            requests[request.id] = request
+        main_task = stime.CallableTask(main_processing, serving, load_runner)
 
-        while load_runner.has_request():
-            request = load_runner.next_request()
-            request.decode_done_signal.connect(count_completed)
-            serving.serve(request)
-        serving.join()
+        stime.start_simulation()
+        requests = load_runner.get_finished_requests()
         # all requests have been served
         self.assertEqual(len(requests), num_requests)
         
@@ -82,17 +77,16 @@ class ServingTestCase(unittest.TestCase):
             num_output_tokens=num_output_tokens,
             request_rate=1.0,
         )
-        requests = {}
 
         def count_completed(request: Request):
             nonlocal requests
             requests[request.id] = request
 
-        while load_runner.has_request():
-            request = load_runner.next_request()
-            request.decode_done_signal.connect(count_completed)
-            serving.serve(request)
-        serving.join()
+        
+        main_task = stime.CallableTask(main_processing, serving, load_runner)
+
+        stime.start_simulation()
+        requests = load_runner.get_finished_requests()
         # all requests have been served
         self.assertEqual(len(requests), num_requests)
         for request in requests.values():
@@ -121,17 +115,16 @@ class ServingTestCase(unittest.TestCase):
             num_output_tokens=num_output_tokens,
             request_rate=1.0,
         )
-        requests = {}
 
         def count_completed(request: Request):
             nonlocal requests
             requests[request.id] = request
 
-        while load_runner.has_request():
-            request = load_runner.next_request()
-            request.decode_done_signal.connect(count_completed)
-            serving.serve(request)
-        serving.join()
+        
+        main_task = stime.CallableTask(main_processing, serving, load_runner)
+
+        stime.start_simulation()
+        requests = load_runner.get_finished_requests()
         # all requests have been served
         self.assertEqual(len(requests), num_requests)
         for request in requests.values():
@@ -165,11 +158,11 @@ class ServingTestCase(unittest.TestCase):
             nonlocal requests
             requests[request.id] = request
 
-        while load_runner.has_request():
-            request = load_runner.next_request()
-            request.decode_done_signal.connect(count_completed)
-            serving.serve(request)
-        serving.join()
+        
+        main_task = stime.CallableTask(main_processing, serving, load_runner)
+
+        stime.start_simulation()
+        requests = load_runner.get_finished_requests()
         # all requests have been served
         self.assertEqual(len(requests), num_requests)
         for request in requests.values():
