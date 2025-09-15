@@ -39,13 +39,13 @@ class Runtime(TorchDispatchMode):
     def __init__(
         self,
         perf_models: Union[PerformanceModel, List[PerformanceModel]],
-        machine_config: DeviceProfile,
+        device_profile: DeviceProfile,
         memory_tracker: Optional[MemoryTracker] = None,
     ):
         self.perf_models = (
             perf_models if isinstance(perf_models, (list, tuple)) else [perf_models]
         )
-        self.machine_config = machine_config
+        self.device_profile = device_profile
         self.memory_tracker: Optional[MemoryTracker] = memory_tracker
         self.event_list: List[RuntimeEvent] = []
         # TODO: add multi-stream support

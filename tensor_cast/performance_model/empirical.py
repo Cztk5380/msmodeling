@@ -7,8 +7,8 @@ from ..performance_model import OpInvokeInfo, PerformanceModel
 class EmpiricalPerformanceModel(PerformanceModel):
     """Performance model based on measured data"""
 
-    def __init__(self, machine_config: DeviceProfile):
-        super().__init__("empirical", machine_config)
+    def __init__(self, device_profile: DeviceProfile):
+        super().__init__("empirical", device_profile)
 
     @override
     def process_op(self, op_invoke_info: OpInvokeInfo) -> PerformanceModel.Result:

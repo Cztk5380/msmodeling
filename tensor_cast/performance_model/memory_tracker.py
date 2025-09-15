@@ -10,8 +10,8 @@ class MemoryTracker:
     and gives its memory profiles.
     """
 
-    def __init__(self, machine_config: DeviceProfile):
-        self.machine_config = machine_config
+    def __init__(self, device_profile: DeviceProfile):
+        self.device_profile = device_profile
 
     def track_tensor(tensor: torch.Tensor):
         # TODO

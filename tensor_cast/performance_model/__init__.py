@@ -114,7 +114,7 @@ class OpInvokeInfo:
 class PerformanceModel(ABC):
     """
     Performance model used to estimate the execution time of op invocations
-    on a given machine.
+    on a given device.
     """
 
     @dataclasses.dataclass
@@ -123,14 +123,14 @@ class PerformanceModel(ABC):
         statistics: Dict[str, Any] = dataclasses.field(default_factory=dict)
         """Misc runtime statistics produced by implementation"""
 
-    def __init__(self, name, machine_config: DeviceProfile):
+    def __init__(self, name, device_profile: DeviceProfile):
         self.name = name
-        self.machine_config = machine_config
+        self.device_profile = device_profile
 
     @abstractmethod
     def process_op(self, op_invoke_info: OpInvokeInfo) -> "PerformanceModel.Result":
         """
-        Estimate the execution time of an op invocation on the given machine.
+        Estimate the execution time of an op invocation on the given device.
         Returns:
             op execution time in seconds and misc runtime statistics
         """
@@ -504,11 +504,13 @@ def _multihead_latent_attention_properties(
 
     total_fma_ops = 0
     total_gp_ops = 0
+    exclude_input_ids = {3, 7, 8, 9}  # kv_cache, W_UK_T, W_UV, kv_b_proj
 
     # 3. Calculate FLOPs for the Prefill Phase
     num_prefill_tokens = torch.sum(num_tokens_per_seq[is_prefill]).item()
     if num_prefill_tokens > 0:
         assert kv_b_proj is not None
+        exclude_input_ids = exclude_input_ids - {9}
         prefill_seq_lens = seq_lens[is_prefill]
         prefill_num_tokens_per_seq = num_tokens_per_seq[is_prefill]
 
@@ -538,6 +540,7 @@ def _multihead_latent_attention_properties(
     num_decode_tokens = torch.sum(is_decode).item()
     if num_decode_tokens > 0:
         assert W_UK_T is not None and W_UV is not None
+        exclude_input_ids = exclude_input_ids - {7, 8}
         decode_seq_lens = seq_lens[is_decode]
         decode_num_tokens_per_seq = num_tokens_per_seq[is_decode]
 
@@ -574,7 +577,7 @@ def _multihead_latent_attention_properties(
         total_gp_ops += decode_op3_ops
 
     properties = op_invoke_info.get_memory_access_properties(
-        exclude_input_ids={3}
+        exclude_input_ids=exclude_input_ids
     )  # exclude kv_cache
 
     # Estimate memory read from the KV Cache.
