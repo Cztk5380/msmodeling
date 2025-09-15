@@ -11,7 +11,7 @@ from typing import Dict, Optional, Union
 
 import torch
 from transformers import AutoConfig, AutoModel, PretrainedConfig
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
 from ..layers.attention import flash_attention_forward
 from ..layers.moe_layer import MoELayer
@@ -21,7 +21,7 @@ from ..layers.parallel_linear import COLWISE_LINEAR, PARALLEL_MODULE_CLS, ROWWIS
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..model_config import ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
-from .utils import model_id_to_moe_config
+from .utils import model_id_to_moe_config, strip_module_name
 
 if typing.TYPE_CHECKING:
     from ..layers.sampler import SamplingMetadata
@@ -135,8 +135,8 @@ class CausalLmWrapper(torch.nn.Module):
             **kwargs,
         )[0]
         intermediate_hidden_states = hidden_states
-        sampling_metadata: SamplingMetadata = kwargs.get("sampling_metadata")
-        if sampling_metadata and sampling_metadata.selected_token_indices:
+        sampling_metadata: Optional[SamplingMetadata] = kwargs.get("sampling_metadata")
+        if sampling_metadata and sampling_metadata.selected_token_indices is not None:
             hidden_states = hidden_states.index_select(
                 1, sampling_metadata.selected_token_indices
             )
@@ -189,7 +189,7 @@ class TransformerModel(ModelBase):
         self.model_config = model_config
         hf_config_json = self.model_config.hf_config_json
         disable_auto_map = self.model_config.disable_auto_map
-        with init_on_device_without_buffers("meta"):
+        with init_on_device_without_buffers("meta"), no_init_weights():
             if hf_config_json is not None:
                 if not os.path.isabs(hf_config_json):
                     hf_config_json = os.path.join(
@@ -205,6 +205,10 @@ class TransformerModel(ModelBase):
                 disable_auto_map = True
             else:
                 self.hf_config = AutoConfig.from_pretrained(model_id)
+            if model_config.num_hidden_layers_override is not None:
+                self.hf_config.num_hidden_layers = (
+                    model_config.num_hidden_layers_override
+                )
             self.text_config = self.hf_config.get_text_config()
             if (
                 self.model_config.attention_cls
@@ -379,7 +383,7 @@ class TransformerModel(ModelBase):
             # TODO:
             # 1. the name of modules should be configured;
             # 2. we can define a class to represent the data with clearer semantics
-            tp_plan = dict()
+            tp_plan = {}
 
             groups = {
                 "tp_group": tp_group,
@@ -438,16 +442,21 @@ class TransformerModel(ModelBase):
 
             return None
 
+        linear_modules = {}
+        linear_module_stripped_to_names = {}
         for name, module in self.model.named_modules():
             if isinstance(module, torch.nn.Linear):
-                tp_config = get_tp_config(name)
-                if not tp_config:
-                    tp_config = get_tp_config(name.replace("._inner.", "."))
-                if tp_config:
-                    parallel_module = PARALLEL_MODULE_CLS[tp_config[0]](
-                        module, **tp_config[1]
-                    )
-                    self._replace_module(name, parallel_module)
+                linear_modules[name] = module
+                linear_module_stripped_to_names[strip_module_name(name)] = name
+        for pattern, tp_config in tp_plan.items():
+            matches = fnmatch.filter(linear_module_stripped_to_names.keys(), pattern)
+            for stripped_name in matches:
+                name = linear_module_stripped_to_names[stripped_name]
+                module = linear_modules[name]
+                parallel_module = PARALLEL_MODULE_CLS[tp_config[0]](
+                    module, **tp_config[1]
+                )
+                self._replace_module(name, parallel_module)
 
     def quant_linear(self):
         """
@@ -480,12 +489,10 @@ class TransformerModel(ModelBase):
         for name, module in self.model.named_modules():
             # We need to find the parent module to replace the child
             if isinstance(module, torch.nn.Linear):
-                quant_config = get_quant_config(name)
-                if not quant_config:
-                    # remove "_inner" from the module path since we may wrap original
-                    # module with "_inner".
-                    # TODO(jgong5): avoid name clashing?
-                    quant_config = get_quant_config(name.replace("._inner.", "."))
+                # remove "_inner" from the module path since we may wrap original
+                # module with "_inner".
+                # TODO(jgong5): avoid name clashing?
+                quant_config = get_quant_config(strip_module_name(name))
                 if quant_config:
                     # Create and set the new quantized module
                     quantized_module = self.model_config.quant_linear_cls(

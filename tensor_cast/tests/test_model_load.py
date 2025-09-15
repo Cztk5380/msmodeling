@@ -24,17 +24,29 @@ from .test_common import (
 
 
 class ModelLoadTestCase(unittest.TestCase):
+    def setUp(self):
+        torch.compiler.reset()
+
     @parameterized.expand(
         [
-            ["Qwen/Qwen3-32B"],
-            ["Qwen/Qwen3-235B-A22B"],
-            ["zai-org/GLM-4.5"],
+            ["Qwen/Qwen3-32B", False],
+            ["Qwen/Qwen3-32B", True],
+            ["Qwen/Qwen3-235B-A22B", False],
+            ["Qwen/Qwen3-235B-A22B", True],
+            ["zai-org/GLM-4.5", False],
+            ["zai-org/GLM-4.5", True],
         ]
     )
-    def test_vanilla_transformer_model_eager(self, model_id):
+    def test_vanilla_transformer_model(self, model_id, do_compile):
         num_tokens = 100
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        model_config = ModelConfig(
+            ParallelConfig(), QuantConfig(), num_hidden_layers_override=2
+        )
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
         inputs = torch.empty([2, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([2, num_tokens], dtype=torch.long, device="meta")
         with torch.no_grad(), patch_torch():
@@ -43,16 +55,21 @@ class ModelLoadTestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["deepseek-ai/DeepSeek-V3.1"],
-            ["moonshotai/Kimi-K2-Base"],
+            ["deepseek-ai/DeepSeek-V3.1", False],
+            ["deepseek-ai/DeepSeek-V3.1", True],
+            ["moonshotai/Kimi-K2-Base", False],
+            ["moonshotai/Kimi-K2-Base", True],
         ]
     )
-    def test_deepseek_eager_without_kvcache(self, model_id):
+    def test_deepseek_without_kvcache(self, model_id, do_compile):
         num_tokens = 100
         hf_config_json = model_id_to_json(model_id)
         self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), hf_config_json=hf_config_json
+            ParallelConfig(),
+            QuantConfig(),
+            hf_config_json=hf_config_json,
+            num_hidden_layers_override=2,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -60,6 +77,10 @@ class ModelLoadTestCase(unittest.TestCase):
         )
         model_config.mla_config = mla_config
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
         # make sure all original attention modules have been replaced
         self.assertTrue(
             has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
@@ -72,15 +93,20 @@ class ModelLoadTestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["deepseek-ai/DeepSeek-V3.1"],
-            ["moonshotai/Kimi-K2-Base"],
+            ["deepseek-ai/DeepSeek-V3.1", False],
+            ["deepseek-ai/DeepSeek-V3.1", True],
+            ["moonshotai/Kimi-K2-Base", False],
+            ["moonshotai/Kimi-K2-Base", True],
         ]
     )
-    def test_deepseek_eager_with_kvcache(self, model_id):
+    def test_deepseek_with_kvcache(self, model_id, do_compile):
         hf_config_json = model_id_to_json(model_id)
         self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), hf_config_json=hf_config_json
+            ParallelConfig(),
+            QuantConfig(),
+            hf_config_json=hf_config_json,
+            num_hidden_layers_override=2,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -88,6 +114,10 @@ class ModelLoadTestCase(unittest.TestCase):
         )
         model_config.mla_config = mla_config
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
             model, model_config
         )
@@ -108,66 +138,31 @@ class ModelLoadTestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["Qwen/Qwen3-32B"],
-            # ["Qwen/Qwen3-235B-A22B"],
-            # ["deepseek-ai/DeepSeek-V3"],
-            # ["zai-org/GLM-4.5"],
+            ["Qwen/Qwen3-32B", False],
+            ["Qwen/Qwen3-32B", True],
+            ["Qwen/Qwen3-235B-A22B", False],
+            ["Qwen/Qwen3-235B-A22B", True],
+            ["zai-org/GLM-4.5", False],
+            ["zai-org/GLM-4.5", True],
         ]
     )
-    def test_vanilla_transformer_model_compile(self, model_id):
-        num_tokens = 100
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
-        model = TransformerModel(model_id, model_config)
-        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        model = torch.compile(
-            model, backend=get_backend(), fullgraph=True, dynamic=True
-        )
-        with torch.no_grad(), patch_torch():
-            outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
-
-    @parameterized.expand(
-        [
-            ["Qwen/Qwen3-32B"],
-            ["Qwen/Qwen3-235B-A22B"],
-            # ["deepseek-ai/DeepSeek-V3"],
-            ["zai-org/GLM-4.5"],
-        ]
-    )
-    def test_prefill_without_kvcache_eager(self, model_id):
+    def test_prefill_without_kvcache(self, model_id, do_compile):
         num_tokens = 100
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast
+            ParallelConfig(),
+            QuantConfig(),
+            attention_cls=AttentionTensorCast,
+            num_hidden_layers_override=2,
         )
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         with torch.no_grad(), patch_torch():
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
-
-    @parameterized.expand(
-        [
-            ["Qwen/Qwen3-32B"],
-            # ["Qwen/Qwen3-235B-A22B"],
-            # ["deepseek-ai/DeepSeek-V3"],
-            # ["zai-org/GLM-4.5"],
-        ]
-    )
-    def test_prefill_without_kvcache_compile(self, model_id):
-        num_tokens = 100
-        model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast
-        )
-        model = TransformerModel(model_id, model_config)
-        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        model_compiled = torch.compile(
-            model, backend=get_backend(), fullgraph=True, dynamic=True
-        )
-        with torch.no_grad(), patch_torch():
-            outputs = model_compiled.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
 
     @parameterized.expand(
@@ -175,15 +170,17 @@ class ModelLoadTestCase(unittest.TestCase):
             ["Qwen/Qwen3-32B", False],
             ["Qwen/Qwen3-32B", True],
             ["Qwen/Qwen3-235B-A22B", False],
-            # ["Qwen/Qwen3-235B-A22B", True],
-            # ["deepseek-ai/DeepSeek-V3"],
+            ["Qwen/Qwen3-235B-A22B", True],
             ["zai-org/GLM-4.5", False],
-            # ["zai-org/GLM-4.5", True],
+            ["zai-org/GLM-4.5", True],
         ]
     )
     def test_prefill_with_kvcache(self, model_id, do_compile):
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast
+            ParallelConfig(),
+            QuantConfig(),
+            attention_cls=AttentionTensorCast,
+            num_hidden_layers_override=2,
         )
         model = TransformerModel(model_id, model_config)
         attn_meta, kv_cache_by_layers, num_tokens = create_attn_metadata_and_kv_cache(

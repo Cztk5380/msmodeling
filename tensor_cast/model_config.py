@@ -265,3 +265,6 @@ class ModelConfig:
     """set it to True if we want to use a local model definition, not
     loading it from remote. Useful when the local transformer model is preferred."""
     enable_lmhead: Optional[bool] = None
+    num_hidden_layers_override: Optional[int] = None
+    """Override hf_config.num_hidden_layers, useful for speeding up sanity tests
+    with small overrides for very large models."""

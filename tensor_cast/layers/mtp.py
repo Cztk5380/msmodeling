@@ -57,9 +57,9 @@ class MultiTokenPredictor(torch.nn.Module):
         super().__init__()
         self.mtp_start_layer_idx = hf_config.num_hidden_layers
         self.num_mtp_layers = num_mtp_layers
-        self.layers = torch.nn.ModuleDict(
-            {
-                str(idx): MultiTokenPredictorLayer(
+        self.layers = torch.nn.ModuleList(
+            [
+                MultiTokenPredictorLayer(
                     hf_config,
                     mtp_block_creator(idx),
                 )
@@ -67,12 +67,14 @@ class MultiTokenPredictor(torch.nn.Module):
                     self.mtp_start_layer_idx,
                     self.mtp_start_layer_idx + self.num_mtp_layers,
                 )
-            }
+            ]
         )
         self.embed_tokens = torch.nn.Embedding(
             hf_config.vocab_size,
             hf_config.hidden_size,
         )
+        # TODO(jgong5): lm_head should share the weights with the main model and among MTP layers.
+        #               Otherwise, the memory consumption would be higher.
         self.lm_head = torch.nn.Linear(hf_config.hidden_size, hf_config.vocab_size)
 
     def forward(
@@ -87,7 +89,7 @@ class MultiTokenPredictor(torch.nn.Module):
     ) -> tuple[torch.Tensor, torch.Tensor]:
         if inputs_embeds is None:
             inputs_embeds = self.embed_tokens(input_ids)
-        hidden_states = self.layers[str(self.mtp_start_layer_idx + spec_step_idx)](
+        hidden_states = self.layers[spec_step_idx](
             inputs_embeds,
             positions,
             previous_hidden_states,
@@ -95,9 +97,9 @@ class MultiTokenPredictor(torch.nn.Module):
             **kwargs,
         )
         intermediate_hidden_states = hidden_states
-        sampling_metadata: SamplingMetadata = kwargs.get("sampling_metadata")
+        sampling_metadata: Optional[SamplingMetadata] = kwargs.get("sampling_metadata")
         assert sampling_metadata is not None, "No sampling metadata given for MTP"
-        if sampling_metadata.selected_token_indices:
+        if sampling_metadata.selected_token_indices is not None:
             hidden_states = hidden_states.index_select(
                 1, sampling_metadata.selected_token_indices
             )
@@ -146,7 +148,7 @@ class MtpWrapper(torch.nn.Module):
         inputs_embeds: Optional[torch.Tensor] = None,
         **kwargs: object,  # NOTE: extra args should be torch.compile compatible
     ) -> torch.Tensor:
-        sampling_metadata: SamplingMetadata = kwargs.get("sampling_metadata")
+        sampling_metadata: Optional[SamplingMetadata] = kwargs.get("sampling_metadata")
         assert sampling_metadata is not None, "No sampling metadata given for MTP"
         logits, hidden_states = self._inner(
             input_ids,

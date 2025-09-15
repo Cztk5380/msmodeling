@@ -30,7 +30,7 @@ class Sampler(torch.nn.Module):
             assert hidden_states.ndim == 3
             logits = hidden_states[:, -1, :]
         else:
-            query_start_loc = sampling_metadata.query_start_loc
+            query_start_loc = sampling_metadata.query_start_loc.to(hidden_states.device)
             hidden_states = hidden_states.view(-1, hidden_states.size(-1))
             logits = hidden_states.index_select(0, query_start_loc[1:] - 1)
         next_tokens = torch.argmax(logits, dim=-1, keepdim=True)

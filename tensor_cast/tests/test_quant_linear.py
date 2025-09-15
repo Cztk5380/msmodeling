@@ -19,7 +19,7 @@ from ..patch_torch import patch_torch
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-
+from ..transformers.utils import strip_module_name
 
 # Define common parameters for tests
 IN_FEATURES = 32
@@ -52,10 +52,12 @@ def get_quant_config(model=None, quant_type=LinearQuantType.W4A8, **kwargs):
         return quant_config
     for name, module in model.named_modules():
         if isinstance(module, torch.nn.Linear):
-            quant_config.linear_configs[name] = get_linear_quant_config(
-                quant_type,
-                torch.randn(1),
-                **kwargs,
+            quant_config.linear_configs[strip_module_name(name)] = (
+                get_linear_quant_config(
+                    quant_type,
+                    torch.randn(1),
+                    **kwargs,
+                )
             )
     return quant_config
 
@@ -240,9 +242,8 @@ class TestQuantLinear(unittest.TestCase):
     @parameterized.expand(
         [
             ["Qwen/Qwen3-32B"],
-            # ["Qwen/Qwen3-235B-A22B"],
-            # ["deepseek-ai/DeepSeek-V3"],
-            # ["zai-org/GLM-4.5"],  # disable due to long test time
+            ["Qwen/Qwen3-235B-A22B"],
+            ["zai-org/GLM-4.5"],
         ]
     )
     def test_model_quant_wildcard(self, model_id):
@@ -252,6 +253,7 @@ class TestQuantLinear(unittest.TestCase):
             ParallelConfig(),
             get_quant_config(),
             quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=2,
         )
         start = time.time()
         qmodel = TransformerModel(model_id, model_config_with_quant)
@@ -273,13 +275,16 @@ class TestQuantLinear(unittest.TestCase):
     @parameterized.expand(
         [
             ["Qwen/Qwen3-32B"],
-            # ["Qwen/Qwen3-235B-A22B"],
-            # ["deepseek-ai/DeepSeek-V3"],
-            # ["zai-org/GLM-4.5"],  # disable due to long test time
+            ["Qwen/Qwen3-235B-A22B"],
+            ["zai-org/GLM-4.5"],
         ]
     )
     def test_model_quant_base(self, model_id):
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        model_config = ModelConfig(
+            ParallelConfig(),
+            QuantConfig(),
+            num_hidden_layers_override=2,
+        )
         model = TransformerModel(model_id, model_config)
         num_linear_modules = sum(
             1
@@ -291,6 +296,7 @@ class TestQuantLinear(unittest.TestCase):
             ParallelConfig(),
             get_quant_config(model.model),
             quant_linear_cls=QuantLinearBase,
+            num_hidden_layers_override=2,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
         num_qlinear_modules = sum(
@@ -310,9 +316,8 @@ class TestQuantLinear(unittest.TestCase):
     @parameterized.expand(
         [
             ["Qwen/Qwen3-32B"],
-            # ["Qwen/Qwen3-235B-A22B"],
-            # ["deepseek-ai/DeepSeek-V3"],
-            # ["zai-org/GLM-4.5"],  # disable due to long test time
+            ["Qwen/Qwen3-235B-A22B"],
+            ["zai-org/GLM-4.5"],
         ]
     )
     def test_model_quant_tensorcast_dynamic_w4a8(self, model_id):
@@ -323,6 +328,7 @@ class TestQuantLinear(unittest.TestCase):
             ParallelConfig(),
             get_quant_config(model.model, quant_type=LinearQuantType.W4A8),
             quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=2,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
 
@@ -340,9 +346,8 @@ class TestQuantLinear(unittest.TestCase):
     @parameterized.expand(
         [
             ["Qwen/Qwen3-32B"],
-            # ["Qwen/Qwen3-235B-A22B"],
-            # ["deepseek-ai/DeepSeek-V3"],
-            # ["zai-org/GLM-4.5"],  # disable due to long test time
+            ["Qwen/Qwen3-235B-A22B"],
+            ["zai-org/GLM-4.5"],
         ]
     )
     def test_model_quant_tensorcast_static_w8a8(self, model_id):
@@ -363,6 +368,7 @@ class TestQuantLinear(unittest.TestCase):
                 ),
             ),
             quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=2,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
         machine_config = A2

@@ -19,6 +19,9 @@ from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cl
 
 
 class PerfAnalysisTestCase(unittest.TestCase):
+    def setUp(self):
+        torch.compiler.reset()
+
     def test_simple_model_eager(self):
         def func(x):
             return x + x
@@ -47,16 +50,18 @@ class PerfAnalysisTestCase(unittest.TestCase):
             ["Qwen/Qwen3-32B", False],
             ["Qwen/Qwen3-32B", True],
             ["Qwen/Qwen3-235B-A22B", False],
-            # ["Qwen/Qwen3-235B-A22B", True],
-            # ["deepseek-ai/DeepSeek-V3"],
+            ["Qwen/Qwen3-235B-A22B", True],
             ["zai-org/GLM-4.5", False],
-            # ["zai-org/GLM-4.5", True],
+            ["zai-org/GLM-4.5", True],
         ]
     )
     def test_model(self, model_id, do_compile):
         num_tokens = 100
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), attention_cls=AttentionTensorCast
+            ParallelConfig(),
+            QuantConfig(),
+            attention_cls=AttentionTensorCast,
+            num_hidden_layers_override=2,
         )
         model = TransformerModel(model_id, model_config)
         if do_compile:
@@ -72,15 +77,20 @@ class PerfAnalysisTestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["deepseek-ai/DeepSeek-V3.1"],
-            ["moonshotai/Kimi-K2-Base"],
+            ["deepseek-ai/DeepSeek-V3.1", False],
+            ["deepseek-ai/DeepSeek-V3.1", True],
+            ["moonshotai/Kimi-K2-Base", False],
+            ["moonshotai/Kimi-K2-Base", True],
         ]
     )
-    def test_deepseek(self, model_id):
+    def test_deepseek(self, model_id, do_compile):
         hf_config_json = model_id_to_json(model_id)
         self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), hf_config_json=hf_config_json
+            ParallelConfig(),
+            QuantConfig(),
+            hf_config_json=hf_config_json,
+            num_hidden_layers_override=5,  # large enough to include MoE layers
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -88,6 +98,8 @@ class PerfAnalysisTestCase(unittest.TestCase):
         )
         model_config.mla_config = mla_config
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(model, backend=get_backend(), fullgraph=True)
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
             model, model_config
         )

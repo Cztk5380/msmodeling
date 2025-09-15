@@ -31,11 +31,13 @@ class CompilerBackend:
             fx.Graph: The processed FX graph with custom operation fusing applied.
         """
         logger.debug("Graph before compiling:")
-        logger.debug(graph.print_readable(print_output=False))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(graph.print_readable(print_output=False))
         self.apply_quantization_passes(graph)
         self.apply_pattern_match_passes(graph)
         logger.debug("Graph after compiling:")
-        logger.debug(graph.print_readable(print_output=False))
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(graph.print_readable(print_output=False))
         return graph
 
     def apply_quantization_passes(self, graph: fx.GraphModule):

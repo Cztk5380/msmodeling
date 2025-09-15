@@ -66,12 +66,13 @@ class TestQuantAttention(unittest.TestCase):
         )
 
         num_tokens = query_len_1 + query_len_2
-        kv_quant_start_idx = 2
-        kv_quant_end_idx = 9
+        kv_quant_start_idx = 0
+        kv_quant_end_idx = 1
         model_config = ModelConfig(
             ParallelConfig(),
             get_quant_config(kv_quant_start_idx, kv_quant_end_idx),
             attention_cls=AttentionTensorCast,
+            num_hidden_layers_override=2,
         )
         model = TransformerModel(model_id, model_config)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")

@@ -60,7 +60,12 @@ class ParallelLinearTestCase(unittest.TestCase):
     )
     def test_model_with_tp_and_dp(self, model_id, parallel_configuration):
         parallel_config = get_parallel_config(parallel_configuration)
-        model_config = ModelConfig(parallel_config, QuantConfig(), enable_lmhead=True)
+        model_config = ModelConfig(
+            parallel_config,
+            QuantConfig(),
+            enable_lmhead=True,
+            num_hidden_layers_override=2,
+        )
         model = TransformerModel(model_id, model_config)
 
         num_tokens = 100
@@ -97,7 +102,12 @@ class ParallelLinearTestCase(unittest.TestCase):
     )
     def test_model_quant_with_tp_and_dp(self, model_id, parallel_configuration):
         parallel_config = get_parallel_config(parallel_configuration)
-        model_config = ModelConfig(parallel_config, QuantConfig(), enable_lmhead=True)
+        model_config = ModelConfig(
+            parallel_config,
+            QuantConfig(),
+            enable_lmhead=True,
+            num_hidden_layers_override=2,
+        )
         model = TransformerModel(model_id, model_config)
 
         model_config_with_quant = ModelConfig(

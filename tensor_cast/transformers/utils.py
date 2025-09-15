@@ -55,3 +55,9 @@ _model_id_to_mtp_block_module_name: Dict[str, str] = {
 
 def model_id_to_mtp_block_module_name(model_id: str) -> str:
     return _model_id_to_mtp_block_module_name.setdefault(model_id, None)
+
+
+def strip_module_name(name: str) -> str:
+    """Strip `_inner` module name from the given module path name"""
+    stripped = name.removeprefix("_inner.")
+    return stripped.replace("._inner.", ".")

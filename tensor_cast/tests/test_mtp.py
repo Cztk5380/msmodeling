@@ -3,6 +3,7 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from ..compilation import get_backend
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.sampler import SamplingMetadata
 from ..model_config import (
@@ -20,18 +21,26 @@ from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cl
 
 
 class MtpTestCase(unittest.TestCase):
+    def setUp(self):
+        torch.compiler.reset()
+
     @parameterized.expand(
         [
-            ["deepseek-ai/DeepSeek-V3.1"],
-            ["moonshotai/Kimi-K2-Base"],
+            ["deepseek-ai/DeepSeek-V3.1", False],
+            ["deepseek-ai/DeepSeek-V3.1", True],
+            ["moonshotai/Kimi-K2-Base", False],
+            # ["moonshotai/Kimi-K2-Base", True],  # long test time
         ]
     )
-    def test_deepseek_eager_prefill_without_kvcache(self, model_id):
+    def test_deepseek_prefill_without_kvcache(self, model_id, do_compile):
         num_tokens = 100
         hf_config_json = model_id_to_json(model_id)
         self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), hf_config_json=hf_config_json
+            ParallelConfig(),
+            QuantConfig(),
+            hf_config_json=hf_config_json,
+            num_hidden_layers_override=2,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -47,6 +56,10 @@ class MtpTestCase(unittest.TestCase):
         )
         model_config.mtp_config = mtp_config
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
         # make sure all original attention modules have been replaced
         self.assertTrue(
             has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
@@ -61,15 +74,20 @@ class MtpTestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["deepseek-ai/DeepSeek-V3.1"],
-            ["moonshotai/Kimi-K2-Base"],
+            ["deepseek-ai/DeepSeek-V3.1", False],
+            ["deepseek-ai/DeepSeek-V3.1", True],
+            ["moonshotai/Kimi-K2-Base", False],
+            # ["moonshotai/Kimi-K2-Base", True],  # long test time
         ]
     )
-    def test_deepseek_eager_prefill_with_kvcache(self, model_id):
+    def test_deepseek_prefill_with_kvcache(self, model_id, do_compile):
         hf_config_json = model_id_to_json(model_id)
         self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), hf_config_json=hf_config_json
+            ParallelConfig(),
+            QuantConfig(),
+            hf_config_json=hf_config_json,
+            num_hidden_layers_override=2,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -85,6 +103,10 @@ class MtpTestCase(unittest.TestCase):
         )
         model_config.mtp_config = mtp_config
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
             model, model_config
         )
@@ -108,15 +130,20 @@ class MtpTestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["deepseek-ai/DeepSeek-V3.1"],
-            ["moonshotai/Kimi-K2-Base"],
+            ["deepseek-ai/DeepSeek-V3.1", False],
+            ["deepseek-ai/DeepSeek-V3.1", True],
+            ["moonshotai/Kimi-K2-Base", False],
+            # ["moonshotai/Kimi-K2-Base", True],  # long test time
         ]
     )
-    def test_deepseek_eager_decode_with_kvcache(self, model_id):
+    def test_deepseek_decode_with_kvcache(self, model_id, do_compile):
         hf_config_json = model_id_to_json(model_id)
         self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), hf_config_json=hf_config_json
+            ParallelConfig(),
+            QuantConfig(),
+            hf_config_json=hf_config_json,
+            num_hidden_layers_override=2,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -132,6 +159,10 @@ class MtpTestCase(unittest.TestCase):
         )
         model_config.mtp_config = mtp_config
         model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
             model,
             model_config,
