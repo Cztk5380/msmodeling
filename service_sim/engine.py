@@ -3,12 +3,10 @@ import threading
 from typing import Dict, List
 
 import stime
-from device import Device
-from model import ModelConfig
-from model_runner import ModelRunner
-from request import Request, RequestState
-from kv_cache_manager import KVCacheManager
-
+from service_sim.device import Device
+from service_sim.model_runner import ModelRunner, ModelConfig
+from service_sim.request import Request, RequestState
+from service_sim.kv_cache_manager import KVCacheManager
 
 
 logger = stime.get_logger(__name__)
@@ -17,45 +15,32 @@ MEM_LEFT_FOR_KV_CACHE = 40 * 1024 * 1024 # 40GB
 MAX_TOKENS_BUDGET = 16384
 
 
-class BatchScheduler:
+class BatchScheduler(stime.Task):
     def __init__(self, model_runner: ModelRunner, kv_manager: KVCacheManager):
+        super().__init__()
         self.model_runner = model_runner
         self.kv_manager = kv_manager
-        self.waiting_queue = stime.Queue(allow_anti_causality_put=True)
-        self.running_queue = stime.Queue()
-        self.kv_sending_queue = stime.Queue()
-        self._shutdown = threading.Event()
-        self.batching_timeout = 0
-        self.scheduling_thread = stime.Thread(target=self._scheduling_loop, daemon=True)
+        self.waiting_queue = []
+        self.running_queue = []
         self.requests: Dict[int, Request] = {}
-        self.requests_condition = stime.Condition()
         self.max_tokens_budget = MAX_TOKENS_BUDGET
 
     def add(self, request: Request):
         logger.debug(f"BatchScheduler adding {request}")
-        self.waiting_queue.put(request)
-        with self.requests_condition:
-            self.requests[request.id] = request
-            self.requests_condition.notify_all()
+        self.waiting_queue.append(request)
+        self.notify()
+        self.requests[request.id] = request
 
-    def run(self):
-        self.scheduling_thread.start()
-
-    def shutdown(self):
-        """Gracefully stop the processing thread."""
-        self._shutdown.set()
-        self.waiting_queue.shutdown()
-        self.running_queue.shutdown()
-        self.scheduling_thread.join() # wait for the thread to finish
+    def process(self):
+        self._scheduling_loop()
 
     def get_work_load(self):
         res = 0
-        with self.requests_condition:
-            for request in self.requests.values():
-                if request.state == RequestState.PREFILLING:
-                    res += request.num_input_tokens
-                elif request.state == RequestState.DECODING:
-                    res += 1
+        for request in self.requests.values():
+            if request.state == RequestState.PREFILLING:
+                res += request.num_input_tokens
+            elif request.state == RequestState.DECODING:
+                res += 1
         return res
 
     def _schedule(self):
@@ -78,9 +63,8 @@ class BatchScheduler:
 
                 if new_blocks is None:
                     # The request cannot be scheduled. Preempt the lowest-priority request. now naively preempt the last
-                    request_to_preempt = self.running_queue.peek_latest_due()
+                    request_to_preempt = self.running_queue[-1]
                     if request_to_preempt is not request: # not the current req
-                        self.running_queue.remove(request_to_preempt)
                         self._process_preempted_request(request_to_preempt)
                         logger.debug("BatchScheduler._schedule: preempt request %s", request_to_preempt.id)
                         preempt_reqs.append(request_to_preempt)
@@ -103,9 +87,7 @@ class BatchScheduler:
         # second if no preempted requests (meaning kv cache has available slots), schedule the waiting_queue
         if not preempt_reqs:
             while self.waiting_queue and token_budget > 0:
-                request = self.waiting_queue.peek_due()
-                if not request:
-                    break
+                request = self.waiting_queue[0]
                 # check if need receive kv transfer, if need then try to receive, if failed skip
                 if request.state == RequestState.KVS_TRANSFERRING and request.need_kv_transfer and \
                     not request.kv_transfer_done:
@@ -127,12 +109,12 @@ class BatchScheduler:
                 # kv cache allocation success, schedule the request
                 token_budget -= num_computed_tokens
                 request.num_current_max_new_tokens -= num_computed_tokens
-                self.running_queue.put(request)
                 self.waiting_queue.remove(request)
+                self.running_queue.append(request)
 
-        if len(self.running_queue) == 0:
-            logger.debug("BatchScheduler._schedule: no requests are scheduled, trigger wait_till_due")
-            self.waiting_queue.wait_till_due()
+        while len(self.running_queue) == 0 and len(self.waiting_queue) == 0:
+            logger.debug("BatchScheduler._schedule: no requests are scheduled, passivate current BatchScheduler")
+            self.wait()
 
     def _receive_remote_kvs(self, request) -> bool:
         transferred_num_tokens = request.num_input_tokens
@@ -148,7 +130,6 @@ class BatchScheduler:
         self.kv_manager.free(request.id)
         request.state = RequestState.KVS_TRANSFERRING
 
-
     def _process_preempted_request(self, request: Request):
         """
         the request is currently in running_queue.
@@ -156,7 +137,7 @@ class BatchScheduler:
         change its num_current_max_new_tokens, free its kvcache
         """
         self.running_queue.remove(request)
-        self.waiting_queue.put(request)
+        self.waiting_queue.append(request)
         request._state = RequestState.PREFILLING
         request.num_current_max_new_tokens = request.num_input_tokens
         request.num_decoded_tokens = 0
@@ -169,7 +150,8 @@ class BatchScheduler:
         Second, execute the requests in the running_queue.
         """
         try:
-            while not self._shutdown.is_set():
+            while True:
+                logger.debug("in schedule   ")
                 self._schedule()
                 if len(self.running_queue) != 0:
                     logger.debug(f"Scheduled batch size: {len(self.running_queue)}"
@@ -195,9 +177,7 @@ class BatchScheduler:
                 # totally finish one step of prefilling or decoding
                 request.num_decoded_tokens += 1
                 if request.num_decoded_tokens >= request.num_output_tokens:
-                    with self.requests_condition:
-                        self.requests.pop(request.id)
-                        self.requests_condition.notify_all()
+                    self.requests.pop(request.id)
                     self.kv_manager.free(request.id)
                     self.running_queue.remove(request)
                     request.state = RequestState.DECODE_DONE
@@ -212,9 +192,7 @@ class BatchScheduler:
                             raise ValueError("BatchScheduler._postprocess_batch failed: "
                                 "request's kv cache should not been transferred")
                         self._send_kvs_from_remote(request)
-                        with self.requests_condition:
-                            self.requests.pop(request.id)
-                            self.requests_condition.notify_all()
+                        self.requests.pop(request.id)
                         continue
                     request.state = RequestState.DECODING
             else:
@@ -233,7 +211,6 @@ class Engine:
         self.model_runner = ModelRunner(devices, dp_rank, model_config)
         self.kv_manager = self.create_kv_manager(model_config)
         self.batch_scheduler = BatchScheduler(self.model_runner, self.kv_manager)
-        self.batch_scheduler.run()
 
     @staticmethod
     def create_kv_manager(model_config):

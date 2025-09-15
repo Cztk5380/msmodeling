@@ -3,7 +3,8 @@ from abc import ABC, abstractmethod
 from typing import Dict
 
 import stime
-from request import Request, RequestState
+from service_sim.request import Request, RequestState
+logger = stime.get_logger(__name__)
 
 
 class LoadGen(ABC):
@@ -46,18 +47,36 @@ class FixedLengthLoadGen(LoadGen):
         super().__init__(model_name)
         self.request_rate = request_rate
         self.requests: Dict[int, Request] = {}
+        self.num_requests = num_requests
         for _ in range(num_requests):
             request = Request(num_input_tokens=num_input_tokens, num_output_tokens=num_output_tokens)
             self.requests[request.id] = request
+        self.finished_requests = {}
 
     def next_request(self) -> Request:
         if not self.requests:
             raise ValueError("self.requests is None")
         first_key = next(iter(self.requests))
         request = self.requests.pop(first_key)
-        stime.elapse(1 / self.request_rate)
+        request.decode_done_signal.connect(self._decode_done_callback)
         request.state = RequestState.LEAVES_CLIENT
-        return request
+        interval = 1 / self.request_rate
+        return request, interval
 
     def has_request(self) -> Request:
         return self.requests
+
+    def is_finished(self):
+        return len(self.finished_requests) == self.num_requests
+
+    def get_finished_requests(self):
+        return self.finished_requests
+
+    def _decode_done_callback(self, request: Request):
+        logger.debug("decode done callback %s", request.id)
+        if not request.state == RequestState.DECODE_DONE:
+            raise ValueError("request.state != RequestState.DECODE_DONE")
+        if request.id in self.finished_requests:
+            raise ValueError("request.id already in self.finished_requests")
+
+        self.finished_requests[request.id] = request
