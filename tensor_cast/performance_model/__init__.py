@@ -6,6 +6,8 @@ from typing import Any, Dict, Optional
 
 import torch
 
+from .. import ops  # noqa: F401
+
 from ..device import DeviceProfile
 from .utils import is_view_op, run_once
 

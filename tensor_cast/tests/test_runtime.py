@@ -11,6 +11,7 @@ from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
+from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_json
@@ -26,9 +27,14 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x):
             return x + x
 
-        machine_config = A2
-        perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        device_profile = A2
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
             x = torch.randn([100], device="meta")
             _ = func(x)
         self.assertEqual(len(runtime.event_list), 3)
@@ -38,9 +44,14 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x):
             return x + x
 
-        machine_config = A2
-        perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        device_profile = A2
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
             x = torch.randn([100], device="meta")
             _ = func(x)
         self.assertEqual(len(runtime.event_list), 3)
@@ -68,9 +79,14 @@ class PerfAnalysisTestCase(unittest.TestCase):
             model = torch.compile(model, backend=get_backend(), fullgraph=True)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        machine_config = A2
-        perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        device_profile = A2
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
         self.assertIn("tensor_cast.", runtime.table_averages())
@@ -109,9 +125,14 @@ class PerfAnalysisTestCase(unittest.TestCase):
         )
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        machine_config = A2
-        perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        device_profile = A2
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
             outputs = model.forward(
                 inputs,
                 position_ids,
@@ -128,9 +149,14 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x):
             return x + 2 * x + x
 
-        machine_config = A2
-        perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        device_profile = A2
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
             x = torch.randn([100], device="meta")
             _ = func(x)
         result = runtime.table_averages()
@@ -145,9 +171,14 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x, y):
             return x + 2 * x + x + y
 
-        machine_config = A2
-        perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        device_profile = A2
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
             x = torch.randn([10, 10], device="meta")
             y = torch.randn([10, 1], device="meta")
             _ = func(x, y)
@@ -164,9 +195,14 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x):
             return x + 2 * x + x
 
-        machine_config = A2
-        perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        device_profile = A2
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
             x = torch.randn([100], device="meta")
             _ = func(x)
         with tempfile.TemporaryFile(mode="w+") as temp_file:

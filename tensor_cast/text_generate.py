@@ -25,6 +25,7 @@ from .model_config import (
     QuantConfig,
 )
 from .performance_model.analytic import AnalyticPerformanceModel
+from .performance_model.memory_tracker import MemoryTracker
 from .runtime import Runtime
 from .transformers.model import TransformerModel
 from .transformers.utils import (
@@ -79,11 +80,13 @@ def run_inference(
     num_queries: int,
     input_length: int,
     context_length: int,
+    max_context_length: int,
     do_compile: bool,
     dump_input_shapes: bool = False,
     chrome_trace: Optional[str] = None,
     quantize_linear_action: Optional[QuantLinearAction] = None,
     num_mtp_layers: int = 0,
+    num_hidden_layers_override: int = 0,
     is_decode: bool = False,
 ):
     """
@@ -91,14 +94,15 @@ def run_inference(
     """
     if str(machine) not in DeviceProfile.all_machines:
         raise ValueError(f"Machine '{machine}' not recognized.")
-    machine_config = DeviceProfile.all_machines[str(machine)]
+    device_profile = DeviceProfile.all_machines[str(machine)]
 
     print("--- Configuration ---")
-    print(f"machine: {machine_config}")
+    print(f"machine: {device_profile}")
     print(f"Model ID: {model_id}")
     print(f"Number of Queries (Batch Size): {num_queries}")
     print(f"Input Length (per query): {input_length}")
     print(f"Context Length (per query): {context_length}")
+    print(f"Max Context Length (per query): {max_context_length}")
     print(f"Decode: {is_decode}")
     if num_mtp_layers > 0:
         print(f"Number of MTP layers: {num_mtp_layers}")
@@ -108,14 +112,21 @@ def run_inference(
         print(f"Chrome trace output file: {chrome_trace}")
     print("---------------------\n")
 
-    # Paged attention parameters (can be adjusted)
-    block_size = 128
-    num_blocks = 10000  # Total number of blocks available in the KV cache
-
     # Derived parameters
     batch_size = num_queries
     query_len = input_length
     seq_len = context_length + query_len  # Total sequence length for each query
+
+    if seq_len + num_mtp_layers + 1 > max_context_length:
+        raise ValueError(
+            f"max context length {max_context_length} too small to support query {query_len}, context {context_length}"
+        )
+
+    # Paged attention parameters (can be adjusted)
+    block_size = 128
+    num_blocks = (
+        max_context_length + block_size
+    ) // block_size  # Total number of blocks available in the KV cache
 
     # Prepare Attention Metadata for Paged Attention
     # `query_start_loc` indicates the start of each query in the concatenated input tensor.
@@ -153,7 +164,7 @@ def run_inference(
 
     # Initialize Model
     print("Initializing model on 'meta' device...")
-    perf_model = AnalyticPerformanceModel(machine_config)
+    perf_model = AnalyticPerformanceModel(device_profile)
     quant_config = QuantConfig()
     if quantize_linear_action:
         quant_config = get_quant_config(quantize_linear_action)
@@ -163,6 +174,8 @@ def run_inference(
         attention_cls=AttentionTensorCast,
         quant_linear_cls=TensorCastQuantLinear,
     )
+    if num_hidden_layers_override > 0:
+        model_config.num_hidden_layers_override = num_hidden_layers_override
     mla_module_name = model_id_to_mla_module_name(model_id)
     if mla_module_name is not None:
         mla_config = MlaConfig(
@@ -232,7 +245,12 @@ def run_inference(
         # do not prune logits
         sampling_metadata.selected_token_indices = None
     print("Running simulated inference...")
-    with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+    with (
+        Runtime(
+            perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+        ) as runtime,
+        torch.no_grad(),
+    ):
         _ = model.forward(
             inputs,
             position_ids,
@@ -242,6 +260,10 @@ def run_inference(
         )
     result = runtime.table_averages(group_by_input_shapes=dump_input_shapes)
     print(result)
+    print(
+        f"Peak memory usage: "
+        f"{max([mem_profile.usage_before_call_bytes for mem_profile in runtime.memory_tracker.get_profile()]) / 1e9} GB"
+    )
     if chrome_trace:
         runtime.export_chrome_trace(chrome_trace)
 
@@ -285,6 +307,12 @@ def main():
         type=int,
         default=0,
         help="The context length for each query. Defaults to 0.",
+    )
+    parser.add_argument(
+        "--max-context-length",
+        type=int,
+        default=128 * 1024,
+        help="Max supported context length for each query.",
     )
     parser.add_argument(
         "--compile",
@@ -332,6 +360,12 @@ def main():
         default=0,
         help="Number of MTP layers, 0 means disabled - only support models having MTP like DeepSeek",
     )
+    parser.add_argument(
+        "--num-hidden-layers-override",
+        type=int,
+        default=0,
+        help="Override the number of hidden layers, for debugging only",
+    )
 
     args = parser.parse_args()
 
@@ -347,11 +381,13 @@ def main():
         num_queries=args.num_queries,
         input_length=args.input_length,
         context_length=args.context_length,
+        max_context_length=args.max_context_length,
         do_compile=args.compile,
         dump_input_shapes=args.dump_input_shapes,
         chrome_trace=args.chrome_trace,
         quantize_linear_action=args.quantize_linear_action,
         num_mtp_layers=args.num_mtp_layers,
+        num_hidden_layers_override=args.num_hidden_layers_override,
         is_decode=args.decode,
     )
 

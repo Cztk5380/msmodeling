@@ -46,32 +46,35 @@ def _estimate_default(
     compute_time_s = 0
     for dtype in DeviceProfile.DTYPES:
         if dtype in perf_properties.compute_ops:
-            if dtype in device_profile.mma_ops:
-                compute_ops = perf_properties.compute_ops[dtype]
-                device_mma_ops = (
-                    device_profile.mma_ops[dtype] * device_profile.compute_efficiency
-                )
-                compute_time_s += compute_ops.mma_ops / device_mma_ops
-            else:
-                logger.warning(
-                    "Ignoring compute ops of %s for %s since it is not supported on %s",
-                    dtype,
-                    op_invoke_info,
-                    device_profile,
-                )
-            if dtype in device_profile.gp_ops:
-                compute_ops = perf_properties.compute_ops[dtype]
-                device_gp_ops = (
-                    device_profile.gp_ops[dtype] * device_profile.compute_efficiency
-                )
-                compute_time_s += compute_ops.gp_ops / device_gp_ops
-            else:
-                logger.warning(
-                    "Ignoring compute ops of %s for %s since it is not supported on %s",
-                    dtype,
-                    op_invoke_info,
-                    device_profile,
-                )
+            compute_ops = perf_properties.compute_ops[dtype]
+            if compute_ops.mma_ops > 0:
+                if dtype in device_profile.mma_ops:
+                    device_mma_ops = (
+                        device_profile.mma_ops[dtype]
+                        * device_profile.compute_efficiency
+                    )
+                    compute_time_s += compute_ops.mma_ops / device_mma_ops
+                else:
+                    logger.warning(
+                        "Ignoring mma compute ops of %s for %s since it is not supported on %s",
+                        dtype,
+                        op_invoke_info,
+                        device_profile,
+                    )
+            if compute_ops.gp_ops > 0:
+                if dtype in device_profile.gp_ops:
+                    compute_ops = perf_properties.compute_ops[dtype]
+                    device_gp_ops = (
+                        device_profile.gp_ops[dtype] * device_profile.compute_efficiency
+                    )
+                    compute_time_s += compute_ops.gp_ops / device_gp_ops
+                else:
+                    logger.warning(
+                        "Ignoring gp compute ops of %s for %s since it is not supported on %s",
+                        dtype,
+                        op_invoke_info,
+                        device_profile,
+                    )
     memory_bandwidth = (
         device_profile.memory_bandwidth_bytes_ps * device_profile.memory_efficiency
     )

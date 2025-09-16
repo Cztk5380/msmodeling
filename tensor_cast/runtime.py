@@ -61,7 +61,7 @@ class Runtime(TorchDispatchMode):
         out = func(*args, **kwargs)
         op_invoke_info = OpInvokeInfo(func, args, kwargs, out)
         if self.memory_tracker:
-            self.memory_tracker.track_op_invocation(op_invoke_info)
+            self.memory_tracker.record_op_invocation(op_invoke_info)
         perf_results = {}
         for perf_model in self.perf_models:
             result = perf_model.process_op(op_invoke_info)
@@ -78,6 +78,8 @@ class Runtime(TorchDispatchMode):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        if self.memory_tracker:
+            self.memory_tracker.analyze()
         _current_runtime.value = None
         super().__exit__(exc_type, exc_val, exc_tb)
 

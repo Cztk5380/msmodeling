@@ -12,7 +12,7 @@ _model_id_to_json_tbl: dict[str, str] = {
 
 
 def model_id_to_json(model_id: str) -> Optional[str]:
-    return _model_id_to_json_tbl.setdefault(model_id, None)
+    return _model_id_to_json_tbl.get(model_id)
 
 
 # model_id -> MoEConfig
@@ -34,7 +34,7 @@ _model_id_to_moe_config: Dict[str, MoEConfig] = {
 
 
 def model_id_to_moe_config(model_id: str) -> Optional[MoEConfig]:
-    return _model_id_to_moe_config.setdefault(model_id, None)
+    return _model_id_to_moe_config.get(model_id)
 
 
 _model_id_to_mla_module_name: Dict[str, str] = {
@@ -44,7 +44,7 @@ _model_id_to_mla_module_name: Dict[str, str] = {
 
 
 def model_id_to_mla_module_name(model_id: str):
-    return _model_id_to_mla_module_name.setdefault(model_id, None)
+    return _model_id_to_mla_module_name.get(model_id)
 
 
 _model_id_to_mtp_block_module_name: Dict[str, str] = {
@@ -54,7 +54,7 @@ _model_id_to_mtp_block_module_name: Dict[str, str] = {
 
 
 def model_id_to_mtp_block_module_name(model_id: str) -> str:
-    return _model_id_to_mtp_block_module_name.setdefault(model_id, None)
+    return _model_id_to_mtp_block_module_name.get(model_id)
 
 
 def strip_module_name(name: str) -> str:
