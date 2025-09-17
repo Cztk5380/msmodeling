@@ -48,6 +48,7 @@ class DeviceProfile:
 A2 = DeviceProfile(
     name="A2",
     mma_ops={
+        torch.float32: 140 * 1e12,
         torch.bfloat16: 280 * 1e12,
         torch.half: 280 * 1e12,
         torch.int8: 280 * 2 * 1e12,

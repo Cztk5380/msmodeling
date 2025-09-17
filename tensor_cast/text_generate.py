@@ -1,6 +1,7 @@
 import argparse
 import logging
 import random
+import time
 from enum import StrEnum
 from typing import Optional
 
@@ -173,6 +174,7 @@ def run_inference(
         quant_config,
         attention_cls=AttentionTensorCast,
         quant_linear_cls=TensorCastQuantLinear,
+        hf_config_json=model_id_to_json(model_id),
     )
     if num_hidden_layers_override > 0:
         model_config.num_hidden_layers_override = num_hidden_layers_override
@@ -245,6 +247,7 @@ def run_inference(
         # do not prune logits
         sampling_metadata.selected_token_indices = None
     print("Running simulated inference...")
+    run_start = time.perf_counter()
     with (
         Runtime(
             perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
@@ -258,6 +261,9 @@ def run_inference(
             kv_cache_by_layers=kv_cache_by_layers,
             sampling_metadata=sampling_metadata,
         )
+    run_end = time.perf_counter()
+    print()
+    print(f"Model compilation and execution time: {run_end - run_start}s")
     result = runtime.table_averages(group_by_input_shapes=dump_input_shapes)
     print(result)
     print(

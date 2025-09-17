@@ -3,13 +3,18 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from ..compilation import get_backend
 from ..device import A2
+from ..layers.mla import MultiheadLatentAttentionTensorCast
 
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
+from ..layers.sampler import SamplingMetadata
 from ..model_config import (
     LinearQuantConfig,
     LinearQuantType,
+    MlaConfig,
     ModelConfig,
+    MtpConfig,
     ParallelConfig,
     QuantConfig,
     QuantGranularity,
@@ -19,7 +24,13 @@ from ..patch_torch import patch_torch
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import strip_module_name
+from ..transformers.utils import (
+    model_id_to_json,
+    model_id_to_mtp_block_module_name,
+    strip_module_name,
+)
+
+from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 
 # Define common parameters for tests
 IN_FEATURES = 32
@@ -65,6 +76,7 @@ def get_quant_config(model=None, quant_type=LinearQuantType.W4A8, **kwargs):
 class TestQuantLinear(unittest.TestCase):
     def setUp(self):
         """Set up common resources for tests."""
+        torch.compiler.reset()
         torch.manual_seed(0)
         self.linear_layer_with_bias = torch.nn.Linear(
             IN_FEATURES, OUT_FEATURES, bias=True
@@ -379,3 +391,68 @@ class TestQuantLinear(unittest.TestCase):
         result = runtime.table_averages()
         self.assertIn("tensor_cast.quantize.default", result)
         self.assertIn("tensor_cast.static_quant_linear.default", result)
+
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1", False],
+            ["deepseek-ai/DeepSeek-V3.1", True],
+            ["moonshotai/Kimi-K2-Base", False],
+            # ["moonshotai/Kimi-K2-Base", True],  # long test time
+        ]
+    )
+    def test_deepseek_mtp_quant_tensorcast_static_w8a8(self, model_id, do_compile):
+        hf_config_json = model_id_to_json(model_id)
+        self.assertIsNotNone(hf_config_json)
+        model_config = ModelConfig(
+            ParallelConfig(),
+            get_quant_config(
+                quant_type=LinearQuantType.W8A8,
+            ),
+            quant_linear_cls=TensorCastQuantLinear,
+            hf_config_json=hf_config_json,
+            num_hidden_layers_override=5,
+        )
+        mla_config = MlaConfig(
+            module_name="DeepseekV3Attention",
+            mla_cls=MultiheadLatentAttentionTensorCast,
+        )
+        model_config.mla_config = mla_config
+        num_mtp_layers = 1
+        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
+        self.assertIsNotNone(mtp_block_module_name)
+        mtp_config = MtpConfig(
+            num_mtp_layers=num_mtp_layers,
+            mtp_block_module_name=mtp_block_module_name,
+        )
+        model_config.mtp_config = mtp_config
+        model = TransformerModel(model_id, model_config)
+        if do_compile:
+            model = torch.compile(
+                model, backend=get_backend(), dynamic=True, fullgraph=True
+            )
+        attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
+            model, model_config
+        )
+        # make sure all original attention modules have been replaced
+        self.assertTrue(
+            has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
+        )
+
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+
+        machine_config = A2
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(
+                inputs,
+                position_ids,
+                attention_meta=attn_meta,
+                kv_cache_by_layers=kv_cache_by_layers,
+                sampling_metadata=SamplingMetadata(
+                    query_start_loc=attn_meta.query_start_loc
+                ),
+            )
+            self.assertEqual(outputs.shape, (2, num_mtp_layers + 1))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.dynamic_quant_linear.default", result)

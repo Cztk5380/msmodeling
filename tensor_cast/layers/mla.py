@@ -76,7 +76,8 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
         decode_only: bool = False,
     ):
         super().__init__(mla_config, mla_module, decode_only)
-        kv_b_proj_view = self.kv_b_proj.weight.transpose(0, 1).view(
+        self.kv_b_proj_weight_t = self.kv_b_proj.weight.transpose(0, 1)
+        kv_b_proj_view = self.kv_b_proj_weight_t.view(
             self.kv_lora_rank,
             self.num_heads,
             self.qk_nope_head_dim + self.v_head_dim,
@@ -155,7 +156,7 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
             seq_lens,
             self.W_UK_T,
             self.W_UV,
-            self.kv_b_proj.weight.transpose(0, 1),
+            self.kv_b_proj_weight_t,
             self.v_head_dim,
         )
         attn_output = attn_output.reshape(batch_size, seq_length, -1).contiguous()
