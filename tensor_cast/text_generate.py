@@ -83,6 +83,7 @@ def run_inference(
     context_length: int,
     max_context_length: int,
     do_compile: bool,
+    allow_graph_break: bool,
     dump_input_shapes: bool = False,
     chrome_trace: Optional[str] = None,
     quantize_linear_action: Optional[QuantLinearAction] = None,
@@ -108,6 +109,8 @@ def run_inference(
     if num_mtp_layers > 0:
         print(f"Number of MTP layers: {num_mtp_layers}")
     print(f"Use torch.compile: {do_compile}")
+    if do_compile:
+        print(f"  allow graph break: {allow_graph_break}")
     print(f"Group table averages by input shapes: {dump_input_shapes}")
     if chrome_trace:
         print(f"Chrome trace output file: {chrome_trace}")
@@ -204,7 +207,7 @@ def run_inference(
     if do_compile:
         print("   Compiling model with torch.compile...")
         model = torch.compile(
-            model, backend=get_backend(), dynamic=True, fullgraph=True
+            model, backend=get_backend(), dynamic=True, fullgraph=not allow_graph_break
         )
         print("   ...compilation complete.")
 
@@ -246,6 +249,11 @@ def run_inference(
     if is_decode:
         # do not prune logits
         sampling_metadata.selected_token_indices = None
+    kwargs = {}
+    if model_id.startswith("Qwen/Qwen3-Next"):
+        kwargs["cache_position"] = torch.arange(
+            0, num_tokens, dtype=torch.long, device="cpu"
+        )
     print("Running simulated inference...")
     run_start = time.perf_counter()
     with (
@@ -260,6 +268,7 @@ def run_inference(
             attention_meta=attn_meta,
             kv_cache_by_layers=kv_cache_by_layers,
             sampling_metadata=sampling_metadata,
+            **kwargs,
         )
     run_end = time.perf_counter()
     print()
@@ -322,6 +331,11 @@ def main():
     )
     parser.add_argument(
         "--compile",
+        action="store_true",
+        help="If set, invoke torch.compile() on the model before inference.",
+    )
+    parser.add_argument(
+        "--compile-allow-graph-break",
         action="store_true",
         help="If set, invoke torch.compile() on the model before inference.",
     )
@@ -389,6 +403,7 @@ def main():
         context_length=args.context_length,
         max_context_length=args.max_context_length,
         do_compile=args.compile,
+        allow_graph_break=args.compile_allow_graph_break,
         dump_input_shapes=args.dump_input_shapes,
         chrome_trace=args.chrome_trace,
         quantize_linear_action=args.quantize_linear_action,

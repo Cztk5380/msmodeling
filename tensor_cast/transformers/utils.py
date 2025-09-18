@@ -1,6 +1,6 @@
 from typing import Dict, Optional
 
-from ..model_config import MoEConfig
+from ..model_config import MoEConfig, MoEFieldNames
 
 # TODO: Allow users to extend these default configurations from config.py
 
@@ -23,6 +23,13 @@ _model_id_to_moe_config: Dict[str, MoEConfig] = {
     "Qwen/Qwen3-235B-A22B": MoEConfig(
         module_name="Qwen3MoeSparseMoeBlock",
         gate_returns_raw_logits=True,
+    ),
+    "Qwen/Qwen3-Next-80B-A3B-Instruct": MoEConfig(
+        module_name="Qwen3NextSparseMoeBlock",
+        gate_returns_raw_logits=True,
+        field_names=MoEFieldNames(
+            shared_experts="shared_expert", shared_experts_gate="shared_expert_gate"
+        ),
     ),
     "moonshotai/Kimi-K2-Base": MoEConfig(
         module_name="DeepseekV3MoE",

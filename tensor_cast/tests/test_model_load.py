@@ -200,3 +200,42 @@ class ModelLoadTestCase(unittest.TestCase):
                 kv_cache_by_layers=kv_cache_by_layers,
             )
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-Next-80B-A3B-Instruct", False],
+            ["Qwen/Qwen3-Next-80B-A3B-Instruct", True],
+        ]
+    )
+    # temporarily disable since it relies on Transformers mainline
+    def _test_qwen3_next_with_kvcache(self, model_id, do_compile):
+        model_config = ModelConfig(
+            ParallelConfig(),
+            QuantConfig(),
+            attention_cls=AttentionTensorCast,
+            num_hidden_layers_override=2,
+        )
+        model = TransformerModel(model_id, model_config)
+        attn_meta, kv_cache_by_layers, num_tokens = create_attn_metadata_and_kv_cache(
+            model, model_config
+        )
+        if do_compile:
+            model = torch.compile(
+                model,
+                backend=get_backend(),
+                dynamic=True,
+                fullgraph=False,  # data dependency code in QwenNext
+            )
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        with torch.no_grad(), patch_torch():
+            outputs = model.forward(
+                inputs,
+                position_ids,
+                attention_meta=attn_meta,
+                kv_cache_by_layers=kv_cache_by_layers,
+                cache_position=torch.arange(
+                    0, num_tokens, dtype=torch.long, device="cpu"
+                ),
+            )
+            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))

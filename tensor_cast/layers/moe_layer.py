@@ -14,11 +14,13 @@ class FusedMoEBase(torch.nn.Module, ABC):
         moe_config: MoEConfig,
         experts: torch.nn.ModuleList,
         shared_experts: Optional[torch.nn.Module],
+        shared_experts_gate: Optional[torch.nn.Module],
     ):
         super().__init__()
         self.moe_config = moe_config
         self.experts = experts
         self.shared_experts = shared_experts
+        self.shared_experts_gate = shared_experts_gate
 
     @abstractmethod
     def forward(
@@ -50,6 +52,7 @@ class MoELayer(torch.nn.Module):
             self.moe_config,
             self.get_attr(module, "experts", None),
             self.get_attr(module, "shared_experts", None),
+            self.get_attr(module, "shared_experts_gate", None),
         )
 
     def forward(self, hidden_states: torch.Tensor):
@@ -81,8 +84,9 @@ class FusedMoETensorCast(FusedMoEBase):
         moe_config: MoEConfig,
         experts: torch.nn.ModuleList,
         shared_experts: Optional[torch.nn.Module],
+        shared_experts_gate: Optional[torch.nn.Module],
     ):
-        super().__init__(moe_config, experts, shared_experts)
+        super().__init__(moe_config, experts, shared_experts, shared_experts_gate)
 
     def forward(
         self,
@@ -113,7 +117,12 @@ class FusedMoETensorCast(FusedMoEBase):
                 0, dispatched_indices[expert_idx], weighted_output
             )
         if self.shared_experts:
-            final_hidden_states = final_hidden_states + self.shared_experts(
-                hidden_states
-            )
+            shared_expert_output = self.shared_experts(hidden_states)
+            if self.shared_experts_gate:
+                shared_expert_output = (
+                    torch.nn.functional.sigmoid(self.shared_experts_gate(hidden_states))
+                    * shared_expert_output
+                )
+            final_hidden_states = final_hidden_states + shared_expert_output
+
         return final_hidden_states.to(hidden_states.dtype)

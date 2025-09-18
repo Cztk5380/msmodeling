@@ -190,6 +190,7 @@ class MoEFieldNames:
     gate: str = "gate"
     experts: str = "experts"
     shared_experts: Optional[str] = "shared_experts"
+    shared_experts_gate: Optional[str] = "shared_experts_gate"
     top_k: Optional[str] = "top_k"
     norm_topk_prob: Optional[str] = "norm_topk_prob"
 
