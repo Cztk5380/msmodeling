@@ -35,8 +35,6 @@ class OpInvokeInfo:
         """Write-only bytes"""
         memory_readwrite_bytes: int = 0
         """Read-write bytes"""
-        network_send_bytes: int = 0
-        network_receive_bytes: int = 0
 
     def __init__(self, func, args, kwargs, out):
         self.func = func
@@ -124,6 +122,19 @@ class PerformanceModel(ABC):
         execution_time_s: float
         statistics: Dict[str, Any] = dataclasses.field(default_factory=dict)
         """Misc runtime statistics produced by implementation"""
+
+        def combine(self, other: "PerformanceModel.Result", method: str = "max"):
+            if method == "max":
+                self.execution_time_s = max(
+                    self.execution_time_s, other.execution_time_s
+                )
+            elif method == "sum":
+                self.execution_time_s += other.execution_time_s
+            else:
+                raise ValueError(
+                    f"Unsupported method {method} for combining performance result"
+                )
+            self.statistics.update(other.statistics)
 
     def __init__(self, name, device_profile: DeviceProfile):
         self.name = name
