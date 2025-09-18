@@ -50,6 +50,14 @@ class ParallelLinearTestCase(unittest.TestCase):
                 [self.input_batch_size, num_tokens], dtype=torch.long
             )
 
+    def _check_comm_analytic(self, trace_events, comm_op_name):
+        count = 0
+        for event in trace_events:
+            if event["name"] == comm_op_name:
+                self.assertIn("message_size_bytes", event["args"])
+                count += 1
+        self.assertGreater(count, 0)
+
     @parameterized.expand(
         [
             ["Qwen/Qwen3-32B", (16, 1, 16, 1, 16, 1, 16)],
@@ -82,15 +90,19 @@ class ParallelLinearTestCase(unittest.TestCase):
                 outputs.shape, (output_batch_size, num_tokens, model.vocab_size)
             )
         result = runtime.table_averages()
+        comm_op_name = "tensor_cast.all_reduce.default"
         if parallel_config.has_attn_tp() or parallel_config.has_mlp_tp():
-            self.assertIn("tensor_cast.all_reduce.default", result)
+            self.assertIn(comm_op_name, result)
+            self._check_comm_analytic(runtime.get_trace_events(), comm_op_name)
         else:
-            self.assertNotIn("tensor_cast.all_reduce.default", result)
+            self.assertNotIn(comm_op_name, result)
 
+        comm_op_name = "tensor_cast.all_gather.default"
         if parallel_config.has_lmhead_tp() or has_dp_transform(parallel_config):
-            self.assertIn("tensor_cast.all_gather.default", result)
+            self.assertIn(comm_op_name, result)
+            self._check_comm_analytic(runtime.get_trace_events(), comm_op_name)
         else:
-            self.assertNotIn("tensor_cast.all_gather.default", result)
+            self.assertNotIn(comm_op_name, result)
 
     @parameterized.expand(
         [
@@ -133,14 +145,18 @@ class ParallelLinearTestCase(unittest.TestCase):
             )
         result = runtime.table_averages()
 
+        comm_op_name = "tensor_cast.all_reduce.default"
         if parallel_config.has_attn_tp() or parallel_config.has_mlp_tp():
-            self.assertIn("tensor_cast.all_reduce.default", result)
+            self.assertIn(comm_op_name, result)
+            self._check_comm_analytic(runtime.get_trace_events(), comm_op_name)
         else:
-            self.assertNotIn("tensor_cast.all_reduce.default", result)
+            self.assertNotIn(comm_op_name, result)
 
+        comm_op_name = "tensor_cast.all_gather.default"
         if parallel_config.has_lmhead_tp() or has_dp_transform(parallel_config):
-            self.assertIn("tensor_cast.all_gather.default", result)
+            self.assertIn(comm_op_name, result)
+            self._check_comm_analytic(runtime.get_trace_events(), comm_op_name)
         else:
-            self.assertNotIn("tensor_cast.all_gather.default", result)
+            self.assertNotIn(comm_op_name, result)
 
         self.assertTrue("tensor_cast.dynamic_quant_linear_int4.default" in result)

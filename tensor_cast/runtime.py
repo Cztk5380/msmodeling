@@ -246,9 +246,9 @@ class Runtime(TorchDispatchMode):
 
         return "\n".join(output_lines)
 
-    def export_chrome_trace(self, trace_file):
+    def get_trace_events(self):
         """
-        Dump self.event_list as the chrome trace file. Results from different performance models are
+        Transform self.event_list to trace_events. Results from different performance models are
         arranged in different processes. Multiple streams are organized as threads in each process.
         """
         trace_events = []
@@ -320,7 +320,15 @@ class Runtime(TorchDispatchMode):
                 # Update the cumulative time for this process's timeline
                 current_time_us[pid] += duration_us
 
-        # 3. Write the final JSON object to the specified file
+        return trace_events
+
+    def export_chrome_trace(self, trace_file):
+        """
+        Dump trace_events as the chrome trace file.
+        """
+        trace_events = self.get_trace_events()
+        # Write the final JSON object to the specified file
+
         if isinstance(trace_file, str):
             f = open(trace_file, "w")  # noqa: SIM115
             file_context = f

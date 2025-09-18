@@ -17,7 +17,7 @@ class ParallelGroup:
         self,
         rank: int,
         local_rank: int,
-        group_ranks: list[list[int]],
+        rank_groups: list[list[int]],
     ):
         """
         Initialize an instance of class ParallelGroup.
@@ -27,50 +27,43 @@ class ParallelGroup:
                 The global rank.
             local_rank:
                 The local rank of this process on this device.
-            group_ranks:
+            rank_groups:
                 All the groups divided according to the current parallel strategy. We need to find the group
                 that contains the given global rank.
-                For instance, when tp_size is 2 and world_size is 8, the input group_ranks would be
+                For instance, when tp_size is 2 and world_size is 8, the input rank_groups would be
                 [[0, 1], [2, 3], [4, 5], [6, 7]] —— these represents all the tp_groups. If the given global rank is 5,
                 the corresponding group we need is [4, 5], which means the attribute `ranks` will be set to [4, 5].
         """
         self.rank = rank
         self.local_rank = local_rank
-        self.ranks = None
-        for ranks in group_ranks:
+        self.rank_group = None
+        for ranks in rank_groups:
             if self.rank in ranks:
-                self.ranks = ranks
-                self.ranks.sort()
-                self.rank_in_group = ranks.index(self.rank)
+                self.rank_group = ranks
+                self.rank_group.sort()
+                self.rank_in_group = self.rank_group.index(self.rank)
                 break
-        self.world_size = len(self.ranks)
-        self.group_name = self.get_group_name()
-
-    def get_group_name(self):
-        # TODO: add rank and local_rank to group_name
-        return "_".join([str(rank) for rank in self.ranks])
+        self.world_size = len(self.rank_group)
 
     def all_reduce(self, input_: torch.Tensor) -> torch.Tensor:
         if self.world_size == 1:
             return input_
 
-        return torch.ops.tensor_cast.all_reduce(input_, self.group_name)
+        return torch.ops.tensor_cast.all_reduce(input_, self.rank, self.rank_group)
 
     def reduce_scatter(self, input_: torch.Tensor, dim: int = 0) -> torch.Tensor:
         if self.world_size == 1:
             return input_
 
         return torch.ops.tensor_cast.reduce_scatter(
-            input_, dim, self.world_size, self.group_name
+            input_, dim, self.rank, self.rank_group
         )
 
     def all_gather(self, input_: torch.Tensor, dim: int = -1) -> torch.Tensor:
         if self.world_size == 1:
             return input_
 
-        return torch.ops.tensor_cast.all_gather(
-            input_, dim, self.world_size, self.group_name
-        )
+        return torch.ops.tensor_cast.all_gather(input_, dim, self.rank, self.rank_group)
 
     def slice(self, input_: torch.Tensor, dim: int = 0) -> torch.Tensor:
         if self.world_size == 1:
@@ -110,9 +103,9 @@ class ParallelGroupManager:
             init_tensor_parallel, tensor_parallel_size, data_parallel_size
         ):
             if init_tensor_parallel:
-                group_ranks = all_ranks.reshape(-1, tensor_parallel_size)
+                rank_groups = all_ranks.reshape(-1, tensor_parallel_size)
             else:
-                group_ranks = (
+                rank_groups = (
                     all_ranks.reshape(
                         -1,
                         data_parallel_size,
@@ -126,7 +119,7 @@ class ParallelGroupManager:
             _ParallelGroup = ParallelGroup(
                 rank=rank,
                 local_rank=local_rank,
-                group_ranks=[x.tolist() for x in group_ranks],
+                rank_groups=[x.tolist() for x in rank_groups],
             )
             return _ParallelGroup
 

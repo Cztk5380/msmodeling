@@ -1,11 +1,14 @@
 import logging
-from typing import Callable, List, Union
+from typing import Callable, List, Optional, Union
 
+import torch
 from overrides import override
 
 from ..device import DeviceProfile
 
 from ..performance_model import OpInvokeInfo, PerformanceModel
+
+from .comm_analytic import CommAnalyticModel
 from .utils import is_view_op
 
 logger = logging.getLogger(__name__)
@@ -13,7 +16,7 @@ logger = logging.getLogger(__name__)
 _op_estimator_table = {}
 
 
-def register_op_estimator(op, device_names: Union[str, List[str]]):
+def register_op_estimator(op, device_names: Optional[Union[str, List[str]]]):
     if not isinstance(device_names, (list, tuple)):
         device_names = [device_names]
 
@@ -36,6 +39,23 @@ def _get_op_estimator(
     if op not in _op_estimator_table[device_name]:
         op = None
     return _op_estimator_table[device_name][op]
+
+
+class AnalyticPerformanceModel(PerformanceModel):
+    """
+    Analytic performance model uses simple roofline model to estimate the
+    op execution time.
+    TODO: add cache model to more accurately estimate the execution time.
+    """
+
+    def __init__(self, device_profile: DeviceProfile):
+        super().__init__("analytic", device_profile)
+
+    @override
+    def process_op(self, op_invoke_info: OpInvokeInfo) -> PerformanceModel.Result:
+        op_estimator = _get_op_estimator(op_invoke_info.func, self.device_profile.name)
+        result = op_estimator(op_invoke_info, self.device_profile)
+        return result
 
 
 def _estimate_default(
@@ -101,12 +121,9 @@ def _estimate_default(
 def _estimate_static_cost(
     op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
 ) -> float:
+    # TODO(jgong5): static cost might be different among device type,
+    #               should decide the cost per device type instead.
     perf_properties = op_invoke_info.get_perf_properties()
-    if (
-        perf_properties.network_send_bytes > 0
-        or perf_properties.network_receive_bytes > 0
-    ):
-        return 10 * 1e-6
     for dtype in DeviceProfile.DTYPES:
         if dtype in perf_properties.compute_ops:
             if dtype not in device_profile.mma_ops:
@@ -131,18 +148,14 @@ def _estimate_default_A2(
 register_op_estimator(None, None)(_estimate_default)
 
 
-class AnalyticPerformanceModel(PerformanceModel):
-    """
-    Analytic performance model uses simple roofline model to estimate the
-    op execution time.
-    TODO: add cache model to more accurately estimate the execution time.
-    """
-
-    def __init__(self, device_profile: DeviceProfile):
-        super().__init__("analytic", device_profile)
-
-    @override
-    def process_op(self, op_invoke_info: OpInvokeInfo) -> PerformanceModel.Result:
-        op_estimator = _get_op_estimator(op_invoke_info.func, self.device_profile.name)
-        result = op_estimator(op_invoke_info, self.device_profile)
-        return result
+@register_op_estimator(torch.ops.tensor_cast.all_reduce.default, [None, "A2"])
+@register_op_estimator(torch.ops.tensor_cast.all_gather.default, [None, "A2"])
+@register_op_estimator(torch.ops.tensor_cast.reduce_scatter.default, [None, "A2"])
+def _estimate_collective_comm(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    result = _estimate_default(op_invoke_info, device_profile)
+    comm_model = CommAnalyticModel(device_profile)
+    comm_result = comm_model.process_op(op_invoke_info)
+    result.combine(comm_result)
+    return result
