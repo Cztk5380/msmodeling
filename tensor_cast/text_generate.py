@@ -30,9 +30,11 @@ from .performance_model.memory_tracker import MemoryTracker
 from .runtime import Runtime
 from .transformers.model import TransformerModel
 from .transformers.utils import (
+    default_repetition_config,
     model_id_to_json,
     model_id_to_mla_module_name,
     model_id_to_mtp_block_module_name,
+    model_id_to_repetition_config,
 )
 
 
@@ -90,6 +92,7 @@ def run_inference(
     num_mtp_layers: int = 0,
     num_hidden_layers_override: int = 0,
     is_decode: bool = False,
+    enable_repetition: bool = False,
 ):
     """
     Sets up and runs a simulated LLM inference pass.
@@ -106,6 +109,7 @@ def run_inference(
     print(f"Context Length (per query): {context_length}")
     print(f"Max Context Length (per query): {max_context_length}")
     print(f"Decode: {is_decode}")
+    print(f"Enable repetition: {enable_repetition}")
     if num_mtp_layers > 0:
         print(f"Number of MTP layers: {num_mtp_layers}")
     print(f"Use torch.compile: {do_compile}")
@@ -203,6 +207,11 @@ def run_inference(
     hf_config_json = model_id_to_json(model_id)
     if hf_config_json:
         model_config.hf_config_json = hf_config_json
+    if enable_repetition:
+        repetition_config = model_id_to_repetition_config(model_id)
+        if not repetition_config:
+            repetition_config = default_repetition_config()
+        model_config.repetitive_layer_config = repetition_config
     model = TransformerModel(model_id, model_config)
     if do_compile:
         print("   Compiling model with torch.compile...")
@@ -275,10 +284,7 @@ def run_inference(
     print(f"Model compilation and execution time: {run_end - run_start}s")
     result = runtime.table_averages(group_by_input_shapes=dump_input_shapes)
     print(result)
-    print(
-        f"Peak memory usage: "
-        f"{max([mem_profile.usage_before_call_bytes for mem_profile in runtime.memory_tracker.get_profile()]) / 1e9} GB"
-    )
+    print(f"Peak memory usage: {runtime.memory_tracker.peak_mem_usage() / 1e9} GB")
     if chrome_trace:
         runtime.export_chrome_trace(chrome_trace)
 
@@ -386,6 +392,11 @@ def main():
         default=0,
         help="Override the number of hidden layers, for debugging only",
     )
+    parser.add_argument(
+        "--enable-repetition",
+        action="store_true",
+        help="Leverage the repetition pattern of the transformer models to save runtime cost",
+    )
 
     args = parser.parse_args()
 
@@ -410,6 +421,7 @@ def main():
         num_mtp_layers=args.num_mtp_layers,
         num_hidden_layers_override=args.num_hidden_layers_override,
         is_decode=args.decode,
+        enable_repetition=args.enable_repetition,
     )
 
 

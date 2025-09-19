@@ -6,6 +6,7 @@ import torch
 from .. import ops  # noqa: F401
 from ..model_config import MtpConfig
 from .sampler import Sampler, SamplingMetadata
+from .utils import ModelWrapperBase
 
 
 class MultiTokenPredictorLayer(torch.nn.Module):
@@ -107,12 +108,11 @@ class MultiTokenPredictor(torch.nn.Module):
         return hidden_states, intermediate_hidden_states
 
 
-class MtpWrapper(torch.nn.Module):
+class MtpWrapper(ModelWrapperBase):
     """For TensorCast only, simulate the MTP computation"""
 
     def __init__(self, mtp_config: MtpConfig, hf_config, model: torch.nn.Module):
-        super().__init__()
-        self._inner = model
+        super().__init__(model)
         self.mtp_config = mtp_config
         self.hf_config = hf_config
         mtp_block_cls = self.get_mtp_block_cls()

@@ -124,7 +124,7 @@ class ParallelLinearTestCase(unittest.TestCase):
 
         model_config_with_quant = ModelConfig(
             parallel_config,
-            get_quant_config(model.model, quant_type=LinearQuantType.W4A8),
+            get_quant_config(model.unwrap(), quant_type=LinearQuantType.W4A8),
             quant_linear_cls=TensorCastQuantLinear,
             enable_lmhead=True,
         )

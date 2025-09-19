@@ -6,6 +6,12 @@ from ..layers.attention import AttentionMetadataTensorCast
 from ..model_config import ModelConfig
 
 
+def assert_close(self, value1, value2, rtol=0.01):
+    self.assertLess(
+        abs(value1 - value2) / value1, rtol, f"{value1} vs. {value2}, rtol={rtol}"
+    )
+
+
 def create_attn_metadata_and_kv_cache(model, model_config: ModelConfig):
     batch_size = 2
     query_len_1 = 55

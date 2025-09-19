@@ -14,12 +14,14 @@ from transformers import AutoConfig, AutoModel, PretrainedConfig
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
 from ..layers.attention import flash_attention_forward
+from ..layers.internal import RepetitiveLayerWrapper
 from ..layers.moe_layer import MoELayer
 from ..layers.mtp import MtpWrapper
 
 from ..layers.parallel_linear import COLWISE_LINEAR, PARALLEL_MODULE_CLS, ROWWISE_LINEAR
 from ..layers.rotary_embedding import CachingRotaryEmb
-from ..model_config import ModelConfig, MoEConfig
+from ..layers.utils import ModelWrapperBase
+from ..model_config import ModelConfig, MoEConfig, RepetitiveRange
 from ..parallel_group import ParallelGroupManager
 from .utils import model_id_to_moe_config, strip_module_name
 
@@ -34,16 +36,6 @@ ALL_ATTENTION_FUNCTIONS["tensor_cast"] = flash_attention_forward
 class TensorDict:
     def __init__(self, tensors: Dict[str, torch.Tensor]):
         self.tensors = tensors
-
-
-class ModelBase(torch.nn.Module):
-    def forward(
-        self,
-        input_ids: Optional[torch.Tensor],
-        position_ids: torch.Tensor,
-        **kwargs: object,  # NOTE: extra args should be torch.compile compatible
-    ) -> Union[torch.Tensor, TensorDict]:
-        raise NotImplementedError("Subclasses must implement forward method")
 
 
 # Copied from `accelerate`
@@ -109,10 +101,9 @@ def init_on_device_without_buffers(device: torch.device):
             setattr(torch, torch_function_name, old_torch_function)
 
 
-class CausalLmWrapper(torch.nn.Module):
+class CausalLmWrapper(ModelWrapperBase):
     def __init__(self, hf_config, model: torch.nn.Module):
-        super().__init__()
-        self._inner = model
+        super().__init__(model)
         self.hf_config = hf_config
         self.lm_head = torch.nn.Linear(
             self.hf_config.hidden_size, self.hf_config.vocab_size, bias=False
@@ -147,10 +138,9 @@ class CausalLmWrapper(torch.nn.Module):
             return hidden_states
 
 
-class ModelWrapper(torch.nn.Module):
+class ModelWrapper(ModelWrapperBase):
     def __init__(self, model: torch.nn.Module):
-        super().__init__()
-        self._inner = model
+        super().__init__(model)
 
     def forward(
         self,
@@ -170,7 +160,7 @@ class ModelWrapper(torch.nn.Module):
         return hidden_states
 
 
-class TransformerModel(ModelBase):
+class TransformerModel(ModelWrapperBase):
     def __init__(
         self,
         model_id: str,
@@ -184,7 +174,7 @@ class TransformerModel(ModelBase):
             model_id: transformer model id
             model_config: specify how we should load and convert the transformer model
         """
-        super().__init__()
+        super().__init__(None)
         self.model_id = model_id
         self.model_config = model_config
         hf_config_json = self.model_config.hf_config_json
@@ -219,16 +209,16 @@ class TransformerModel(ModelBase):
                 )
             if disable_auto_map and hasattr(self.hf_config, "auto_map"):
                 delattr(self.hf_config, "auto_map")
-            self.model = AutoModel.from_config(
+            self._inner = AutoModel.from_config(
                 self.hf_config,
                 dtype=self.model_config.dtype,
                 trust_remote_code=self.model_config.trust_remote_code,
             )
 
             # the order of these functions matters!
-            self.pre_patch_model()
             self.wrap_model()
             self.maybe_enable_mtp()
+            self.maybe_repeat_layers()
             self.patch_model()
             self.shard_model()
             self.quantize_model()
@@ -266,28 +256,71 @@ class TransformerModel(ModelBase):
             assert self.model_config.enable_lmhead is None, "MTP on but lmhead is off"
             self.enable_lmhead = True
         if self.enable_lmhead:
-            self.model = CausalLmWrapper(hf_config=self.hf_config, model=self.model)
+            self._inner = CausalLmWrapper(hf_config=self.hf_config, model=self._inner)
         else:
-            self.model = ModelWrapper(self.model)
+            self._inner = ModelWrapper(self._inner)
 
     def maybe_enable_mtp(self):
         if not self.model_config.mtp_config:
             return
 
-        self.model = MtpWrapper(
-            self.model_config.mtp_config, self.hf_config, self.model
+        self._inner = MtpWrapper(
+            self.model_config.mtp_config, self.hf_config, self._inner
         )
 
-    def pre_patch_model(self):
-        # cache rotary embedding to avoid computing it each time per forward
-        if self.model_config.cache_rotary_embedding and hasattr(
-            self.model, "rotary_emb"
-        ):
-            self.model.rotary_emb = CachingRotaryEmb(
-                self.model.rotary_emb,
-                act_dtype=self.model_config.dtype,
-                max_position_embeddings=self.text_config.max_position_embeddings,
-            )
+    def maybe_repeat_layers(self):
+        if not self.model_config.repetitive_layer_config:
+            return
+
+        def repeat_layers(module, repetitive_ranges):
+            num_hidden_layers = len(module.layers)
+            new_layers = []
+            # fill up repeats placeholder
+            num_remaining_layers = num_hidden_layers
+            for i, rr in enumerate(repetitive_ranges):
+                if rr.repeats >= 0:
+                    num_remaining_layers -= (rr.stop - rr.start) * rr.repeats
+                else:
+                    num_layers = num_remaining_layers + rr.repeats + 1
+                    if num_layers % (rr.stop - rr.start) != 0:
+                        raise ValueError(
+                            f"Number of remaining layers {num_layers} not dividable by {rr.stop - rr.start}"
+                        )
+                    repetitive_ranges[i] = RepetitiveRange(
+                        rr.start,
+                        rr.stop,
+                        num_layers // (rr.stop - rr.start),
+                    )
+                    num_remaining_layers -= num_layers
+                    if num_remaining_layers == 0 and i != len(repetitive_ranges) - 1:
+                        raise ValueError(
+                            f"no remaining layers left for the rest of the repetition ranges: "
+                            f"{repetitive_ranges[i + 1 :]}"  # noqa: E203
+                        )
+            # check validity of the ranges first
+            if (
+                sum([rr.repeats * (rr.stop - rr.start) for rr in repetitive_ranges])
+                != num_hidden_layers
+            ):
+                raise ValueError(
+                    f"The sum of all the ranges with repeats should match the original number of "
+                    f"hidden layers: expected {num_hidden_layers}, got {repetitive_ranges}"
+                )
+            for rr in repetitive_ranges:
+                new_layers.extend(
+                    [
+                        RepetitiveLayerWrapper(rr, id(rr), layer, i + rr.start)
+                        if rr.repeats > 1
+                        else layer
+                        for i, layer in enumerate(module.layers[rr.start : rr.stop])  # noqa: E203
+                    ]
+                )
+            return torch.nn.ModuleList(new_layers)
+
+        config = self.model_config.repetitive_layer_config
+        unwrapped = self.unwrap()
+        if hasattr(unwrapped, "layers") and config.repetitive_ranges:
+            unwrapped.layers = repeat_layers(unwrapped, config.repetitive_ranges)
 
     def patch_model(self):
         """
@@ -295,6 +328,17 @@ class TransformerModel(ModelBase):
         1. torch.compile compatible
         2. Frontend PyTorch module-level fusion
         """
+        # cache rotary embedding to avoid computing it each time per forward
+        unwrapped = self.unwrap()
+        if self.model_config.cache_rotary_embedding and hasattr(
+            unwrapped, "rotary_emb"
+        ):
+            unwrapped.rotary_emb = CachingRotaryEmb(
+                unwrapped.rotary_emb,
+                act_dtype=self.model_config.dtype,
+                max_position_embeddings=self.text_config.max_position_embeddings,
+            )
+
         # replace attention with custom implementation if defined
         if self.model_config.attention_cls is not None:
             self.attention_by_layers = {}
@@ -343,7 +387,7 @@ class TransformerModel(ModelBase):
     def patch_mla(self):
         if self.model_config.mla_config:
             mla_config = self.model_config.mla_config
-            named_modules = list(self.model.named_modules())
+            named_modules = list(self._inner.named_modules())
             for name, module in named_modules:
                 if type(module).__name__ == mla_config.module_name:
                     # check if all the required fields exist
@@ -360,7 +404,7 @@ class TransformerModel(ModelBase):
             if not moe_config:
                 return
 
-        named_modules = list(self.model.named_modules())
+        named_modules = list(self._inner.named_modules())
         for name, module in named_modules:
             if type(module).__name__ == moe_config.module_name:
                 if not self._all_required_fields_exist(module, moe_config.field_names):
@@ -444,7 +488,7 @@ class TransformerModel(ModelBase):
 
         linear_modules = {}
         linear_module_stripped_to_names = {}
-        for name, module in self.model.named_modules():
+        for name, module in self._inner.named_modules():
             if isinstance(module, torch.nn.Linear):
                 linear_modules[name] = module
                 linear_module_stripped_to_names[strip_module_name(name)] = name
@@ -486,7 +530,7 @@ class TransformerModel(ModelBase):
                         break
             return quant_config
 
-        for name, module in self.model.named_modules():
+        for name, module in self._inner.named_modules():
             # We need to find the parent module to replace the child
             if isinstance(module, torch.nn.Linear):
                 # remove "_inner" from the module path since we may wrap original
@@ -512,9 +556,9 @@ class TransformerModel(ModelBase):
         parent_name = ".".join(path[:-1])
         child_name = path[-1]
         # Find the parent module
-        parent_module = self.model
+        parent_module = self._inner
         if parent_name:
-            parent_module = self.model.get_submodule(parent_name)
+            parent_module = self._inner.get_submodule(parent_name)
         setattr(parent_module, child_name, new_module)
 
     @property
@@ -543,7 +587,7 @@ class TransformerModel(ModelBase):
         inputs_embeds: Optional[torch.Tensor] = None,
         **kwargs: object,  # NOTE: extra args should be torch.compile compatible
     ) -> Union[torch.Tensor, TensorDict]:
-        return self.model(
+        return self._inner(
             input_ids=input_ids,
             position_ids=position_ids,
             inputs_embeds=inputs_embeds,

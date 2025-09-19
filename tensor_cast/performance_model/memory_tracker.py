@@ -65,6 +65,11 @@ class MemoryTracker:
         self.memory_profiles: List[OpMemoryProfile] = []
         # A flag to ensure analysis is done before retrieving the profile.
         self.is_analyzed: bool = False
+        # Fields handling repetitions
+        self.model_input_tensors_repeats: Dict[int, int] = {}
+        self.in_repetition: bool = False
+        self.current_repetition_id: int = -1
+        self.current_repeats: int = -1
 
     def _extract_tensors(self, data: Any) -> List[torch.Tensor]:
         """A helper function to recursively find all torch.Tensor objects
@@ -149,6 +154,25 @@ class MemoryTracker:
         Record the memory usage of an op invocation. Client code calls this method
         multiple times for ops executed by the PyTorch program.
         """
+        if (
+            op_invoke_info.func
+            == torch.ops.tensor_cast._internal_repeat_marker_begin.default
+        ):
+            assert not self.in_repetition
+            self.in_repetition = True
+            self.current_repetition_id = op_invoke_info.args[1]
+            self.current_repeats = op_invoke_info.args[2]
+            return
+        elif (
+            op_invoke_info.func
+            == torch.ops.tensor_cast._internal_repeat_marker_end.default
+        ):
+            assert self.in_repetition
+            assert self.current_repetition_id == op_invoke_info.args[1]
+            self.in_repetition = False
+            self.current_repetition_id = -1
+            self.current_repeats = -1
+            return
         op_idx = len(self.op_invoke_infos)
         self.op_invoke_infos.append(op_invoke_info)
 
@@ -164,6 +188,10 @@ class MemoryTracker:
                 self.tensor_infos[tensor_id] = _TensorInfo(
                     size_bytes=tensor.nelement() * tensor.element_size()
                 )
+                if self.in_repetition:
+                    self.model_input_tensors_repeats[tensor_id] = self.current_repeats
+                else:
+                    self.model_input_tensors_repeats[tensor_id] = 1
             self.tensor_infos[tensor_id].use_op_indices.append(op_idx)
             aliased_tensor_id = self.alias_info.get(tensor_id)
             if aliased_tensor_id is not None:
@@ -213,7 +241,8 @@ class MemoryTracker:
         # Step 2: Simulate memory usage over the sequence of operations.
         # Start with memory consumed by model inputs, which are pre-allocated.
         current_memory_usage = sum(
-            self.tensor_infos[t_id].size_bytes for t_id in self.model_input_tensors
+            self.tensor_infos[t_id].size_bytes * self.model_input_tensors_repeats[t_id]
+            for t_id in self.model_input_tensors
         )
 
         for op_idx, op_info in enumerate(self.op_invoke_infos):
@@ -291,3 +320,8 @@ class MemoryTracker:
             )
             for profile in self.memory_profiles
         ]
+
+    def peak_mem_usage(self, initial_mem_usage_bytes: float = 0.0):
+        return max(
+            [mem_profile.usage_before_call_bytes for mem_profile in self.get_profile()]
+        )

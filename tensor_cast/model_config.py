@@ -1,6 +1,6 @@
 import dataclasses
 from enum import auto, Enum
-from typing import Dict, Optional, Type
+from typing import Dict, List, Optional, Type
 
 import torch
 
@@ -248,6 +248,41 @@ class MtpConfig:
 
 
 @dataclasses.dataclass
+class RepetitiveRange:
+    """
+    Mark out a range [start, stop) that should be repeated `repeats` times.
+    The fields have different meanings when being used in different scopes, e.g.
+    it could be a range of layers or a range of ops.
+    """
+
+    start: int
+    stop: int
+    repeats: int
+    """No repeats if we set `repeats` to 1. `-N` means repeating the pattern
+    till the N-th item from end of the scope (e.g. number of all hidden layers)."""
+
+
+@dataclasses.dataclass
+class RepetitiveLayerConfig:
+    """
+    Describe how we want to construct the new `layers` field of the Transformers model according to
+    the repetition rules specified by `repetitive_ranges`. Basically, we construct a new `layers`
+    field according to each range as follows.
+
+    Pseudo logic::
+        if not repetitive_ranges:
+            new_layers = layers
+        for range in repetitive_ranges:
+            new_layers.extend(layers[range.start : range.end] * range.repeats)
+
+    The sum of all the ranges with repeats should match the total number of hidden layers of the original model.
+    """
+
+    repetitive_ranges: List[RepetitiveRange] = dataclasses.field(default_factory=list)
+    # TODO(jgong5): support repetitions for MTP heads
+
+
+@dataclasses.dataclass
 class ModelConfig:
     parallel_config: ParallelConfig
     quant_config: QuantConfig
@@ -269,3 +304,7 @@ class ModelConfig:
     num_hidden_layers_override: Optional[int] = None
     """Override hf_config.num_hidden_layers, useful for speeding up sanity tests
     with small overrides for very large models."""
+    repetitive_layer_config: Optional[RepetitiveLayerConfig] = None
+    """Transformer models have repetitive patterns. This configuration describes the repetition patterns
+    of the model so that we can leverage the pattern to save the performance estimation cost. This is
+    especially helpful for large models."""

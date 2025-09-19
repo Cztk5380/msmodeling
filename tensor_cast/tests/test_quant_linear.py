@@ -306,7 +306,7 @@ class TestQuantLinear(unittest.TestCase):
 
         model_config_with_quant = ModelConfig(
             ParallelConfig(),
-            get_quant_config(model.model),
+            get_quant_config(model.unwrap()),
             quant_linear_cls=QuantLinearBase,
             num_hidden_layers_override=2,
         )
@@ -338,7 +338,7 @@ class TestQuantLinear(unittest.TestCase):
 
         model_config_with_quant = ModelConfig(
             ParallelConfig(),
-            get_quant_config(model.model, quant_type=LinearQuantType.W4A8),
+            get_quant_config(model.unwrap(), quant_type=LinearQuantType.W4A8),
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
         )
@@ -373,7 +373,7 @@ class TestQuantLinear(unittest.TestCase):
         model_config_with_quant = ModelConfig(
             ParallelConfig(),
             get_quant_config(
-                model.model,
+                model.unwrap(),
                 quant_type=LinearQuantType.W8A8,
                 activation_scale=torch.empty(
                     [num_tokens], dtype=torch.float, device="meta"

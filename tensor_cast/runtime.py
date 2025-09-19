@@ -10,6 +10,7 @@ import torch
 from torch.utils._python_dispatch import TorchDispatchMode
 
 from .device import DeviceProfile
+from .model_config import RepetitiveRange
 from .patch_torch import patch_torch
 from .performance_model import OpInvokeInfo, PerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
@@ -78,10 +79,46 @@ class Runtime(TorchDispatchMode):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.event_list = self.repeat_event_list()
         if self.memory_tracker:
             self.memory_tracker.analyze()
         _current_runtime.value = None
         super().__exit__(exc_type, exc_val, exc_tb)
+
+    def repeat_event_list(self):
+        id_to_repetitive_range = {}
+        new_event_list = []
+        copied_offset = 0  # we have copied self.event_list[:copied_offset] so far
+        for i, event in enumerate(self.event_list):
+            if (
+                event.op_invoke_info.func
+                == torch.ops.tensor_cast._internal_repeat_marker_begin.default
+            ):
+                current_id = event.op_invoke_info.args[1]
+                assert current_id not in id_to_repetitive_range, (
+                    f"Already in repetition block {current_id}, we do not support nested repetition blocks"
+                )
+                repeats = event.op_invoke_info.args[2]
+                id_to_repetitive_range[current_id] = RepetitiveRange(
+                    start=i + 1, stop=-1, repeats=repeats
+                )
+                new_event_list.extend(self.event_list[copied_offset:i])
+                copied_offset = i
+            elif (
+                event.op_invoke_info.func
+                == torch.ops.tensor_cast._internal_repeat_marker_end.default
+            ):
+                current_id = event.op_invoke_info.args[1]
+                assert current_id in id_to_repetitive_range, (
+                    f"repeat_marker_end with {current_id} not paired with a repeat_marker_begin"
+                )
+                id_to_repetitive_range[current_id].stop = i
+                rr = id_to_repetitive_range[current_id]
+                repeated_events = self.event_list[rr.start : rr.stop] * rr.repeats  # noqa: E203
+                new_event_list.extend(repeated_events)
+                copied_offset = i + 1
+        new_event_list.extend(self.event_list[copied_offset:])
+        return new_event_list
 
     def table_averages(self, group_by_input_shapes=False) -> str:
         """
