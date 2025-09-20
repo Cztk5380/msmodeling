@@ -151,6 +151,7 @@ register_op_estimator(None, None)(_estimate_default)
 @register_op_estimator(torch.ops.tensor_cast.all_reduce.default, [None, "A2"])
 @register_op_estimator(torch.ops.tensor_cast.all_gather.default, [None, "A2"])
 @register_op_estimator(torch.ops.tensor_cast.reduce_scatter.default, [None, "A2"])
+@register_op_estimator(torch.ops.tensor_cast.all_to_all.default, [None, "A2"])
 def _estimate_collective_comm(
     op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
 ) -> PerformanceModel.Result:

@@ -5,6 +5,18 @@ import torch
 from ..utils import exact_division, register_tensor_cast_op
 
 
+@register_tensor_cast_op("all_to_all")
+def _all_to_all(
+    x: torch.Tensor,
+    output_split_sizes: List[int],
+    input_split_sizes: List[int],
+    rank: int,
+    rank_group: List[int],
+) -> torch.Tensor:
+    output_num = sum(output_split_sizes)
+    return torch.empty((output_num,) + x.shape[1:], dtype=x.dtype, device=x.device)
+
+
 @register_tensor_cast_op("all_reduce")
 def _all_reduce(x: torch.Tensor, rank: int, rank_group: List[int]) -> torch.Tensor:
     return torch.empty_like(x)

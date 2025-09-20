@@ -4,6 +4,7 @@ import torch
 from torch import nn
 
 from ..parallel_group import ParallelGroup
+from .utils import ModelWrapperBase
 
 
 def get_sharded_shape(shape: torch.Tensor, dim: int, block_size: int):
@@ -38,15 +39,14 @@ def get_partial_sharded(tensor: torch.Tensor, world_size: int, rank: int, dim: i
     return tensor_zeros
 
 
-class ParallelLinearBase(torch.nn.Module):
+class ParallelLinearBase(ModelWrapperBase):
     """
     A parallel linear layer that replaces a standard torch.nn.Linear layer.
     It handles different tensor parallel types.
     """
 
     def __init__(self, linear_layer: torch.nn.Linear):
-        super().__init__()
-        self._inner = linear_layer
+        super().__init__(linear_layer)
         self.in_features = linear_layer.in_features
         self.out_features = linear_layer.out_features
 

@@ -5,39 +5,38 @@ import torch
 from ..utils import register_tensor_cast_op
 
 
-@register_tensor_cast_op("dispatch_tokens")
-def _dispatch_tokens(
+@register_tensor_cast_op("permute_tokens")
+def _permute_tokens(
     x: torch.Tensor,
     topk_indices: torch.Tensor,
-    topk_weights: torch.Tensor,
-    num_experts: int,
-) -> Tuple[List[torch.Tensor], List[torch.Tensor], List[torch.Tensor]]:
+) -> torch.Tensor:
+    """
+    Repeat the input tokens top-k times, and rearrange them according to the order of the experts selected by the tokens.
+
+    Args:
+        x: (bsz, seq_len, hidden_size), the tokens
+        topk_indices: (bsz, seq_len, top_k), the top-k experts selected by each token
+    
+    Returns:
+        permuted_x: (bsz * seq_len * top_k, hidden_size)
+    """
     num_tokens = topk_indices.numel()
-    num_tokens_per_expert = num_tokens // num_experts
-    num_tokens_last_expert = num_tokens - num_tokens_per_expert * (num_experts - 1)
-    dispatched_x = [
-        torch.empty(
-            (num_tokens_per_expert, x.shape[-1]), dtype=x.dtype, device=x.device
-        )
-        for _ in range(num_experts - 1)
-    ]
-    dispatched_x.append(
-        torch.empty(
-            (num_tokens_last_expert, x.shape[-1]), dtype=x.dtype, device=x.device
-        )
-    )
-    dispatched_indices = [
-        torch.empty((num_tokens_per_expert,), dtype=torch.long, device=x.device)
-        for _ in range(num_experts - 1)
-    ]
-    dispatched_indices.append(
-        torch.empty((num_tokens_last_expert,), dtype=torch.long, device=x.device)
-    )
-    dispatched_weights = [
-        torch.empty((num_tokens_per_expert,), dtype=x.dtype, device=x.device)
-        for _ in range(num_experts - 1)
-    ]
-    dispatched_weights.append(
-        torch.empty((num_tokens_last_expert,), dtype=torch.long, device=x.device)
-    )
-    return dispatched_x, dispatched_indices, dispatched_weights
+    return torch.empty((num_tokens, x.shape[-1]), dtype=x.dtype, device=x.device)
+
+
+@register_tensor_cast_op("unpermute_tokens")
+def _unpermute_tokens(
+    x: torch.Tensor,
+    topk_indices: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Rearrange the input tokens (initially sorted by their selected experts) by token indices.
+
+    Args:
+        x: (bsz * seq_len * top_k, hidden_size), the tokens
+        topk_indices: (bsz, seq_len, top_k), the top-k experts selected by each token
+
+    Returns:
+        unpermuted_x: (bsz, seq_len, top_k, hidden_size)
+    """
+    return torch.empty_like(x).reshape(topk_indices.shape + (x.shape[-1],))

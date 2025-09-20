@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 
 import numpy as np
 
@@ -65,6 +65,19 @@ class ParallelGroup:
 
         return torch.ops.tensor_cast.all_gather(input_, dim, self.rank, self.rank_group)
 
+    def all_to_all(
+        self,
+        input_: List[torch.Tensor],
+        output_split_sizes: List[int],
+        input_split_sizes: List[int],
+    ) -> torch.Tensor:
+        if self.world_size == 1:
+            return input_
+
+        return torch.ops.tensor_cast.all_to_all(
+            input_, output_split_sizes, input_split_sizes, self.rank, self.rank_group
+        )
+
     def slice(self, input_: torch.Tensor, dim: int = 0) -> torch.Tensor:
         if self.world_size == 1:
             return input_
@@ -72,6 +85,9 @@ class ParallelGroup:
         split_size = exact_division(input_.size()[dim], self.world_size)
         start_pos = self.rank_in_group * split_size
         return torch.narrow(input_, dim=dim, start=start_pos, length=split_size)
+
+
+_DEFAULT_PG = ParallelGroup(0, 0, [[0]])
 
 
 class ParallelGroupManager:
@@ -152,3 +168,8 @@ class ParallelGroupManager:
             self.parallel_config.lmhead_tensor_parallel_size,
             self.parallel_config.lmhead_data_parallel_size,
         )
+
+        if self.parallel_config.has_ep():
+            self.ep_group = initialize_parallel(False, 1, world_size)
+        else:
+            self.ep_group = initialize_parallel(False, world_size, 1)
