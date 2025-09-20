@@ -15,7 +15,7 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
 from ..layers.attention import flash_attention_forward
 from ..layers.internal import RepetitiveLayerWrapper
-from ..layers.moe_layer import MoELayer
+from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 
 from ..layers.parallel_linear import COLWISE_LINEAR, PARALLEL_MODULE_CLS, ROWWISE_LINEAR
@@ -364,7 +364,7 @@ class TransformerModel(ModelWrapperBase):
         #    the tokens to the experts, which is slow.
         # 3. The vanilla MOE is not written in a way that can be easily scaled up/out
         #    with expert-parallelism (EP).
-        self.patch_moe(self.model_config.moe_config)
+        self.patch_moe(self.get_moe_config())
 
     def _all_required_fields_exist(self, module: torch.nn.Module, field_names):
         def is_optional(annotation):
@@ -398,11 +398,15 @@ class TransformerModel(ModelWrapperBase):
                     mla = mla_config.mla_cls(mla_config, module)
                     self._replace_module(name, mla)
 
-    def patch_moe(self, moe_config: Optional[MoEConfig]):
+    def get_moe_config(self):
+        moe_config = self.model_config.moe_config
         if not moe_config:
             moe_config = model_id_to_moe_config(self.model_id)
-            if not moe_config:
-                return
+        return moe_config
+
+    def patch_moe(self, moe_config: Optional[MoEConfig]):
+        if not moe_config:
+            return
 
         named_modules = list(self._inner.named_modules())
         for name, module in named_modules:
@@ -467,24 +471,13 @@ class TransformerModel(ModelWrapperBase):
 
         return {"tp_plan": get_tp_plan()}
 
-    def shard_model(self):
+    def shard_model_by_tp(self):
         """
         Replaces all nn.Linear modules with ParallelLinear modules based on the
         parallel configuration stored in self.model_config.
         """
-        self.parallel_group_manager = ParallelGroupManager(
-            self.model_config.parallel_config
-        )
-
         shard_plan = self.get_shard_plan()
         tp_plan = shard_plan["tp_plan"]
-
-        def get_tp_config(name):
-            for pattern, tp_config in tp_plan.items():
-                if re.search(pattern, name) is not None:
-                    return tp_config
-
-            return None
 
         linear_modules = {}
         linear_module_stripped_to_names = {}
@@ -501,6 +494,24 @@ class TransformerModel(ModelWrapperBase):
                     module, **tp_config[1]
                 )
                 self._replace_module(name, parallel_module)
+
+    def shard_model_by_ep(self):
+        if not self.model_config.parallel_config.has_ep():
+            return
+
+        dp_group = self.parallel_group_manager.dp_group
+        ep_group = self.parallel_group_manager.ep_group
+        for name, module in self._inner.named_modules():
+            if isinstance(module, MoELayer):
+                self._replace_module(name, ParallelMoELayer(module, dp_group, ep_group))
+
+    def shard_model(self):
+        self.parallel_group_manager = ParallelGroupManager(
+            self.model_config.parallel_config
+        )
+
+        self.shard_model_by_tp()
+        self.shard_model_by_ep()
 
     def quant_linear(self):
         """

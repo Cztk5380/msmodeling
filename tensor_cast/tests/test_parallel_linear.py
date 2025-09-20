@@ -24,7 +24,6 @@ def get_parallel_config(parallel_configuration: tuple):
         mlp_data_parallel_size=parallel_configuration[4],
         lmhead_tensor_parallel_size=parallel_configuration[5],
         lmhead_data_parallel_size=parallel_configuration[6],
-        lmhead_parallel=True,
     )
     return parallel_config
 
@@ -72,7 +71,7 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             enable_lmhead=True,
-            num_hidden_layers_override=2,
+            num_hidden_layers_override=6,
         )
         model = TransformerModel(model_id, model_config)
 
@@ -118,7 +117,7 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             enable_lmhead=True,
-            num_hidden_layers_override=2,
+            num_hidden_layers_override=6,
         )
         model = TransformerModel(model_id, model_config)
 
@@ -127,6 +126,7 @@ class ParallelLinearTestCase(unittest.TestCase):
             get_quant_config(model.unwrap(), quant_type=LinearQuantType.W4A8),
             quant_linear_cls=TensorCastQuantLinear,
             enable_lmhead=True,
+            num_hidden_layers_override=6,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
 

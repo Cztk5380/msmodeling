@@ -92,6 +92,10 @@ class CommAnalyticModel(PerformanceModel):
             return self.all_reduce(x, rank, group)
         elif op_invoke_info.func == torch.ops.tensor_cast.all_gather.default:
             return self.all_gather(x, rank, group)
+        elif op_invoke_info.func == torch.ops.tensor_cast.all_to_all.default:
+            out_split_sizes = op_invoke_info.args[1]
+            input_split_sizes = op_invoke_info.args[2]
+            return self.all_to_all(x, rank, group, out_split_sizes, input_split_sizes)
         raise ValueError(f"Unsupported communication op: {op_invoke_info.func}")
 
     def all_reduce(
@@ -197,6 +201,72 @@ class CommAnalyticModel(PerformanceModel):
             "bandwidth_bytes_ps": bandwidth,
             "estimated_ring_time_s": time_ring,
             "estimated_recursive_time_s": time_recursive,
+        }
+        return PerformanceModel.Result(execution_time_s=comm_time, statistics=stats)
+
+    def all_to_all(
+        self,
+        x: torch.Tensor,
+        rank: int,
+        group: List[int],
+        output_split_sizes: List[int],
+        input_split_sizes: List[int],
+    ) -> PerformanceModel.Result:
+        """
+        Models all-to-all communication time by dynamically selecting the most
+        efficient algorithm (Pairwise Exchange or Bruck) based on the estimated cost.
+        """
+        num_ranks = len(group)
+        if num_ranks <= 1:
+            return PerformanceModel.Result(execution_time_s=0.0)
+
+        if input_split_sizes is None or output_split_sizes is None:
+            raise ValueError(
+                "input_split_sizes and output_split_sizes must be provided."
+            )
+
+        topology = self._get_topology_for_group(group)
+        latency = topology.latency_s
+        bandwidth = topology.bandwidth_bytes_ps
+
+        # Calculate the total data volume sent and received by this rank.
+        total_elements_sent = x.numel()
+        total_elements_received = (
+            x.numel() // sum(input_split_sizes) * sum(output_split_sizes)
+        )
+
+        # The bottleneck depends on the larger one of the data volumes sent and received respectively.
+        bottleneck_elements = max(total_elements_sent, total_elements_received)
+        data_transfer_per_rank = bottleneck_elements * x.element_size()
+
+        # --- Model 1: Pairwise Exchange Algorithm ---
+        time_pairwise = (num_ranks - 1) * latency + data_transfer_per_rank / bandwidth
+
+        # --- Model 2: Bruck Algorithm ---
+        if num_ranks > 1:
+            log2_n = math.log2(num_ranks)
+            time_bruck = log2_n * latency + data_transfer_per_rank / bandwidth
+        else:
+            time_bruck = float("inf")
+
+        # --- Select the faster algorithm ---
+        if time_pairwise < time_bruck:
+            algorithm = "pairwise_exchange"
+            comm_time = time_pairwise
+        else:
+            algorithm = "bruck"
+            comm_time = time_bruck
+
+        stats = {
+            "algorithm": algorithm,
+            "message_size_bytes": data_transfer_per_rank,
+            "total_bytes_sent": total_elements_sent * x.element_size(),
+            "total_bytes_received": total_elements_received * x.element_size(),
+            "group_size": num_ranks,
+            "latency_s": latency,
+            "bandwidth_bytes_ps": bandwidth,
+            "estimated_pairwise_time_s": time_pairwise,
+            "estimated_bruck_time_s": time_bruck,
         }
         return PerformanceModel.Result(execution_time_s=comm_time, statistics=stats)
 

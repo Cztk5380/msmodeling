@@ -141,7 +141,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
             )
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
         result = runtime.table_averages()
-        self.assertIn("tensor_cast.dispatch_tokens", result)
+        self.assertIn("tensor_cast.permute_tokens", result)
         self.assertIn("tensor_cast.concat_and_cache_mla", result)
         self.assertIn("tensor_cast.multihead_latent_attention", result)
 
