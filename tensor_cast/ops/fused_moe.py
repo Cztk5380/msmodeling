@@ -1,5 +1,3 @@
-from typing import List, Tuple
-
 import torch
 
 from ..utils import register_tensor_cast_op
@@ -11,12 +9,13 @@ def _permute_tokens(
     topk_indices: torch.Tensor,
 ) -> torch.Tensor:
     """
-    Repeat the input tokens top-k times, and rearrange them according to the order of the experts selected by the tokens.
+    Repeat the input tokens top-k times, and rearrange them according to the order of the experts
+    selected by the tokens.
 
     Args:
         x: (bsz, seq_len, hidden_size), the tokens
         topk_indices: (bsz, seq_len, top_k), the top-k experts selected by each token
-    
+
     Returns:
         permuted_x: (bsz * seq_len * top_k, hidden_size)
     """

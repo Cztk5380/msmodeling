@@ -87,7 +87,7 @@ class RowParallelLinear(ParallelLinearBase):
             self._inner.weight, self.tp_size, self.tp_rank, dim=1
         )
         self._inner.weight = nn.Parameter(shard_weight.contiguous())
-        if self._inner.bias is not None:
+        if self._inner.bias is not None:  # noqa: SIM102
             # need to check
             if self.tp_rank != 0:
                 self._inner.bias = None

@@ -159,7 +159,8 @@ class FusedMoETensorCast(FusedMoEBase):
             self.ep_group.rank_in_group,
         )
         self.experts = self.experts[
-            expert_idx_start : expert_idx_start + local_num_experts
+            expert_idx_start : expert_idx_start  # noqa: E203
+            + local_num_experts
         ]
         self.local_num_experts = local_num_experts
         self.expert_idx_start = expert_idx_start
@@ -178,17 +179,21 @@ class FusedMoETensorCast(FusedMoEBase):
                 self.global_num_experts, self.ep_group.world_size, rank
             )
             input_split_sizes_by_device.append(
-                sum(input_split_sizes_by_expert[start : start + num_experts])
+                sum(input_split_sizes_by_expert[start : start + num_experts])  # noqa: E203
             )
 
         output_split_sizes_by_device = [
             input_split_sizes_by_device[self.ep_group.rank_in_group]
         ] * self.ep_group.world_size
-        output_split_sizes_by_expert = [
-            input_split_sizes_by_expert[
-                self.expert_idx_start : self.expert_idx_start + self.local_num_experts
+        output_split_sizes_by_expert = (
+            [
+                input_split_sizes_by_expert[
+                    self.expert_idx_start : self.expert_idx_start  # noqa: E203
+                    + self.local_num_experts
+                ]
             ]
-        ] * self.ep_group.world_size
+            * self.ep_group.world_size
+        )
 
         return (
             input_split_sizes_by_device,
@@ -270,8 +275,6 @@ class FusedMoETensorCast(FusedMoEBase):
     ) -> torch.Tensor:
         # TODO: support quantization
         num_tokens = topk_indices.numel()
-        topk = topk_indices.shape[-1]
-        hidden_size = hidden_states.shape[-1]
         split_sizes = self.get_split_sizes(num_tokens)
 
         dispatched_hidden_states = self.dispatch_tokens(

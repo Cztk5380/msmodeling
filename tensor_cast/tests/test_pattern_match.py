@@ -4,7 +4,7 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..device import A2
+from ..device import TEST_DEVICE
 from ..layers.quant_linear import TensorCastQuantLinear
 
 from ..model_config import (
@@ -59,7 +59,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         model = torch.compile(
             model, backend=self.compile_backend, fullgraph=True, dynamic=True
         )
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)
@@ -86,7 +86,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         model = torch.compile(
             model, backend=self.compile_backend, fullgraph=True, dynamic=True
         )
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)

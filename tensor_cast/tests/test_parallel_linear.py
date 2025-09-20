@@ -4,7 +4,7 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..device import A2
+from ..device import TEST_DEVICE
 
 from ..layers.quant_linear import TensorCastQuantLinear
 from ..model_config import LinearQuantType, ModelConfig, ParallelConfig, QuantConfig
@@ -81,7 +81,7 @@ class ParallelLinearTestCase(unittest.TestCase):
             * parallel_config.data_parallel_size
             // parallel_config.lmhead_data_parallel_size
         )
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)
@@ -136,7 +136,7 @@ class ParallelLinearTestCase(unittest.TestCase):
             * parallel_config.data_parallel_size
             // parallel_config.lmhead_data_parallel_size
         )
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = qmodel.forward(self.inputs, self.position_ids)

@@ -4,7 +4,7 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..device import A2
+from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
@@ -347,7 +347,7 @@ class TestQuantLinear(unittest.TestCase):
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = qmodel.forward(inputs, position_ids)
@@ -383,7 +383,7 @@ class TestQuantLinear(unittest.TestCase):
             num_hidden_layers_override=2,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = qmodel.forward(inputs, position_ids)
@@ -441,7 +441,7 @@ class TestQuantLinear(unittest.TestCase):
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
 
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(

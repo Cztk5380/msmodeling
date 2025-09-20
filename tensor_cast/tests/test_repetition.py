@@ -4,7 +4,7 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..device import A2
+from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.sampler import SamplingMetadata
 
@@ -68,7 +68,7 @@ class RepetitionTestCase(unittest.TestCase):
             )
         inputs = torch.empty([2, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([2, num_tokens], dtype=torch.long, device="meta")
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(
@@ -144,7 +144,7 @@ class RepetitionTestCase(unittest.TestCase):
         )
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(perf_model, device_profile) as runtime,

@@ -58,9 +58,25 @@ class AnalyticPerformanceModel(PerformanceModel):
         return result
 
 
+def _estimate_static_cost(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> float:
+    perf_properties = op_invoke_info.get_perf_properties()
+    for dtype in DeviceProfile.DTYPES:
+        if dtype in perf_properties.compute_ops:
+            if dtype not in device_profile.mma_ops:
+                continue
+            compute_ops = perf_properties.compute_ops[dtype]
+            if compute_ops.mma_ops > 0:
+                return device_profile.static_cost.mma_op_cost_s
+    return device_profile.static_cost.gp_op_cost_s
+
+
 def _estimate_default(
     op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
 ) -> PerformanceModel.Result:
+    if is_view_op(op_invoke_info.func):
+        return PerformanceModel.Result(0.0)
     perf_properties = op_invoke_info.get_perf_properties()
     # By default, we do not consider instruction-level parallelism when counting computation time
     compute_time_s = 0
@@ -113,34 +129,9 @@ def _estimate_default(
             "memory_readwrite_time_s": memory_readwrite_time_s,
             "memory_access_time_s": memory_access_time_s,
             "compute_time_s": compute_time_s,
+            "is_compute_bound": compute_time_s > memory_access_time_s,
         },
     )
-    return result
-
-
-def _estimate_static_cost(
-    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
-) -> float:
-    # TODO(jgong5): static cost might be different among device type,
-    #               should decide the cost per device type instead.
-    perf_properties = op_invoke_info.get_perf_properties()
-    for dtype in DeviceProfile.DTYPES:
-        if dtype in perf_properties.compute_ops:
-            if dtype not in device_profile.mma_ops:
-                continue
-            compute_ops = perf_properties.compute_ops[dtype]
-            if compute_ops.mma_ops > 0:
-                return 5 * 1e-6
-    return 2 * 1e-6
-
-
-@register_op_estimator(None, "A2")
-def _estimate_default_A2(
-    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
-) -> PerformanceModel.Result:
-    if is_view_op(op_invoke_info.func):
-        return PerformanceModel.Result(0.0)
-    result = _estimate_default(op_invoke_info, device_profile)
     result.execution_time_s += _estimate_static_cost(op_invoke_info, device_profile)
     return result
 
@@ -148,10 +139,10 @@ def _estimate_default_A2(
 register_op_estimator(None, None)(_estimate_default)
 
 
-@register_op_estimator(torch.ops.tensor_cast.all_reduce.default, [None, "A2"])
-@register_op_estimator(torch.ops.tensor_cast.all_gather.default, [None, "A2"])
-@register_op_estimator(torch.ops.tensor_cast.reduce_scatter.default, [None, "A2"])
-@register_op_estimator(torch.ops.tensor_cast.all_to_all.default, [None, "A2"])
+@register_op_estimator(torch.ops.tensor_cast.all_reduce.default, None)
+@register_op_estimator(torch.ops.tensor_cast.all_gather.default, None)
+@register_op_estimator(torch.ops.tensor_cast.reduce_scatter.default, None)
+@register_op_estimator(torch.ops.tensor_cast.all_to_all.default, None)
 def _estimate_collective_comm(
     op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
 ) -> PerformanceModel.Result:

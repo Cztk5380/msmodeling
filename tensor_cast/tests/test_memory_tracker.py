@@ -2,7 +2,7 @@ import unittest
 
 import torch
 
-from ..device import A2
+from ..device import TEST_DEVICE
 from ..performance_model.memory_tracker import MemoryTracker
 
 from ..runtime import Runtime
@@ -10,7 +10,10 @@ from ..runtime import Runtime
 
 class TestMemoryTracker(unittest.TestCase):
     def _run_and_check(self, test_func, input_tensors, expected_profile_bytes):
-        with Runtime([], A2, MemoryTracker(A2)) as runtime, torch.no_grad():
+        with (
+            Runtime([], TEST_DEVICE, MemoryTracker(TEST_DEVICE)) as runtime,
+            torch.no_grad(),
+        ):
             _ = test_func(*input_tensors)
 
         profile = runtime.memory_tracker.get_profile()

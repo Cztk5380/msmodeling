@@ -38,10 +38,6 @@ from .transformers.utils import (
 )
 
 
-class MachineAction(StrEnum):
-    A2 = "A2"
-
-
 class QuantLinearAction(StrEnum):
     W8A16_STATIC = ("W8A16_STATIC",)
     W8A8_STATIC = ("W8A8_STATIC",)
@@ -78,7 +74,7 @@ def get_quant_config(quant_action: QuantLinearAction):
 
 
 def run_inference(
-    machine: MachineAction,
+    device: str,
     model_id: str,
     num_queries: int,
     input_length: int,
@@ -97,12 +93,12 @@ def run_inference(
     """
     Sets up and runs a simulated LLM inference pass.
     """
-    if str(machine) not in DeviceProfile.all_machines:
-        raise ValueError(f"Machine '{machine}' not recognized.")
-    device_profile = DeviceProfile.all_machines[str(machine)]
+    if device not in DeviceProfile.all_device_profiles:
+        raise ValueError(f"Device '{device}' not recognized.")
+    device_profile = DeviceProfile.all_device_profiles[device]
 
     print("--- Configuration ---")
-    print(f"machine: {device_profile}")
+    print(f"Device: {device}")
     print(f"Model ID: {model_id}")
     print(f"Number of Queries (Batch Size): {num_queries}")
     print(f"Input Length (per query): {input_length}")
@@ -300,11 +296,11 @@ def main():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
     parser.add_argument(
-        "--machine",
-        type=MachineAction,
-        choices=list(MachineAction),
-        default=MachineAction.A2,
-        help="The machine type for simulation.",
+        "--device",
+        type=str,
+        choices=list(DeviceProfile.all_device_profiles.keys()),
+        default="TEST_DEVICE",
+        help="The device type for simulation.",
     )
     parser.add_argument(
         "model_id",
@@ -407,7 +403,7 @@ def main():
         config.compilation.debug.graph_log_url = args.graph_log_url
 
     run_inference(
-        machine=args.machine,
+        device=args.device,
         model_id=args.model_id,
         num_queries=args.num_queries,
         input_length=args.input_length,

@@ -5,7 +5,7 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..device import A2
+from ..device import TEST_DEVICE
 
 from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
@@ -27,7 +27,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x):
             return x + x
 
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(
@@ -44,7 +44,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x):
             return x + x
 
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(
@@ -79,7 +79,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
             model = torch.compile(model, backend=get_backend(), fullgraph=True)
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(
@@ -125,7 +125,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         )
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(
@@ -149,7 +149,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x):
             return x + 2 * x + x
 
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(
@@ -171,7 +171,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x, y):
             return x + 2 * x + x + y
 
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(
@@ -195,7 +195,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         def func(x):
             return x + 2 * x + x
 
-        device_profile = A2
+        device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
         with (
             Runtime(

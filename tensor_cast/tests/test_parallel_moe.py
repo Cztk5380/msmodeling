@@ -4,7 +4,7 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..device import A2
+from ..device import TEST_DEVICE
 
 from ..model_config import ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
@@ -76,7 +76,7 @@ class ParallelMoETestCase(unittest.TestCase):
             * parallel_config.data_parallel_size
             // parallel_config.lmhead_data_parallel_size
         )
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)

@@ -4,7 +4,7 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..device import A2
+from ..device import TEST_DEVICE
 
 from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
 from ..model_config import (
@@ -93,7 +93,7 @@ class TestQuantAttention(unittest.TestCase):
                 device="meta",
             )
 
-        machine_config = A2
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(

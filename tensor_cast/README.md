@@ -24,9 +24,10 @@ We provide a `text_generate.py` command line interface to simulate the text gene
 
 Its general usage is shown below:
 ```text
-usage: text_generate.py [-h] [--machine {A2}] --num-queries NUM_QUERIES --input-length INPUT_LENGTH [--context-length CONTEXT_LENGTH]
-                        [--compile] [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
-                        [--quantize-linear-action {W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC}]
+usage: text_generate.py [-h] [--device {TEST_DEVICE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_6000D,RTX_5090D,RTX_4090,RTX_4090D,MLU590,P800,PPU,C550}] --num-queries NUM_QUERIES --input-length INPUT_LENGTH [--context-length CONTEXT_LENGTH]
+                        [--max-context-length MAX_CONTEXT_LENGTH] [--compile] [--compile-allow-graph-break] [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
+                        [--quantize-linear-action {W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC}] [--graph-log-url GRAPH_LOG_URL] [--log-level LOG_LEVEL] [--decode] [--num-mtp-layers NUM_MTP_LAYERS]
+                        [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--enable-repetition]
                         model_id
 
 Run a simulated LLM inference pass and dump the perf result.
@@ -36,47 +37,74 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --machine {A2}        The machine type for simulation. (default: A2)
+  --device {TEST_DEVICE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_6000D,RTX_5090D,RTX_4090,RTX_4090D,MLU590,P800,PPU,C550}
+                        The device type for simulation. (default: TEST_DEVICE)
   --num-queries NUM_QUERIES
                         Number of inference queries to run in a batch. (default: None)
   --input-length INPUT_LENGTH
                         The length of the new input tokens for each query. (default: None)
   --context-length CONTEXT_LENGTH
                         The context length for each query. Defaults to 0. (default: 0)
+  --max-context-length MAX_CONTEXT_LENGTH
+                        Max supported context length for each query. (default: 131072)
   --compile             If set, invoke torch.compile() on the model before inference. (default: False)
+  --compile-allow-graph-break
+                        If set, invoke torch.compile() on the model before inference. (default: False)
   --dump-input-shapes   If set, group the table average by input shapes (default: False)
   --chrome-trace CHROME_TRACE
                         Generate chrome trace file (default: None)
   --quantize-linear-action {W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC}
-                        Quantize all linear layers in the model from choices (default: None)
+                        Quantize all linear layers in the model from choices (currently only support symmetric quant) (default: None)
+  --graph-log-url GRAPH_LOG_URL
+                        For debug: the path for dumping the compiled graphs if compile is on (default: None)
+  --log-level LOG_LEVEL
+                        Logging level (default: None)
+  --decode              Whether we are doing decode (default: False)
+  --num-mtp-layers NUM_MTP_LAYERS
+                        Number of MTP layers, 0 means disabled - only support models having MTP like DeepSeek (default: 0)
+  --num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE
+                        Override the number of hidden layers, for debugging only (default: 0)
+  --enable-repetition   Leverage the repetition pattern of the transformer models to save runtime cost (default: False)
 ```
 
 ### Run Prefill
 To run a prefill of Qwen3-32B with two requests with 3500-token input length each on A2. You can run the following command:
 ```bash
-python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 2 --input-length 3500 --machine A2
+python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 2 --input-length 3500 --device TEST_DEVICE
 ```
 You can also quantize the linear with various quantization schemes, such as W8A8 dynamic quantization and with 4500-token context as the prefix:
 ```bash
-python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 2 --input-length 3500 --context-length 4500 --machine A2 --quantize-linear-action W8A8_DYNAMIC
+python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 2 --input-length 3500 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_DYNAMIC
 ```
 
 ### Run Decode
 Running decode is similar by tweaking the input length and context length. Usually, the input length is 1.
 ```bash
-python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 10 --input-length 1 --context-length 4500 --machine A2 --quantize-linear-action W8A8_STATIC
+python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 10 --input-length 1 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_STATIC
 ```
 
 ## TODO List
-- [ ] Qwen3-32B: op perf model, memory allocation, TP, W8A8 (dynamic quant), interconnect modeling
-- [ ] Model: Add more model support (make them compilable): kimi-k2, DSv3-671B, Qwen3-235B, GLM-4.5
+- [X] Qwen3-32B: op perf model, memory allocation, TP, W8A8 (dynamic quant), interconnect modeling
+- [X] Model: Add more model support (make them compilable): kimi-k2, DSv3-671B, Qwen3-235B, GLM-4.5
 - [ ] Model: Support model auto sharding (DP/TP/EP/CP/SP)
-- [ ] Model: Support model auto quantization (W8A8, W4A8, C8)
-- [ ] Compiler: Complete fusion support for Qwen3-32B
+  - [X] DP
+  - [X] TP
+  - [X] EP
+  - [ ] CP
+  - [ ] SP
+- [ ] Model: Support model auto quantization (W8A8, W4A8, C8 etc.)
+  - [X] W8A8
+  - [X] W4A8
+  - [ ] FP8
+  - [ ] FP4
+  - [ ] C8
+- [ ] Compiler: Complete fusion support for models
+  - [ ] Qwen3 Dense
+  - [ ] DeepSeek
 - [ ] PerfModel: Implement empirical model. Collect empirical op perf data.
 - [ ] PerfModel: Implement analytic model for key PyTorch and Ascend ops.
-- [ ] Machine: Add interconnect modeling.
-- [ ] Machine: Support H20 modeling.
-- [ ] Runtime: Perf text summary.
-- [ ] Runtime: Perf chrome trace output.
-- [ ] Runtime: Memory consumption estimation for ops.
+- [X] Device: Add interconnect modeling.
+- [X] Device: Support H20 modeling.
+- [X] Runtime: Perf text summary.
+- [X] Runtime: Perf chrome trace output.
+- [X] Runtime: Memory consumption estimation for ops.
