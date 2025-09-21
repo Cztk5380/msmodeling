@@ -21,8 +21,9 @@ def _rms_norm_quant(
     quant_scale: torch.Tensor,
     quant_offset: torch.Tensor,
     eps: float,
+    out_dtype: torch.dtype = torch.int8,
 ) -> torch.Tensor:
-    return torch.empty_like(x).contiguous()
+    return torch.empty_like(x, dtype=out_dtype).contiguous()
 
 
 @register_tensor_cast_op("add_rms_norm")
@@ -53,8 +54,9 @@ def _add_rms_norm_quant(
     quant_scale: torch.Tensor,
     quant_offset: torch.Tensor,
     eps: float,
+    out_dtype: torch.dtype = torch.int8,
 ) -> torch.Tensor:
-    return torch.empty_like(x).contiguous()
+    return torch.empty_like(x, dtype=out_dtype).contiguous()
 
 
 @register_tensor_cast_op("add_rms_norm_quant2")
@@ -65,5 +67,8 @@ def _add_rms_norm_quant2(
     quant_scale: torch.Tensor,
     quant_offset: torch.Tensor,
     eps: float,
+    out_dtype: torch.dtype = torch.int8,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
-    return torch.empty_like(x).contiguous(), torch.empty_like(x).contiguous()
+    return torch.empty_like(x, dtype=out_dtype).contiguous(), torch.empty_like(
+        x
+    ).contiguous()

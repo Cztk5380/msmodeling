@@ -2,6 +2,8 @@ import torch
 
 from ... import config
 
+_RMS_NORM_DTYPE_LIST = [torch.float16, torch.bfloat16]
+
 
 class RMSNormPattern:
     """
@@ -11,12 +13,15 @@ class RMSNormPattern:
 
     @staticmethod
     def create(dtype, eps: float = 1e-6):
-        RMSNormPattern.eps = eps
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, dtype=dtype, device="meta")
+            weight = torch.empty(4, dtype=dtype, device="meta")
+            return [hidden_states, weight]
 
         def pattern(hidden_states, weight):
             hidden_states = hidden_states.to(torch.float32)
             variance = hidden_states.pow(2).mean(-1, keepdim=True)
-            hidden_states = hidden_states * torch.rsqrt(variance + RMSNormPattern.eps)
+            hidden_states = hidden_states * torch.rsqrt(variance + eps)
             out = weight * hidden_states.to(dtype)
             return out
 
@@ -24,12 +29,18 @@ class RMSNormPattern:
             out = torch.ops.tensor_cast.rms_norm(hidden_states, weight, eps)
             return out
 
-        return (pattern, replacement)
+        return (pattern, replacement, get_inputs())
 
 
 class AddRMSNormPattern:
     @staticmethod
     def create(eps: float = 1e-6):
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, device="meta")
+            residual = torch.empty(2, 4, device="meta")
+            weight = torch.empty(4, device="meta")
+            return [hidden_states, residual, weight]
+
         def pattern(hidden_states, residual, weight):
             out = torch.ops.tensor_cast.rms_norm(hidden_states + residual, weight, eps)
             return out
@@ -40,12 +51,18 @@ class AddRMSNormPattern:
             )
             return out
 
-        return (pattern, replacement)
+        return (pattern, replacement, get_inputs())
 
 
 class AddRMSNorm2Pattern:
     @staticmethod
     def create(eps: float = 1e-6):
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, device="meta")
+            residual = torch.empty(2, 4, device="meta")
+            weight = torch.empty(4, device="meta")
+            return [hidden_states, residual, weight]
+
         def pattern(hidden_states, residual, weight):
             residual = hidden_states + residual
             out = torch.ops.tensor_cast.rms_norm(residual, weight, eps)
@@ -57,37 +74,22 @@ class AddRMSNorm2Pattern:
             )
             return out, residual
 
-        return (pattern, replacement)
-
-
-def quant_no_offset_wrapper(pattern, replacement):
-    def pattern_wrapper(hidden_states, weight, scale):
-        return pattern(hidden_states, weight, scale, None)
-
-    def replacement_wrapper(hidden_states, weight, scale):
-        return replacement(hidden_states, weight, scale, None)
-
-    return pattern_wrapper, replacement_wrapper
-
-
-def add_quant_no_offset_wrapper(pattern, replacement):
-    def pattern_wrapper(hidden_states, residual, weight, scale):
-        return pattern(hidden_states, residual, weight, scale, None)
-
-    def replacement_wrapper(hidden_states, residual, weight, scale):
-        return replacement(hidden_states, residual, weight, scale, None)
-
-    return pattern_wrapper, replacement_wrapper
+        return (pattern, replacement, get_inputs())
 
 
 class RMSNormQuantPattern:
     @staticmethod
-    def create(eps: float = 1e-6, has_offset=True):
+    def create(eps: float = 1e-6):
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, device="meta")
+            weight = torch.empty(4, device="meta")
+            scale = torch.empty(1, device="meta")
+            offset = torch.empty(1, device="meta")
+            return [hidden_states, weight, scale, offset]
+
         def pattern(hidden_states, weight, scale, offset):
             out = torch.ops.tensor_cast.rms_norm(hidden_states, weight, eps)
-            out = torch.ops.tensor_cast.quantize(
-                out, scale, offset, out_dtype=torch.int8
-            )
+            out = torch.ops.tensor_cast.quantize(out, scale, offset)
             return out
 
         def replacement(hidden_states, weight, scale, offset):
@@ -96,15 +98,20 @@ class RMSNormQuantPattern:
             )
             return out
 
-        if has_offset:
-            return (pattern, replacement)
-        else:
-            return quant_no_offset_wrapper(pattern, replacement)
+        return (pattern, replacement, get_inputs())
 
 
 class AddRMSNormQuantPattern:
     @staticmethod
-    def create(eps: float = 1e-6, has_offset=True):
+    def create(eps: float = 1e-6):
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, device="meta")
+            residual = torch.empty(2, 4, device="meta")
+            weight = torch.empty(4, device="meta")
+            scale = torch.empty(1, device="meta")
+            offset = torch.empty(1, device="meta")
+            return [hidden_states, residual, weight, scale, offset]
+
         def pattern(hidden_states, residual, weight, scale, offset):
             out = torch.ops.tensor_cast.rms_norm_quant(
                 hidden_states + residual, weight, scale, offset, eps
@@ -117,15 +124,20 @@ class AddRMSNormQuantPattern:
             )
             return out
 
-        if has_offset:
-            return (pattern, replacement)
-        else:
-            return add_quant_no_offset_wrapper(pattern, replacement)
+        return (pattern, replacement, get_inputs())
 
 
 class AddRMSNormQuant2Pattern:
     @staticmethod
-    def create(eps: float = 1e-6, has_offset=True):
+    def create(eps: float = 1e-6):
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, device="meta")
+            residual = torch.empty(2, 4, device="meta")
+            weight = torch.empty(4, device="meta")
+            scale = torch.empty(4, device="meta")
+            offset = torch.empty(4, device="meta")
+            return [hidden_states, residual, weight, scale, offset]
+
         def pattern(hidden_states, residual, weight, scale, offset):
             residual = hidden_states + residual
             out = torch.ops.tensor_cast.rms_norm_quant(
@@ -139,27 +151,29 @@ class AddRMSNormQuant2Pattern:
             )
             return out, residual
 
-        if has_offset:
-            return (pattern, replacement)
-        else:
-            return add_quant_no_offset_wrapper(pattern, replacement)
+        return (pattern, replacement, get_inputs())
 
 
 def register_all_patterns():
     from . import register_pattern
 
     if config.compilation.fusion_patterns.enable_rms_norm:
-        for dtype in [torch.float16, torch.bfloat16]:
-            pattern, replacement = RMSNormPattern.create(dtype)
+        for dtype in _RMS_NORM_DTYPE_LIST:
+            pattern, replacement, example_inputs = RMSNormPattern.create(dtype)
             # Register the pattern with the PatternManager
-            register_pattern(f"rms_norm_pattern_{dtype}", pattern, replacement, level=0)
+            register_pattern(
+                f"rms_norm_pattern_{dtype}",
+                pattern,
+                replacement,
+                example_inputs,
+                level=0,
+            )
 
     if config.compilation.fusion_patterns.enable_rms_norm_quant:
-        for has_offset in [True, False]:
-            register_pattern(
-                f"rms_norm_quant_pattern_{has_offset}",
-                *RMSNormQuantPattern.create(has_offset=has_offset),
-            )
+        register_pattern(
+            "rms_norm_quant_pattern",
+            *RMSNormQuantPattern.create(),
+        )
 
     if config.compilation.fusion_patterns.enable_add_rms_norm:
         register_pattern(
@@ -171,13 +185,12 @@ def register_all_patterns():
             *AddRMSNorm2Pattern.create(),
         )
         if config.compilation.fusion_patterns.enable_rms_norm_quant:
-            for has_offset in [True, False]:
-                register_pattern(
-                    f"add_rms_norm_quant_pattern_{has_offset}",
-                    *AddRMSNormQuantPattern.create(has_offset=has_offset),
-                )
-            for has_offset in [True, False]:
-                register_pattern(
-                    f"add_rms_norm_quant2_pattern_{has_offset}",
-                    *AddRMSNormQuant2Pattern.create(has_offset=has_offset),
-                )
+            register_pattern(
+                "add_rms_norm_quant_pattern",
+                *AddRMSNormQuantPattern.create(),
+            )
+
+            register_pattern(
+                "add_rms_norm_quant2_pattern",
+                *AddRMSNormQuant2Pattern.create(),
+            )

@@ -228,8 +228,9 @@ def run_inference(
     model = TransformerModel(model_id, model_config)
     if do_compile:
         print("   Compiling model with torch.compile...")
+        compile_backend = get_backend()
         model = torch.compile(
-            model, backend=get_backend(), dynamic=True, fullgraph=not allow_graph_break
+            model, backend=compile_backend, dynamic=True, fullgraph=not allow_graph_break
         )
         print("   ...compilation complete.")
 

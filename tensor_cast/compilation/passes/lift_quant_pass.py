@@ -48,6 +48,8 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
         # the graph would only contain call_function not call_method
         # and the target would always be the op override like
         # torch.ops.tensor_cast.quantize.default
+        logger.debug("Running LiftCombineQuantPass.........")
+
         def is_swappable(node: fx.Node) -> bool:
             """Checks if a node represents a swappable operation."""
             if node.op == "call_function" and hasattr(node.target, "_schema"):
@@ -59,7 +61,7 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
                 return node.target in self._SWAPPABLE_METHOD_NAMES
             return False
 
-        _QUANTIZE_OP = torch.ops.tensor_cast.quantize
+        _QUANTIZE_OP = torch.ops.tensor_cast.quantize.default
 
         graph = graph_module.graph
 
@@ -75,6 +77,9 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
             # possible point to place the quantization op.
             current_input = original_quant_node.args[0]
             swappable_ops_chain = []
+            logger.debug(
+                f"Found quantize node: {original_quant_node}, pre-node: {current_input}"
+            )
 
             while is_swappable(current_input):
                 # As a safety check, we only lift through an op if it has a single user.
@@ -87,6 +92,7 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
 
             # --- Phase 2: Combination / Creation ---
             # Get the arguments of the original quantization operation.
+            logger.debug(f"{original_quant_node.args = }")
             scale = original_quant_node.args[1]
             offset = original_quant_node.args[2]
             out_dtype = original_quant_node.kwargs.get("out_dtype", torch.int8)
@@ -125,12 +131,7 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
             # --- Phase 4: Replacement ---
             # Replace all uses of the original quantize node with our new chain's output.
             original_quant_node.replace_all_uses_with(final_node)
-            # TODO(jgong5): after we enable AOT dispatcher, we should be able to do DCE
-            #               and don't need explicit removal of nodes
-            graph.erase_node(original_quant_node)
-            for swappable_node in swappable_ops_chain:
-                graph.erase_node(swappable_node)
 
-        # TODO(jgong5): turn on DCE after enabling AOT dispatcher
-        # graph.eliminate_dead_code()
+        # Turn on DCE before recompile.
+        graph.eliminate_dead_code()
         graph_module.recompile()

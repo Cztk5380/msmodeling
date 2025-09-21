@@ -9,7 +9,7 @@ from ..utils import register_tensor_cast_op
 def _quantize(
     x: torch.Tensor,
     scale: torch.Tensor,
-    offset: Optional[torch.Tensor] = None,
+    offset: Optional[torch.Tensor],
     out_dtype: torch.dtype = torch.int8,
 ) -> torch.Tensor:
     """`out = clamp(round(x / scale) + offset)`"""
