@@ -2,7 +2,7 @@ import dataclasses
 import itertools
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional, Protocol, Tuple
 
 import torch
 
@@ -136,6 +136,25 @@ class PerformanceModel(ABC):
                 )
             self.statistics.update(other.statistics)
 
+    class OpClassifier(Protocol):
+        @property
+        def name(self): ...
+
+        def classify(
+            self, event_list: List[Tuple[OpInvokeInfo, "PerformanceModel.Result"]]
+        ) -> Dict[str, float]:
+            """
+            Classify an event list into a breakdown.
+
+            [NOTE: Breakdown from Op Classifier] The semantics of the values are defined by the performance
+            models but they should account for a breakdown of sum(values) so that the caller can then compute the
+            percentage of each category according to the values.
+
+            :param event_list: Event list of classify
+            :return: category name -> value
+            """
+            ...
+
     def __init__(self, name, device_profile: DeviceProfile):
         self.name = name
         self.device_profile = device_profile
@@ -147,6 +166,9 @@ class PerformanceModel(ABC):
         Returns:
             op execution time in seconds and misc runtime statistics
         """
+
+    def get_classifiers(self) -> List[OpClassifier]:
+        return []
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.bmm.default)

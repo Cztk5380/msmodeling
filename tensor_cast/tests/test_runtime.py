@@ -212,3 +212,85 @@ class PerfAnalysisTestCase(unittest.TestCase):
             self.assertIn("aten.randn", content)
             self.assertIn("aten.add", content)
             self.assertIn("aten.mul", content)
+
+    def test_model_cost_with_view(self):
+        def func(x):
+            return x.reshape(10, 10)
+
+        x = torch.randn([100], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_runtime_breakdown_compute_bound(self):
+        def func(x, y):
+            return torch.matmul(x, y)
+
+        x = torch.randn([1000, 1000], device="meta")
+        y = torch.randn([1000, 1000], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x, y)
+        breakdowns = runtime.get_breakdowns()
+        self.assertGreater(len(breakdowns), 0)
+        self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
+        for key, breakdown in breakdowns.items():
+            if key.endswith("OpBound"):
+                self.assertGreater(breakdown["compute_bound"], 0)
+                self.assertEqual(breakdown["memory_bound"], 0)
+                self.assertEqual(breakdown["communication_bound"], 0)
+
+    def test_runtime_breakdown_memory_bound(self):
+        def func(x, y):
+            return torch.add(x, y)
+
+        x = torch.randn([1000, 1000], device="meta")
+        y = torch.randn([1000, 1000], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x, y)
+        breakdowns = runtime.get_breakdowns()
+        self.assertGreater(len(breakdowns), 0)
+        self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
+        for key, breakdown in breakdowns.items():
+            if key.endswith("OpBound"):
+                self.assertEqual(breakdown["compute_bound"], 0)
+                self.assertGreater(breakdown["memory_bound"], 0)
+                self.assertEqual(breakdown["communication_bound"], 0)
+
+    def test_runtime_breakdown_comm_bound(self):
+        def func(x):
+            return torch.ops.tensor_cast.all_reduce(x, 0, [0, 1])
+
+        x = torch.randn([1000, 1000], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x)
+        breakdowns = runtime.get_breakdowns()
+        self.assertGreater(len(breakdowns), 0)
+        self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
+        for key, breakdown in breakdowns.items():
+            if key.endswith("OpBound"):
+                self.assertEqual(breakdown["compute_bound"], 0)
+                self.assertEqual(breakdown["memory_bound"], 0)
+                self.assertGreater(breakdown["communication_bound"], 0)

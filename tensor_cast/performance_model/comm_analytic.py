@@ -9,6 +9,8 @@ from ..device import DeviceProfile, InterconnectTopology
 
 from . import OpInvokeInfo, PerformanceModel
 
+from .analytic import StatsKey
+
 
 class CommAnalyticModel(PerformanceModel):
     """
@@ -140,6 +142,7 @@ class CommAnalyticModel(PerformanceModel):
             comm_time = time_tree
 
         stats = {
+            StatsKey.COMMUNICATION: comm_time,
             "algorithm": algorithm,
             "message_size_bytes": message_size_bytes,
             "group_size": num_ranks,
@@ -194,6 +197,7 @@ class CommAnalyticModel(PerformanceModel):
             comm_time = time_recursive
 
         stats = {
+            StatsKey.COMMUNICATION: comm_time,
             "algorithm": algorithm,
             "message_size_bytes": message_size_bytes,
             "group_size": num_ranks,
@@ -258,6 +262,7 @@ class CommAnalyticModel(PerformanceModel):
             comm_time = time_bruck
 
         stats = {
+            StatsKey.COMMUNICATION: comm_time,
             "algorithm": algorithm,
             "message_size_bytes": data_transfer_per_rank,
             "total_bytes_sent": total_elements_sent * x.element_size(),
@@ -314,6 +319,7 @@ class CommAnalyticModel(PerformanceModel):
             comm_time = time_recursive
 
         stats = {
+            StatsKey.COMMUNICATION: comm_time,
             "algorithm": algorithm,
             "message_size_bytes": message_size_bytes,
             "group_size": num_ranks,

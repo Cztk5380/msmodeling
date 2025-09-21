@@ -375,3 +375,35 @@ class Runtime(TorchDispatchMode):
         with file_context:
             # The top-level object should contain the 'traceEvents' key
             json.dump({"traceEvents": trace_events}, f)
+
+    def get_breakdowns(self) -> Dict[str, Dict[str, float]]:
+        """
+        A breakdown of op categories according to the classification of each performance model in the runtime.
+        The classification is decided by the performance models.
+
+        Return:
+            Dict: name of breakdown -> [category name, value for this category]
+            The semantics of the values are defined by the performance models. See [NOTE: Breakdown from Op Classifier]
+            for details.
+            The runtime combines all the breakdowns from the classifiers of perf models.
+        """
+        breakdowns = {}
+        for perf_model in self.perf_models:
+            if classifiers := perf_model.get_classifiers():
+                event_list_for_this = [
+                    (event.op_invoke_info, event.perf_results[perf_model.name])
+                    for event in self.event_list
+                ]
+                for classifier in classifiers:
+                    breakdown = classifier.classify(event_list_for_this)
+                    breakdowns[f"{perf_model.name}_{classifier.name}"] = breakdown
+        return breakdowns
+
+    def total_execution_time_s(self) -> Dict[str, float]:
+        total: Dict[str, float] = {}
+        for perf_model in self.perf_models:
+            total[perf_model.name] = sum(
+                event.perf_results[perf_model.name].execution_time_s
+                for event in self.event_list
+            )
+        return total

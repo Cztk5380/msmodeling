@@ -310,16 +310,19 @@ class MemoryTracker:
             raise RuntimeError("`analyze()` must be called before `get_profile()`.")
 
         # Adjust the calculated profile with the initial memory offset.
-        return [
-            OpMemoryProfile(
-                op_invoke_info=profile.op_invoke_info,
-                usage_before_call_bytes=profile.usage_before_call_bytes
-                + initial_mem_usage_bytes,
-                usage_after_call_bytes=profile.usage_after_call_bytes
-                + initial_mem_usage_bytes,
-            )
-            for profile in self.memory_profiles
-        ]
+        if initial_mem_usage_bytes == 0:
+            return self.memory_profiles
+        else:
+            return [
+                OpMemoryProfile(
+                    op_invoke_info=profile.op_invoke_info,
+                    usage_before_call_bytes=profile.usage_before_call_bytes
+                    + initial_mem_usage_bytes,
+                    usage_after_call_bytes=profile.usage_after_call_bytes
+                    + initial_mem_usage_bytes,
+                )
+                for profile in self.memory_profiles
+            ]
 
     def peak_mem_usage(self, initial_mem_usage_bytes: float = 0.0):
         return max(

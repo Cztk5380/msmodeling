@@ -1,5 +1,6 @@
 import logging
-from typing import Callable, List, Optional, Union
+from enum import StrEnum
+from typing import Callable, Dict, List, Optional, Tuple, Union
 
 import torch
 from overrides import override
@@ -8,10 +9,16 @@ from ..device import DeviceProfile
 
 from ..performance_model import OpInvokeInfo, PerformanceModel
 
-from .comm_analytic import CommAnalyticModel
 from .utils import is_view_op
 
 logger = logging.getLogger(__name__)
+
+
+class StatsKey(StrEnum):
+    COMPUTE = "compute_time_s"
+    MEMORY_ACCESS = "memory_access_time_s"
+    COMMUNICATION = "comm_time_s"
+
 
 _op_estimator_table = {}
 
@@ -41,6 +48,35 @@ def _get_op_estimator(
     return _op_estimator_table[device_name][op]
 
 
+class OpBoundClassifier(PerformanceModel.OpClassifier):
+    @property
+    def name(self):
+        return "OpBound"
+
+    def classify(
+        self, event_list: List[Tuple[OpInvokeInfo, "PerformanceModel.Result"]]
+    ) -> Dict[str, float]:
+        COMPUTE_BOUND = "compute_bound"
+        MEMORY_BOUND = "memory_bound"
+        COMM_BOUND = "communication_bound"
+        breakdown: Dict[str, float] = {
+            COMPUTE_BOUND: 0,
+            MEMORY_BOUND: 0,
+            COMM_BOUND: 0,
+        }
+        breakdown_keys = list(breakdown.keys())
+        for _, result in event_list:
+            time_list = [
+                result.statistics.get(StatsKey.COMPUTE, 0),
+                result.statistics.get(StatsKey.MEMORY_ACCESS, 0),
+                result.statistics.get(StatsKey.COMMUNICATION, 0),
+            ]
+            max_value = max(time_list)
+            max_index = time_list.index(max_value)
+            breakdown[breakdown_keys[max_index]] += max_value
+        return breakdown
+
+
 class AnalyticPerformanceModel(PerformanceModel):
     """
     Analytic performance model uses simple roofline model to estimate the
@@ -50,12 +86,16 @@ class AnalyticPerformanceModel(PerformanceModel):
 
     def __init__(self, device_profile: DeviceProfile):
         super().__init__("analytic", device_profile)
+        self.classifiers = [OpBoundClassifier()]
 
     @override
     def process_op(self, op_invoke_info: OpInvokeInfo) -> PerformanceModel.Result:
         op_estimator = _get_op_estimator(op_invoke_info.func, self.device_profile.name)
         result = op_estimator(op_invoke_info, self.device_profile)
         return result
+
+    def get_classifiers(self) -> List[PerformanceModel.OpClassifier]:
+        return self.classifiers
 
 
 def _estimate_static_cost(
@@ -72,7 +112,7 @@ def _estimate_static_cost(
     return device_profile.static_cost.gp_op_cost_s
 
 
-def _estimate_default(
+def _estimate_default_without_static_cost(
     op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
 ) -> PerformanceModel.Result:
     if is_view_op(op_invoke_info.func):
@@ -127,11 +167,20 @@ def _estimate_default(
             "memory_read_time_s": memory_read_time_s,
             "memory_write_time_s": memory_write_time_s,
             "memory_readwrite_time_s": memory_readwrite_time_s,
-            "memory_access_time_s": memory_access_time_s,
-            "compute_time_s": compute_time_s,
+            StatsKey.MEMORY_ACCESS: memory_access_time_s,
+            StatsKey.COMPUTE: compute_time_s,
             "is_compute_bound": compute_time_s > memory_access_time_s,
         },
     )
+    return result
+
+
+def _estimate_default(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    if is_view_op(op_invoke_info.func):
+        return PerformanceModel.Result(0.0)
+    result = _estimate_default_without_static_cost(op_invoke_info, device_profile)
     result.execution_time_s += _estimate_static_cost(op_invoke_info, device_profile)
     return result
 
@@ -146,7 +195,9 @@ register_op_estimator(None, None)(_estimate_default)
 def _estimate_collective_comm(
     op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
 ) -> PerformanceModel.Result:
-    result = _estimate_default(op_invoke_info, device_profile)
+    from .comm_analytic import CommAnalyticModel
+
+    result = _estimate_default_without_static_cost(op_invoke_info, device_profile)
     comm_model = CommAnalyticModel(device_profile)
     comm_result = comm_model.process_op(op_invoke_info)
     result.combine(comm_result)

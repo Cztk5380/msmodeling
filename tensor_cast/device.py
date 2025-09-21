@@ -87,10 +87,10 @@ TEST_INTERCONNECT = CommGrid(
     grid=torch.arange(256 * 8).reshape(256, 8),
     topologies={
         0: InterconnectTopology(
-            bandwidth_bytes_ps=50, latency_s=1e-5, comm_efficiency=0.7
+            bandwidth_bytes_ps=50 * 1e9, latency_s=1e-5, comm_efficiency=0.7
         ),
         1: InterconnectTopology(
-            bandwidth_bytes_ps=196, latency_s=1.3e-6, comm_efficiency=0.7
+            bandwidth_bytes_ps=196 * 1e9, latency_s=1.3e-6, comm_efficiency=0.7
         ),
     },
 )
@@ -118,6 +118,128 @@ TEST_DEVICE = DeviceProfile(
 )
 
 
+class ATLAS_800:
+    # TODO(jgong5): double-confirm static cost
+    STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6)
+
+    # TODO(jgong5): double-confirm latency
+    # TODO(jgong5): double-confirm communication efficiency
+    A2_INTERCONNECT = CommGrid(
+        grid=torch.arange(128 * 8).reshape(128, 8),  # up to 1024 devices
+        topologies={
+            0: InterconnectTopology(
+                bandwidth_bytes_ps=50 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
+            ),
+            1: InterconnectTopology(  # Full mesh
+                bandwidth_bytes_ps=196 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+            ),
+        },
+    )
+
+    A3_INTERCONNECT = CommGrid(  # For A3 die
+        grid=torch.arange(48 * 8 * 2).reshape(48, 8, 2),  # up to 768 devices (dies)
+        topologies={
+            0: InterconnectTopology(  # 2-level CLOS?
+                bandwidth_bytes_ps=196 * 1e9, latency_s=6.0 * 1e-6, comm_efficiency=0.7
+            ),
+            1: InterconnectTopology(  # Full mesh
+                bandwidth_bytes_ps=196 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+            ),
+            2: InterconnectTopology(  # SIO
+                bandwidth_bytes_ps=224 * 1e9, latency_s=0.2 * 1e-6, comm_efficiency=0.7
+            ),
+        },
+    )
+
+    A2_376T_64G = DeviceProfile(
+        name="ATLAS_800_A2_376T_64G",
+        mma_ops={
+            torch.float32: 99.5 * 1e12,
+            torch.bfloat16: 353.9 * 1e12,
+            torch.half: 353.9 * 1e12,
+            torch.int8: 353.9 * 2 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 11 / 2 * 1e12,
+            torch.bfloat16: 11 / 2 * 1e12,
+            torch.half: 11 * 1e12,
+        },
+        memory_size_bytes=64 * (1024**3),
+        memory_bandwidth_bytes_ps=1.6 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=A2_INTERCONNECT,
+        static_cost=STATIC_COST,
+    )
+
+    A2_313T_64G = DeviceProfile(
+        name="ATLAS_800_A2_313T_64G",
+        mma_ops={
+            torch.float32: 83 * 1e12,
+            torch.bfloat16: 294.9 * 1e12,
+            torch.half: 294.9 * 1e12,
+            torch.int8: 294.9 * 2 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 11 / 2 * 1e12,
+            torch.bfloat16: 11 / 2 * 1e12,
+            torch.half: 11 * 1e12,
+        },
+        memory_size_bytes=64 * (1024**3),
+        memory_bandwidth_bytes_ps=1.6 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=A2_INTERCONNECT,
+        static_cost=STATIC_COST,
+    )
+
+    A3_752T_128G_DIE = DeviceProfile(  # one die of A3
+        name="ATLAS_800_A3_752T_128G_DIE",
+        mma_ops={
+            torch.float32: 99.5 * 1e12,
+            torch.bfloat16: 353.9 * 1e12,
+            torch.half: 353.9 * 1e12,
+            torch.int8: 353.9 * 2 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 11 / 2 * 1e12,
+            torch.bfloat16: 11 / 2 * 1e12,
+            torch.half: 11 * 1e12,
+        },
+        memory_size_bytes=64 * (1024**3),
+        memory_bandwidth_bytes_ps=1.6 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=A3_INTERCONNECT,
+        static_cost=STATIC_COST,
+    )
+
+    A3_560T_128G = DeviceProfile(  # one die of A3
+        name="ATLAS_800_A3_560T_128G_DIE",
+        mma_ops={
+            torch.float32: 83 * 1e12,
+            torch.bfloat16: 294.9 * 1e12,
+            torch.half: 294.9 * 1e12,
+            torch.int8: 294.9 * 2 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 11 / 2 * 1e12,
+            torch.bfloat16: 11 / 2 * 1e12,
+            torch.half: 11 * 1e12,
+        },
+        memory_size_bytes=64 * (1024**3),
+        memory_bandwidth_bytes_ps=1.6 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=A3_INTERCONNECT,
+        static_cost=STATIC_COST,
+    )
+
+
 class NVIDIA:
     # TODO(jgong5): double-confirm static cost
     STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6)
@@ -128,7 +250,7 @@ class NVIDIA:
         grid=torch.arange(8),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=63, latency_s=0.2 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=63 * 1e9, latency_s=0.2 * 1e-6, comm_efficiency=0.7
             ),
         },
     )
@@ -137,10 +259,10 @@ class NVIDIA:
         grid=torch.arange(128 * 8).reshape(128, 8),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=50, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=50 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=450, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=450 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
             ),
         },
     )
@@ -149,10 +271,10 @@ class NVIDIA:
         grid=torch.arange(128 * 8).reshape(128, 8),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=50, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=50 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=200, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=200 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
             ),
         },
     )
@@ -398,10 +520,10 @@ class CAMBRICON:
         grid=torch.arange(128 * 8).reshape(128, 8),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=25, latency_s=10.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=25 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=293, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=293 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
             ),
         },
     )
@@ -440,10 +562,10 @@ class KUNLUNXIN:
         grid=torch.arange(16 * 4).reshape(16, 4),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=200, latency_s=20 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=200 * 1e9, latency_s=20 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=200, latency_s=10 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=200 * 1e9, latency_s=10 * 1e-6, comm_efficiency=0.7
             ),
         },
     )
@@ -480,10 +602,10 @@ class ALIBABA:
         grid=torch.arange(4 * 16).reshape(4, 16),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=50, latency_s=10 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=50 * 1e9, latency_s=10 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=150, latency_s=1 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=150 * 1e9, latency_s=1 * 1e-6, comm_efficiency=0.7
             ),
         },
     )
@@ -520,10 +642,10 @@ class METAX:
         grid=torch.arange(8 * 8).reshape(8, 8),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=12.5, latency_s=10 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=12.5 * 1e9, latency_s=10 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=448, latency_s=1 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=448 * 1e9, latency_s=1 * 1e-6, comm_efficiency=0.7
             ),
         },
     )

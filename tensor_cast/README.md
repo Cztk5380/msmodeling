@@ -24,10 +24,12 @@ We provide a `text_generate.py` command line interface to simulate the text gene
 
 Its general usage is shown below:
 ```text
-usage: text_generate.py [-h] [--device {TEST_DEVICE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_6000D,RTX_5090D,RTX_4090,RTX_4090D,MLU590,P800,PPU,C550}] --num-queries NUM_QUERIES --input-length INPUT_LENGTH [--context-length CONTEXT_LENGTH]
-                        [--max-context-length MAX_CONTEXT_LENGTH] [--compile] [--compile-allow-graph-break] [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
+usage: text_generate.py [-h]
+                        [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_6000D,RTX_5090D,RTX_4090,RTX_4090D,MLU590,P800,PPU,C550}]
+                        --num-queries NUM_QUERIES --input-length INPUT_LENGTH [--context-length CONTEXT_LENGTH] [--compile] [--compile-allow-graph-break] [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
                         [--quantize-linear-action {W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC}] [--graph-log-url GRAPH_LOG_URL] [--log-level LOG_LEVEL] [--decode] [--num-mtp-layers NUM_MTP_LAYERS]
-                        [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--enable-repetition]
+                        [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--enable-repetition] [--reserved-memory-gb RESERVED_MEMORY_GB] [--world-size WORLD_SIZE] [--tp-size TP_SIZE] [--dp-size DP_SIZE] [--mlp-tp-size MLP_TP_SIZE]     
+                        [--mlp-dp-size MLP_DP_SIZE] [--lmhead-tp-size LMHEAD_TP_SIZE] [--lmhead-dp-size LMHEAD_DP_SIZE] [--ep]
                         model_id
 
 Run a simulated LLM inference pass and dump the perf result.
@@ -37,7 +39,7 @@ positional arguments:
 
 options:
   -h, --help            show this help message and exit
-  --device {TEST_DEVICE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_6000D,RTX_5090D,RTX_4090,RTX_4090D,MLU590,P800,PPU,C550}
+  --device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_6000D,RTX_5090D,RTX_4090,RTX_4090D,MLU590,P800,PPU,C550}
                         The device type for simulation. (default: TEST_DEVICE)
   --num-queries NUM_QUERIES
                         Number of inference queries to run in a batch. (default: None)
@@ -45,8 +47,6 @@ options:
                         The length of the new input tokens for each query. (default: None)
   --context-length CONTEXT_LENGTH
                         The context length for each query. Defaults to 0. (default: 0)
-  --max-context-length MAX_CONTEXT_LENGTH
-                        Max supported context length for each query. (default: 131072)
   --compile             If set, invoke torch.compile() on the model before inference. (default: False)
   --compile-allow-graph-break
                         If set, invoke torch.compile() on the model before inference. (default: False)
@@ -65,6 +65,21 @@ options:
   --num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE
                         Override the number of hidden layers, for debugging only (default: 0)
   --enable-repetition   Leverage the repetition pattern of the transformer models to save runtime cost (default: False)
+  --reserved-memory-gb RESERVED_MEMORY_GB
+                        Size of reserved device memory (in GB) that we cannot use from applications. (default: 0)
+  --world-size WORLD_SIZE
+                        The total number of processes (default: 1)
+  --tp-size TP_SIZE     The tp size for the whole model (default: 1)
+  --dp-size DP_SIZE     The dp size for the whole model (default: None)
+  --mlp-tp-size MLP_TP_SIZE
+                        The tp size fo mlp layer, can override tp-size for mlp layer (default: None)
+  --mlp-dp-size MLP_DP_SIZE
+                        The dp size fo mlp layer, can override dp-size for mlp layer (default: None)
+  --lmhead-tp-size LMHEAD_TP_SIZE
+                        The tp size fo lm head, can override tp-size for lm head (default: None)
+  --lmhead-dp-size LMHEAD_DP_SIZE
+                        The dp size fo lm head, can override dp-size for lm head (default: None)
+  --ep                  Whether or not to implement expert parallel (default: False)
 ```
 
 ### Run Prefill

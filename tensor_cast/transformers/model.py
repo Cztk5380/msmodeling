@@ -272,9 +272,10 @@ class TransformerModel(ModelWrapperBase):
         if not self.model_config.repetitive_layer_config:
             return
 
-        def repeat_layers(module, repetitive_ranges):
+        def canonicalize_repetitive_ranges(module, repetitive_ranges):
+            """Fill the actual value of the repeats fields if they are negative"""
+            new_repetitive_ranges = repetitive_ranges[:]
             num_hidden_layers = len(module.layers)
-            new_layers = []
             # fill up repeats placeholder
             num_remaining_layers = num_hidden_layers
             for i, rr in enumerate(repetitive_ranges):
@@ -286,26 +287,33 @@ class TransformerModel(ModelWrapperBase):
                         raise ValueError(
                             f"Number of remaining layers {num_layers} not dividable by {rr.stop - rr.start}"
                         )
-                    repetitive_ranges[i] = RepetitiveRange(
+                    new_repetitive_ranges[i] = RepetitiveRange(
                         rr.start,
                         rr.stop,
                         num_layers // (rr.stop - rr.start),
                     )
                     num_remaining_layers -= num_layers
-                    if num_remaining_layers == 0 and i != len(repetitive_ranges) - 1:
+                    if (
+                        num_remaining_layers == 0
+                        and i != len(new_repetitive_ranges) - 1
+                    ):
                         raise ValueError(
                             f"no remaining layers left for the rest of the repetition ranges: "
-                            f"{repetitive_ranges[i + 1 :]}"  # noqa: E203
+                            f"{new_repetitive_ranges[i + 1 :]}"  # noqa: E203
                         )
             # check validity of the ranges first
             if (
-                sum([rr.repeats * (rr.stop - rr.start) for rr in repetitive_ranges])
+                sum([rr.repeats * (rr.stop - rr.start) for rr in new_repetitive_ranges])
                 != num_hidden_layers
             ):
                 raise ValueError(
                     f"The sum of all the ranges with repeats should match the original number of "
-                    f"hidden layers: expected {num_hidden_layers}, got {repetitive_ranges}"
+                    f"hidden layers: expected {num_hidden_layers}, got {new_repetitive_ranges}"
                 )
+            return new_repetitive_ranges
+
+        def repeat_layers(module, repetitive_ranges):
+            new_layers = []
             for rr in repetitive_ranges:
                 new_layers.extend(
                     [
@@ -319,8 +327,11 @@ class TransformerModel(ModelWrapperBase):
 
         config = self.model_config.repetitive_layer_config
         unwrapped = self.unwrap()
+        self.repetitive_ranges = canonicalize_repetitive_ranges(
+            unwrapped, config.repetitive_ranges
+        )
         if hasattr(unwrapped, "layers") and config.repetitive_ranges:
-            unwrapped.layers = repeat_layers(unwrapped, config.repetitive_ranges)
+            unwrapped.layers = repeat_layers(unwrapped, self.repetitive_ranges)
 
     def patch_model(self):
         """
@@ -590,6 +601,29 @@ class TransformerModel(ModelWrapperBase):
     @property
     def vocab_size(self):
         return self.text_config.vocab_size
+
+    @property
+    def weight_size(self):
+        def get_weight_size_nested(mod):
+            total_size = 0
+            for _, param in mod.named_parameters():
+                total_size += param.nelement() * param.element_size()
+            for _, buffer in mod.named_buffers():
+                total_size += buffer.nelement() * buffer.element_size()
+            return total_size
+
+        total_size = get_weight_size_nested(self)
+        if self.model_config.repetitive_layer_config:
+            unwrapped = self.unwrap()
+            if hasattr(unwrapped, "layers"):
+                assert len(self.repetitive_ranges) == len(unwrapped.layers)
+                for i, rr in enumerate(self.repetitive_ranges):
+                    if rr.repeats == 1:
+                        continue
+                    total_size += get_weight_size_nested(unwrapped.layers[i]) * (
+                        rr.repeats - 1
+                    )
+        return total_size
 
     def forward(
         self,

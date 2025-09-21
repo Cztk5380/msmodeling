@@ -79,7 +79,6 @@ def run_inference(
     num_queries: int,
     input_length: int,
     context_length: int,
-    max_context_length: int,
     do_compile: bool,
     allow_graph_break: bool,
     dump_input_shapes: bool = False,
@@ -89,6 +88,15 @@ def run_inference(
     num_hidden_layers_override: int = 0,
     is_decode: bool = False,
     enable_repetition: bool = False,
+    reserved_memory_gb=0,
+    world_size: int = 1,
+    tp_size: int = 1,
+    dp_size: Optional[int] = None,
+    mlp_tp_size: Optional[int] = None,
+    mlp_dp_size: Optional[int] = None,
+    lmhead_tp_size: Optional[int] = None,
+    lmhead_dp_size: Optional[int] = None,
+    ep: bool = False,
 ):
     """
     Sets up and runs a simulated LLM inference pass.
@@ -97,13 +105,27 @@ def run_inference(
         raise ValueError(f"Device '{device}' not recognized.")
     device_profile = DeviceProfile.all_device_profiles[device]
 
+    parallel_config = ParallelConfig(
+        world_size=world_size,
+        tensor_parallel_size=tp_size,
+        data_parallel_size=dp_size,
+        mlp_tensor_parallel_size=mlp_tp_size,
+        mlp_data_parallel_size=mlp_dp_size,
+        lmhead_tensor_parallel_size=lmhead_tp_size,
+        lmhead_data_parallel_size=lmhead_dp_size,
+        expert_parallel=ep,
+    )
+    batch_size = (
+        num_queries + parallel_config.data_parallel_size - 1
+    ) // parallel_config.data_parallel_size
+
     print("--- Configuration ---")
     print(f"Device: {device}")
     print(f"Model ID: {model_id}")
-    print(f"Number of Queries (Batch Size): {num_queries}")
+    print(f"Number of Queries: {num_queries}")
+    print(f"Number of Queries per DP rank: {batch_size}")
     print(f"Input Length (per query): {input_length}")
     print(f"Context Length (per query): {context_length}")
-    print(f"Max Context Length (per query): {max_context_length}")
     print(f"Decode: {is_decode}")
     print(f"Enable repetition: {enable_repetition}")
     if num_mtp_layers > 0:
@@ -117,19 +139,14 @@ def run_inference(
     print("---------------------\n")
 
     # Derived parameters
-    batch_size = num_queries
     query_len = input_length
     seq_len = context_length + query_len  # Total sequence length for each query
-
-    if seq_len + num_mtp_layers + 1 > max_context_length:
-        raise ValueError(
-            f"max context length {max_context_length} too small to support query {query_len}, context {context_length}"
-        )
+    max_context_length = seq_len + num_mtp_layers + 1
 
     # Paged attention parameters (can be adjusted)
     block_size = 128
     num_blocks = (
-        max_context_length + block_size
+        max_context_length * batch_size + block_size
     ) // block_size  # Total number of blocks available in the KV cache
 
     # Prepare Attention Metadata for Paged Attention
@@ -173,7 +190,7 @@ def run_inference(
     if quantize_linear_action:
         quant_config = get_quant_config(quantize_linear_action)
     model_config = ModelConfig(
-        ParallelConfig(),
+        parallel_config,
         quant_config,
         attention_cls=AttentionTensorCast,
         quant_linear_cls=TensorCastQuantLinear,
@@ -237,12 +254,18 @@ def run_inference(
             )
         else:
             # Shape: [2 (K/V), num_blocks, block_size, num_heads, head_dim]
+            assert (
+                model.text_config.num_key_value_heads
+                % parallel_config.tensor_parallel_size
+                == 0
+            )
             kv_cache_by_layers[i] = torch.empty(
                 [
                     2,
                     num_blocks,
                     block_size,
-                    model.text_config.num_key_value_heads,
+                    model.text_config.num_key_value_heads
+                    // parallel_config.tensor_parallel_size,
                     model.text_config.head_dim,
                 ],
                 dtype=model_config.dtype,
@@ -280,7 +303,43 @@ def run_inference(
     print(f"Model compilation and execution time: {run_end - run_start}s")
     result = runtime.table_averages(group_by_input_shapes=dump_input_shapes)
     print(result)
-    print(f"Peak memory usage: {runtime.memory_tracker.peak_mem_usage() / 1e9} GB")
+    # Print memory usage
+    total_device_memory_gb = device_profile.memory_size_bytes / 1024**3
+    model_weight_size_gb = model.weight_size / 1024**3
+    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
+    total_kv_cache_size_gb = (
+        sum(
+            kv_cache.nelement() * kv_cache.element_size()
+            for kv_cache in kv_cache_by_layers.values()
+        )
+        / 1024**3
+    )
+    model_activation_size_gb = (
+        peak_memory_usage_gb - total_kv_cache_size_gb - model_weight_size_gb
+    )
+    device_memory_available_gb = (
+        total_device_memory_gb - peak_memory_usage_gb - reserved_memory_gb
+    )
+    print(f"Total device memory: {total_device_memory_gb:.3f} GB")
+    print(f"  Model weight size: {model_weight_size_gb:.3f} GB")
+    print(f"  KV cache: {total_kv_cache_size_gb:.3f} GB")
+    print(f"  Model activation size: {model_activation_size_gb:.3f} GB")
+    print(f"  Reserved memory: {reserved_memory_gb} GB")
+    print(f"  Memory available: {device_memory_available_gb} GB")
+
+    print("Stats breakdowns:")
+    for breakdown_name, breakdown in runtime.get_breakdowns().items():
+        total = sum(breakdown.values())
+        if total == 0:
+            continue
+        percentage_breakdown = [value * 100 / total for value in breakdown.values()]
+        print(f"  {breakdown_name}: ", end="")
+        print(
+            [
+                f"{key}: {percentage:.2f}"
+                for key, percentage in zip(breakdown.keys(), percentage_breakdown)
+            ]
+        )
     if chrome_trace:
         runtime.export_chrome_trace(chrome_trace)
 
@@ -324,12 +383,6 @@ def main():
         type=int,
         default=0,
         help="The context length for each query. Defaults to 0.",
-    )
-    parser.add_argument(
-        "--max-context-length",
-        type=int,
-        default=128 * 1024,
-        help="Max supported context length for each query.",
     )
     parser.add_argument(
         "--compile",
@@ -393,6 +446,59 @@ def main():
         action="store_true",
         help="Leverage the repetition pattern of the transformer models to save runtime cost",
     )
+    parser.add_argument(
+        "--reserved-memory-gb",
+        default=0,
+        help="Size of reserved device memory (in GB) that we cannot use from applications.",
+    )
+    # ========== ParallelConfig Parameters ==========
+    parser.add_argument(
+        "--world-size",
+        type=int,
+        default=1,
+        help="The total number of processes",
+    )
+    parser.add_argument(
+        "--tp-size",
+        type=int,
+        default=1,
+        help="The tp size for the whole model",
+    )
+    parser.add_argument(
+        "--dp-size",
+        type=int,
+        default=None,
+        help="The dp size for the whole model",
+    )
+    parser.add_argument(
+        "--mlp-tp-size",
+        type=int,
+        default=None,
+        help="The tp size fo mlp layer, can override tp-size for mlp layer",
+    )
+    parser.add_argument(
+        "--mlp-dp-size",
+        type=int,
+        default=None,
+        help="The dp size fo mlp layer, can override dp-size for mlp layer",
+    )
+    parser.add_argument(
+        "--lmhead-tp-size",
+        type=int,
+        default=None,
+        help="The tp size fo lm head, can override tp-size for lm head",
+    )
+    parser.add_argument(
+        "--lmhead-dp-size",
+        type=int,
+        default=None,
+        help="The dp size fo lm head, can override dp-size for lm head",
+    )
+    parser.add_argument(
+        "--ep",
+        action="store_true",
+        help="Whether or not to implement expert parallel",
+    )
 
     args = parser.parse_args()
 
@@ -408,7 +514,6 @@ def main():
         num_queries=args.num_queries,
         input_length=args.input_length,
         context_length=args.context_length,
-        max_context_length=args.max_context_length,
         do_compile=args.compile,
         allow_graph_break=args.compile_allow_graph_break,
         dump_input_shapes=args.dump_input_shapes,
@@ -418,6 +523,15 @@ def main():
         num_hidden_layers_override=args.num_hidden_layers_override,
         is_decode=args.decode,
         enable_repetition=args.enable_repetition,
+        reserved_memory_gb=args.reserved_memory_gb,
+        world_size=args.world_size,
+        tp_size=args.tp_size,
+        dp_size=args.dp_size,
+        mlp_tp_size=args.mlp_tp_size,
+        mlp_dp_size=args.mlp_dp_size,
+        lmhead_tp_size=args.lmhead_tp_size,
+        lmhead_dp_size=args.lmhead_dp_size,
+        ep=args.ep,
     )
 
 
