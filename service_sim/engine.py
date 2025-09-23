@@ -81,6 +81,8 @@ class BatchScheduler(stime.Task):
 
             # kv cache allocation success, schedule the request
             token_budget -= num_computed_tokens
+            request.query_len = num_computed_tokens
+            request.seq_len += num_computed_tokens
             request.num_current_max_new_tokens -= num_computed_tokens
             req_index += 1
 
@@ -103,11 +105,12 @@ class BatchScheduler(stime.Task):
                 if new_blocks is None:
                     logger.debug("BatchScheduler._schedule: Schedule request %s failed, due to lack of KV cache. " \
                         "KV manager status: %s", request, self.kv_manager.stats())
-                    self.kv_manager.free(request.id)
                     break
 
                 # kv cache allocation success, schedule the request
                 token_budget -= num_computed_tokens
+                request.query_len = num_computed_tokens
+                request.seq_len += num_computed_tokens
                 request.num_current_max_new_tokens -= num_computed_tokens
                 self.waiting_queue.remove(request)
                 self.running_queue.append(request)
@@ -137,11 +140,13 @@ class BatchScheduler(stime.Task):
         change its num_current_max_new_tokens, free its kvcache
         """
         self.running_queue.remove(request)
-        self.waiting_queue.append(request)
-        request._state = RequestState.PREFILLING
-        request.num_current_max_new_tokens = request.num_input_tokens
-        request.num_decoded_tokens = 0
+        self.waiting_queue = [request] + self.waiting_queue
+        request.state = RequestState.RECOMPUTATION
+        request.num_current_max_new_tokens = request.num_input_tokens + request.num_decoded_tokens
+        request.seq_len = 0
+        request.query_len = 0
         self.kv_manager.free(request.id)
+        logger.debug("Request %d is done preempting", request.id)
 
     def _scheduling_loop(self):
         """
@@ -170,9 +175,9 @@ class BatchScheduler(stime.Task):
         idx = 0
         while idx < len(self.running_queue):
             request = self.running_queue[idx]
-            if request.state != RequestState.PREFILLING and request.state != RequestState.DECODING:
-                raise ValueError("In _postprocess_batch, request.state should be PREFILLING or DECODING," \
-                    " but get %s" % request.state)
+            if request.state not in [RequestState.PREFILLING, RequestState.DECODING, RequestState.RECOMPUTATION]:
+                raise ValueError("In _postprocess_batch, request.state should be PREFILLING, DECODING or " \
+                    "RECOMPUTATION, but get %s" % request.state)
             if request.num_current_max_new_tokens == 0:
                 # totally finish one step of prefilling or decoding
                 request.num_decoded_tokens += 1
@@ -195,6 +200,9 @@ class BatchScheduler(stime.Task):
                         self.requests.pop(request.id)
                         continue
                     request.state = RequestState.DECODING
+                elif request.state == RequestState.RECOMPUTATION:
+                    request.state = RequestState.DECODING
+
             else:
                 # case when prefill are chunked, nothing need to do right now
                 logger.debug("requset %d are chunked, num of tokens need to compute left %d", request.id, \
@@ -209,18 +217,18 @@ class Engine:
 
     def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
         self.model_runner = ModelRunner(devices, dp_rank, model_config)
-        self.kv_manager = self.create_kv_manager(model_config)
+        self.kv_manager = self.create_kv_manager(model_config, devices)
         self.batch_scheduler = BatchScheduler(self.model_runner, self.kv_manager)
 
     @staticmethod
-    def create_kv_manager(model_config):
+    def create_kv_manager(model_config, devices):
         head_dim = model_config.kwargs.get("head_dim")
         num_heads = model_config.kwargs.get("num_heads")
         precision_bytes = model_config.kwargs.get("precision_bytes")
         num_layers = model_config.kwargs.get("num_layers")
         if None in [head_dim, num_heads, precision_bytes, num_layers]:
             raise ValueError("head_dim, num_heads, precision_bytes and num_layers must be set")
-        kv_cache_per_layer = MEM_LEFT_FOR_KV_CACHE // num_layers
+        kv_cache_per_layer = MEM_LEFT_FOR_KV_CACHE * len(devices) // num_layers
         block_nums = kv_cache_per_layer // (2 * head_dim * num_heads * precision_bytes)
         kv_manager = KVCacheManager(block_nums)
         return kv_manager

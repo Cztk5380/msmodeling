@@ -36,10 +36,19 @@ class ModelRunner:
     def process_batch(self, batch: List[Request]):
         duration = self._get_estimate_time(batch)
         with stime.Duration(duration):
-            logger.debug(f"{self.model_config.model_name} process batch, batch length: {len(batch)}")
+            logger.debug(f"{self.model_config.model_name} process batch, batch length: {len(batch)}, " \
+                f"consume {duration} seconds")
 
     def _get_estimate_time(self, batch: List[Request]):
+        # TOBEDONE: fit tensorcast module
         if self.model_config.kwargs.get("duration") is not None:
             return self.model_config.kwargs.get("duration")
+        elif self.model_config.kwargs.get("unit_time") is not None:
+            unit_time = self.model_config.kwargs.get("unit_time")
+            a = 0.5
+            b = 1 - a
+            estimate_time = (a * sum(req.query_len for req in batch) + \
+                b * sum(req.query_len * req.seq_len for req in batch)) * unit_time
+            return estimate_time
         else:
             raise NotImplementedError("get_estimate_time func is not implemented")

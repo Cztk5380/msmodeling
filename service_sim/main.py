@@ -1,0 +1,146 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+import argparse
+import json
+import sys
+from typing import List, Dict, Any
+
+from service_sim.config import Config
+import stime
+from service_sim.utils import dataclass2dict
+from service_sim.instance import Instance
+from service_sim.serving import PdDisaggregationServing, PdAggregationServing
+from service_sim.utils import main_processing, summarize
+from service_sim.load_gen import FixedLengthLoadGen
+from service_sim.device import DummyDeviceConfig, MachineConfig
+from service_sim.model_runner import ModelConfig
+
+
+def parse_command_line_args():
+    """
+    Parse command line arguments for the simulation.
+    
+    Expected usage:
+    python main.py --instance_config=xx.json,yy.json --common_config=zz.json
+    """
+    import os
+    parser = argparse.ArgumentParser(description='Simulation service')
+    
+    def validate_file_path(path):
+        """Validate that a file path exists"""
+        if not os.path.exists(path):
+            raise ValueError(f"File does not exist: {path}")
+        return path
+    
+    parser.add_argument(
+        '--instance_config_path',
+        type=validate_file_path,
+        required=True,
+        help='Path to a YAML file that declares one or more instance groups. '
+            'Each group defines a homogeneous pool of nodes (role, count, TP/DP parallelism) '
+            'and can be mixed-and-matched in a single benchmark run.'
+    )
+    
+    parser.add_argument(
+        '--common_config_path',
+        type=validate_file_path,
+        required=True,
+        help='Path to a YAML file with global settings: model architecture, '
+            'request-generation workload, and serving limits.'
+    )
+    
+    args = parser.parse_args()
+    
+    return args
+
+
+def instance_group2pd_type(instance_group):
+    is_pd_aggregation = len(instance_group["both"]) > 0 and \
+        len(instance_group["prefill"]) == 0 and len(instance_group["decode"]) == 0
+    is_pd_disaggregation = len(instance_group["both"]) == 0 and \
+        len(instance_group["prefill"]) > 0 and len(instance_group["decode"]) > 0
+
+    if is_pd_aggregation and not is_pd_disaggregation:
+        return "pd_aggregation"
+    elif not is_pd_aggregation and is_pd_disaggregation:
+        return "pd_disaggregation"
+    else:
+        return None
+
+
+def get_instance_group(instance_config_list, common_config):
+    instance_group = {"prefill": [], "decode": [], "both": []}
+
+    model_config = dataclass2dict(common_config.model_config)
+    for instance_config in instance_config_list:
+        parallel_config = dataclass2dict(instance_config.parallel_config)
+        for _ in range(instance_config.num_instances):
+            instance = \
+                Instance(
+                    MachineConfig(DummyDeviceConfig(), instance_config.num_devices_per_instance),
+                    ModelConfig(**model_config, **parallel_config)
+                )
+            if instance_config.pd_role not in instance_group:
+                raise ValueError(f"{instance_config.pd_role} is not supported")
+            else:
+                instance_group[instance_config.pd_role].append(instance)
+
+    pd_type = instance_group2pd_type(instance_group)
+    if pd_type in ["pd_aggregation", "pd_disaggregation"]:
+        return instance_group
+    else:
+        raise ValueError(f"check instance's pd_role")
+
+
+def get_serving(instance_group):
+    pd_type = instance_group2pd_type(instance_group)
+    if pd_type == "pd_aggregation":
+        serving = PdAggregationServing(instance_group["both"])
+    elif pd_type == "pd_disaggregation":
+        serving = PdDisaggregationServing(instance_group["prefill"], instance_group["decode"])
+    else:
+        raise ValueError(f"Unknown pd type: {pd_type}")
+    
+    return serving
+
+
+def get_load_gen(load_gen_config):
+    if load_gen_config.load_gen_type == "fixed_length":
+        load_gen = FixedLengthLoadGen(
+            model_name=None,
+            num_requests=load_gen_config.num_requests,
+            num_input_tokens=load_gen_config.num_input_tokens,
+            num_output_tokens=load_gen_config.num_output_tokens,
+            request_rate=load_gen_config.request_rate,
+        )
+        return load_gen
+    else:
+        raise ValueError(f"Unknown load generator type: {load_gen_config.type}")
+
+
+def main():
+    args = parse_command_line_args()
+    
+    config = Config(parsed_args=args)
+
+    stime.init_simulation()
+
+    instance_group = get_instance_group(config.instance_config_list, config.common_config)
+    load_gen = get_load_gen(config.common_config.load_gen)
+    serving = get_serving(instance_group)
+
+    main_task = stime.CallableTask(main_processing, serving, load_gen)
+    stime.start_simulation()
+
+    summarize(load_gen.get_finished_requests().values())
+
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+
+
+
