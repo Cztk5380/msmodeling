@@ -38,4 +38,4 @@ def _unpermute_tokens(
     Returns:
         unpermuted_x: (bsz, seq_len, top_k, hidden_size)
     """
-    return torch.empty_like(x).reshape(topk_indices.shape + (x.shape[-1],))
+    return torch.empty_like(x).view(*topk_indices.shape, x.shape[-1])

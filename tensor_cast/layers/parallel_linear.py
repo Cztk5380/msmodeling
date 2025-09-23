@@ -62,8 +62,7 @@ class RowParallelLinear(ParallelLinearBase):
         self,
         linear_layer: torch.nn.Linear,
         tp_group: ParallelGroup,
-        dp_group: ParallelGroup,
-        global_dp_group: ParallelGroup,
+        global_tp_group: ParallelGroup,
         slice_input_by_last_dim: bool = False,
         reduce_output: bool = True,
     ):
@@ -74,10 +73,10 @@ class RowParallelLinear(ParallelLinearBase):
         self.in_features_per_partition = math.ceil(self.in_features / self.tp_size)
         self.out_features_per_partition = self.out_features
         self.create_weights()
-        self.dp_group = dp_group
-        self.global_dp_group = global_dp_group
-        self.gather_slice_output = (
-            self.global_dp_group.world_size != self.dp_group.world_size
+        self.tp_group = tp_group
+        self.global_tp_group = global_tp_group
+        self.gather_slice_data = (
+            self.global_tp_group.world_size != self.tp_group.world_size
         )
         self.slice_input_by_last_dim = slice_input_by_last_dim
         self.reduce_output = reduce_output
@@ -93,16 +92,24 @@ class RowParallelLinear(ParallelLinearBase):
                 self._inner.bias = None
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.gather_slice_data:
+            origin_shape = x.shape
+            x = x.view(-1, *origin_shape[2:])
+            x = self.global_tp_group.slice(x, dim=0)
+            x = self.tp_group.all_gather(x, dim=0)
+
         if self.slice_input_by_last_dim:
-            x = get_partial_sharded(x, self.tp_size, self.tp_rank, dim=-1).contiguous()
+            x = get_partial_sharded(x, self.tp_size, self.tp_rank, dim=-1)
 
         output = self._inner(x)
         if self.reduce_output:
             output = self.tp_group.all_reduce(output)
 
-        if self.gather_slice_output:
-            output = self.dp_group.all_gather(output, dim=0)
-            output = self.global_dp_group.slice(output, dim=0).contiguous()
+        if self.gather_slice_data:
+            output = self.tp_group.slice(output, dim=0)
+            output = self.global_tp_group.all_gather(output, dim=0)
+            output = output.view(*origin_shape[:2], *output.shape[1:])
+
         return output
 
 
@@ -111,8 +118,7 @@ class ColumnParallelLinear(ParallelLinearBase):
         self,
         linear_layer: torch.nn.Linear,
         tp_group: ParallelGroup,
-        dp_group: ParallelGroup,
-        global_dp_group: ParallelGroup,
+        global_tp_group: ParallelGroup,
         gather_output: bool = False,
     ):
         super().__init__(linear_layer)
@@ -122,10 +128,10 @@ class ColumnParallelLinear(ParallelLinearBase):
         self.in_features_per_partition = self.in_features
         self.out_features_per_partition = math.ceil(self.out_features / self.tp_size)
         self.create_weights()
-        self.dp_group = dp_group
-        self.global_dp_group = global_dp_group
-        self.gather_slice_input = (
-            self.global_dp_group.world_size != self.dp_group.world_size
+        self.tp_group = tp_group
+        self.global_tp_group = global_tp_group
+        self.gather_slice_data = (
+            self.global_tp_group.world_size != self.tp_group.world_size
         )
         self.gather_output = gather_output
 
@@ -141,14 +147,21 @@ class ColumnParallelLinear(ParallelLinearBase):
             self._inner.bias = nn.Parameter(shard_bias.contiguous())
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        if self.gather_slice_input:
-            x = self.global_dp_group.all_gather(x, dim=0)
-            x = self.dp_group.slice(x, dim=0).contiguous()
+        if self.gather_slice_data:
+            origin_shape = x.shape
+            x = x.view(-1, *origin_shape[2:])
+            x = self.global_tp_group.slice(x, dim=0)
+            x = self.tp_group.all_gather(x, dim=0)
 
         output = self._inner(x)
         if self.gather_output:
             output = self.tp_group.all_gather(output)
-            output = output[..., : self.out_features].contiguous()
+            output = output[..., : self.out_features]
+
+        if self.gather_slice_data:
+            output = self.tp_group.slice(output, dim=0)
+            output = self.global_tp_group.all_gather(output, dim=0)
+            output = output.view(*origin_shape[:2], *output.shape[1:])
 
         return output
 

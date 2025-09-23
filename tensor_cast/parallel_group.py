@@ -18,6 +18,7 @@ class ParallelGroup:
         rank: int,
         local_rank: int,
         rank_groups: list[list[int]],
+        global_world_size: int,
     ):
         """
         Initialize an instance of class ParallelGroup.
@@ -33,6 +34,8 @@ class ParallelGroup:
                 For instance, when tp_size is 2 and world_size is 8, the input rank_groups would be
                 [[0, 1], [2, 3], [4, 5], [6, 7]] —— these represents all the tp_groups. If the given global rank is 5,
                 the corresponding group we need is [4, 5], which means the attribute `ranks` will be set to [4, 5].
+            global_world_size:
+                The world size of the whole process group.
         """
         self.rank = rank
         self.local_rank = local_rank
@@ -44,6 +47,7 @@ class ParallelGroup:
                 self.rank_in_group = self.rank_group.index(self.rank)
                 break
         self.world_size = len(self.rank_group)
+        self.global_world_size = global_world_size
 
     def all_reduce(self, input_: torch.Tensor) -> torch.Tensor:
         if self.world_size == 1:
@@ -87,7 +91,7 @@ class ParallelGroup:
         return torch.narrow(input_, dim=dim, start=start_pos, length=split_size)
 
 
-_DEFAULT_PG = ParallelGroup(0, 0, [[0]])
+_DEFAULT_PG = ParallelGroup(0, 0, [[0]], 1)
 
 
 class ParallelGroupManager:
@@ -136,6 +140,7 @@ class ParallelGroupManager:
                 rank=rank,
                 local_rank=local_rank,
                 rank_groups=[x.tolist() for x in rank_groups],
+                global_world_size=world_size,
             )
             return _ParallelGroup
 

@@ -76,11 +76,7 @@ class ParallelLinearTestCase(unittest.TestCase):
         model = TransformerModel(model_id, model_config)
 
         num_tokens = 100
-        output_batch_size = (
-            self.input_batch_size
-            * parallel_config.data_parallel_size
-            // parallel_config.lmhead_data_parallel_size
-        )
+        output_batch_size = self.input_batch_size
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
@@ -131,11 +127,7 @@ class ParallelLinearTestCase(unittest.TestCase):
         qmodel = TransformerModel(model_id, model_config_with_quant)
 
         num_tokens = 100
-        output_batch_size = (
-            self.input_batch_size
-            * parallel_config.data_parallel_size
-            // parallel_config.lmhead_data_parallel_size
-        )
+        output_batch_size = self.input_batch_size
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():

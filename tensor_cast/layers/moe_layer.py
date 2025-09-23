@@ -87,12 +87,12 @@ class MoELayer(torch.nn.Module):
             topk_weights = topk_weights.to(hidden_states.dtype)
         else:
             topk_indices, topk_weights = self.gate(hidden_states)
-            topk_indices = topk_indices.reshape(
-                hidden_states.shape[:-1] + (topk_indices.shape[-1],)
-            ).contiguous()
-            topk_weights = topk_weights.reshape(
-                hidden_states.shape[:-1] + (topk_weights.shape[-1],)
-            ).contiguous()
+            topk_indices = topk_indices.view(
+                *hidden_states.shape[:-1], topk_indices.shape[-1]
+            )
+            topk_weights = topk_weights.view(
+                *hidden_states.shape[:-1], topk_weights.shape[-1]
+            )
 
         hidden_states = self.fused_moe(hidden_states, topk_indices, topk_weights)
         return hidden_states
@@ -108,6 +108,7 @@ class ParallelMoELayer(ModelWrapperBase):
         self,
         module: MoELayer,
         global_dp_group: ParallelGroup,
+        global_tp_group: ParallelGroup,
         ep_group: ParallelGroup,
     ):
         super().__init__(module)
@@ -119,23 +120,33 @@ class ParallelMoELayer(ModelWrapperBase):
             ep_group,
         )
         self.global_dp_group = global_dp_group
+        self.global_tp_group = global_tp_group
         self.ep_group = ep_group
         self.transform_dp_group = (
             self.global_dp_group.world_size != self.ep_group.world_size
         )
+        if (
+            self.transform_dp_group
+            and self.ep_group.world_size != self.ep_group.global_world_size
+        ):
+            raise ValueError(
+                f"The scenario where expert_parallel_size {self.ep_group.world_size}"
+                f"!= world_size {self.ep_group.global_world_size} is not supported."
+            )
 
     def forward(self, hidden_states: torch.Tensor):
         if self.transform_dp_group:
-            hidden_states = self.global_dp_group.all_gather(hidden_states, dim=0)
-            hidden_states = self.ep_group.slice(hidden_states, dim=0).contiguous()
+            origin_shape = hidden_states.shape
+            hidden_states = hidden_states.view(-1, *origin_shape[2:])
+            hidden_states = self.global_tp_group.slice(hidden_states, dim=0)
 
         hidden_states = self._inner(hidden_states)
 
         if self.transform_dp_group:
-            hidden_states = self.ep_group.all_gather(hidden_states, dim=0)
-            hidden_states = self.global_dp_group.slice(
-                hidden_states, dim=0
-            ).contiguous()
+            hidden_states = self.global_tp_group.all_gather(hidden_states, dim=0)
+            hidden_states = hidden_states.view(
+                *origin_shape[:2], *hidden_states.shape[1:]
+            )
 
         return hidden_states
 
@@ -216,7 +227,7 @@ class FusedMoETensorCast(FusedMoEBase):
         rearranged_x = []
         for i in range(self.local_num_experts):
             cur_expert_tokens = [x[rank][i] for rank in range(self.ep_group.world_size)]
-            rearranged_x.append(torch.cat(cur_expert_tokens, dim=0).contiguous())
+            rearranged_x.append(torch.cat(cur_expert_tokens, dim=0))
         return rearranged_x
 
     def rearrange_token_by_device(
@@ -233,7 +244,7 @@ class FusedMoETensorCast(FusedMoEBase):
         for rank in range(self.ep_group.world_size):
             for i in range(self.local_num_experts):
                 rearranged_x.append(x[i][rank])
-        return torch.cat(rearranged_x, dim=0).contiguous()
+        return torch.cat(rearranged_x, dim=0)
 
     def dispatch_tokens(
         self,

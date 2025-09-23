@@ -432,11 +432,8 @@ class TransformerModel(ModelWrapperBase):
 
     def get_shard_plan(self):
         tp_group = self.parallel_group_manager.tp_group
-        dp_group = self.parallel_group_manager.dp_group
         mlp_tp_group = self.parallel_group_manager.mlp_tp_group
-        mlp_dp_group = self.parallel_group_manager.mlp_dp_group
         lmhead_tp_group = self.parallel_group_manager.lmhead_tp_group
-        lmhead_dp_group = self.parallel_group_manager.lmhead_dp_group
 
         def get_tp_plan():
             # TODO:
@@ -446,8 +443,7 @@ class TransformerModel(ModelWrapperBase):
 
             groups = {
                 "tp_group": tp_group,
-                "dp_group": dp_group,
-                "global_dp_group": dp_group,
+                "global_tp_group": tp_group,
             }
             tp_plan.update(
                 {
@@ -460,8 +456,7 @@ class TransformerModel(ModelWrapperBase):
 
             groups = {
                 "tp_group": mlp_tp_group,
-                "dp_group": mlp_dp_group,
-                "global_dp_group": dp_group,
+                "global_tp_group": tp_group,
             }
             tp_plan.update(
                 {
@@ -473,8 +468,7 @@ class TransformerModel(ModelWrapperBase):
 
             groups = {
                 "tp_group": lmhead_tp_group,
-                "dp_group": lmhead_dp_group,
-                "global_dp_group": dp_group,
+                "global_tp_group": tp_group,
             }
             params = {"gather_output": True}
             tp_plan.update({"lm_head": (COLWISE_LINEAR, {**groups, **params})})
@@ -511,10 +505,13 @@ class TransformerModel(ModelWrapperBase):
             return
 
         dp_group = self.parallel_group_manager.dp_group
+        tp_group = self.parallel_group_manager.tp_group
         ep_group = self.parallel_group_manager.ep_group
         for name, module in self._inner.named_modules():
             if isinstance(module, MoELayer):
-                self._replace_module(name, ParallelMoELayer(module, dp_group, ep_group))
+                self._replace_module(
+                    name, ParallelMoELayer(module, dp_group, tp_group, ep_group)
+                )
 
     def shard_model(self):
         self.parallel_group_manager = ParallelGroupManager(

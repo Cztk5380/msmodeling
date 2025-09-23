@@ -14,7 +14,7 @@ def _all_to_all(
     rank_group: List[int],
 ) -> torch.Tensor:
     output_num = sum(output_split_sizes)
-    return torch.empty((output_num,) + x.shape[1:], dtype=x.dtype, device=x.device)
+    return torch.empty((output_num, *x.shape[1:]), dtype=x.dtype, device=x.device)
 
 
 @register_tensor_cast_op("all_reduce")
