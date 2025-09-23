@@ -7,6 +7,7 @@ from typing import Dict, List
 import stime
 from service_sim.instance import Instance, InstanceLoadBalancer
 from service_sim.request import Request, RequestState
+from service_sim.config import Config
 
 
 logger = stime.get_logger(__name__)
@@ -21,12 +22,28 @@ class Serving(ABC):
     Serving is responsible for picking the right server instances to dispatch to according
     to a pre-defined policy.
     """
+    def __init__(self):
+        self.max_concurrency = Config.get_instance().common_config.serving_config.max_concurrency
+
     @abstractmethod
     def serve(self, args, **kwargs) -> None:
         """
         Serves a request.
         """
         raise NotImplementedError
+
+    @abstractmethod
+    def get_work_load(self) -> int:
+        """
+        Returns the number of requests currently being served.
+        """
+        raise NotImplementedError
+
+    def exceed_concurrency_limit(self) -> bool:
+        """
+        check whether the concurrency limit is exceeded
+        """
+        return self.get_work_load() >= self.max_concurrency
 
     def _before_serve(self, request: Request):
         """
@@ -75,6 +92,12 @@ class PdDisaggregationServing(Serving):
         prefill_instance = self.prefill_balancer.select(request)
         prefill_instance.handle(request)
 
+    def get_work_load(self):
+        work_load = sum(instance.get_work_load() for instance in self.prefill_instances) + \
+            sum(instance.get_work_load() for instance in self.decode_instances)
+
+        return work_load
+
     def _continue_serve_callback(self, request: Request):
         """Continue serving"""
         logger.debug("Continue serving %s", request)
@@ -113,3 +136,6 @@ class PdAggregationServing(Serving):
         prefill_decode_instance = self.prefill_decode_balancer.select(request)
         prefill_decode_instance.handle(request)
 
+    def get_work_load(self):
+        """Get the work load of the instance group"""
+        return sum(instance.get_work_load() for instance in self.prefill_decode_instances)

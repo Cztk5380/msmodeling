@@ -13,6 +13,7 @@ class RequestState(Enum):
     ARRIVES_SERVER = auto()  # The request arrives at the server side and ready to be served
     PREFILLING = auto()      # The prefill stage is in progress
     PREFILL_DONE = auto()    # Prefill completed
+    RECOMPUTATION = auto()   # The request be preempted due to insufficiency of kv cache
     KVS_TRANSFERRING = auto() # The request's kv cache is trasnferring from prefill node to decode node
     DECODING = auto()        # The decode stage is in progress
     DECODE_DONE = auto()     # Decode completed
@@ -52,7 +53,10 @@ class Request:
         self.prefill_done_signal = signal(f"prefill_done_{self.id}")
         self.decode_done_signal = signal(f"decode_done_{self.id}")
         self.num_decoded_tokens: int = 0
+        # max num of tokens that need to computed in current loop of schedule  
         self.num_current_max_new_tokens = self.num_input_tokens
+        self.seq_len = 0
+        self.query_len = 0
 
         # The following fields are metrics
         self.leaves_client_time = 0

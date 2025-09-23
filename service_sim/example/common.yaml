@@ -1,0 +1,17 @@
+model_config:
+  name: llama-7b
+  head_dim: 64
+  num_heads: 64
+  precision_bytes: 2
+  num_layers: 8
+  duration: 0.3
+
+load_gen:
+  load_gen_type: fixed_length
+  num_requests: 100
+  num_input_tokens: 1500
+  num_output_tokens: 3500
+  request_rate: 2.0
+
+serving_config:
+  max_concurrency: 100

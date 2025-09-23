@@ -1,0 +1,15 @@
+instance_groups:
+  - num_instances: 2            # first group of instances
+    num_devices_per_instance: 4
+    pd_role: both
+    parallel_config:
+      tp_size: 4
+      num_dp_partitions: 1
+
+  - num_instances: 4            # second group of instances
+    num_devices_per_instance: 2
+    pd_role: both
+    parallel_config:
+      tp_size: 2
+      num_dp_partitions: 2
+   

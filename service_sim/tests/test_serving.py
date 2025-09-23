@@ -1,5 +1,6 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
+from unittest.mock import patch, Mock
 from service_sim.device import DummyDeviceConfig, MachineConfig
 
 from service_sim.instance import Instance
@@ -9,13 +10,18 @@ from service_sim.request import Request
 from service_sim.serving import PdDisaggregationServing, PdAggregationServing
 import stime
 from service_sim.utils import main_processing
+from service_sim.config import Config
 
 
 class ServingTestCase(unittest.TestCase):
     def setUp(self):
         stime.init_simulation()
+        self.mock_cfg = Mock()
+        self.mock_cfg.common_config.serving_config.max_concurrency = 100
 
-    def test_pd_disaggregation_dummy_model(self):
+    @patch.object(Config, 'get_instance')
+    def test_pd_disaggregation_dummy_model(self, mock_get):
+        mock_get.return_value = self.mock_cfg
         dummy_duration = 0.3
         num_prefill_instances = 8
         num_decode_instances = 8
@@ -56,7 +62,9 @@ class ServingTestCase(unittest.TestCase):
             self.assertGreater(request.time_per_output_token(), dummy_duration - 0.1)
             self.assertLess(request.time_per_output_token(), dummy_duration + 0.1)
 
-    def test_pd_aggregation_dummy_model(self):
+    @patch.object(Config, 'get_instance')
+    def test_pd_aggregation_dummy_model(self, mock_get):
+        mock_get.return_value = self.mock_cfg
         dummy_duration = 0.3
         num_prefill_decode_instances = 8
         prefill_decode_instances = []
@@ -94,7 +102,9 @@ class ServingTestCase(unittest.TestCase):
             self.assertAlmostEqual(request.time_to_first_token(), dummy_duration)
             self.assertAlmostEqual(request.time_per_output_token(), dummy_duration)
 
-    def test_pd_aggregation_dummy_model_single_scheduler(self):
+    @patch.object(Config, 'get_instance')
+    def test_pd_aggregation_dummy_model_single_scheduler(self, mock_get):
+        mock_get.return_value = self.mock_cfg
         dummy_duration = 0.3
         num_prefill_decode_instances = 1
         prefill_decode_instances = []
@@ -131,7 +141,9 @@ class ServingTestCase(unittest.TestCase):
             self.assertEqual(request.num_decoded_tokens, num_output_tokens)
             self.assertAlmostEqual(request.time_per_output_token(), dummy_duration)
 
-    def test_pd_aggregation_dummy_model_single_scheduler_trigger_preempt(self):
+    @patch.object(Config, 'get_instance')
+    def test_pd_aggregation_dummy_model_single_scheduler_trigger_preempt(self, mock_get):
+        mock_get.return_value = self.mock_cfg
         dummy_duration = 0.3
         num_prefill_decode_instances = 1
         prefill_decode_instances = []
