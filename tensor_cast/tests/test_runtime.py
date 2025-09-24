@@ -248,7 +248,8 @@ class PerfAnalysisTestCase(unittest.TestCase):
         self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
         for key, breakdown in breakdowns.items():
             if key.endswith("OpBound"):
-                self.assertGreater(breakdown["compute_bound"], 0)
+                self.assertGreater(breakdown["compute_bound_mma"], 0)
+                self.assertEqual(breakdown["compute_bound_gp"], 0)
                 self.assertEqual(breakdown["memory_bound"], 0)
                 self.assertEqual(breakdown["communication_bound"], 0)
 
@@ -270,7 +271,8 @@ class PerfAnalysisTestCase(unittest.TestCase):
         self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
         for key, breakdown in breakdowns.items():
             if key.endswith("OpBound"):
-                self.assertEqual(breakdown["compute_bound"], 0)
+                self.assertEqual(breakdown["compute_bound_mma"], 0)
+                self.assertEqual(breakdown["compute_bound_gp"], 0)
                 self.assertGreater(breakdown["memory_bound"], 0)
                 self.assertEqual(breakdown["communication_bound"], 0)
 
@@ -291,6 +293,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
         for key, breakdown in breakdowns.items():
             if key.endswith("OpBound"):
-                self.assertEqual(breakdown["compute_bound"], 0)
+                self.assertEqual(breakdown["compute_bound_mma"], 0)
+                self.assertEqual(breakdown["compute_bound_gp"], 0)
                 self.assertEqual(breakdown["memory_bound"], 0)
                 self.assertGreater(breakdown["communication_bound"], 0)

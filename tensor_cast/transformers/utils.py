@@ -29,6 +29,14 @@ _model_id_to_moe_config: Dict[str, MoEConfig] = {
         module_name="Qwen3MoeSparseMoeBlock",
         gate_returns_raw_logits=True,
     ),
+    "Qwen/Qwen3-30B-A3B": MoEConfig(
+        module_name="Qwen3MoeSparseMoeBlock",
+        gate_returns_raw_logits=True,
+    ),
+    "Qwen/Qwen3-Coder-480B-A35B-Instruct": MoEConfig(
+        module_name="Qwen3MoeSparseMoeBlock",
+        gate_returns_raw_logits=True,
+    ),
     "Qwen/Qwen3-Next-80B-A3B-Instruct": MoEConfig(
         module_name="Qwen3NextSparseMoeBlock",
         gate_returns_raw_logits=True,
@@ -86,6 +94,11 @@ _model_id_to_repetition_config: Dict[str, RepetitiveLayerConfig] = {
         repetitive_ranges=[
             RepetitiveRange(0, 1, 1),  # Dense
             RepetitiveRange(1, 2, -1),  # Sparse
+        ],
+    ),
+    "Qwen/Qwen3-Next-80B-A3B-Instruct": RepetitiveLayerConfig(
+        repetitive_ranges=[
+            RepetitiveRange(0, 3, -1),  # SDPA vs. LA ratio 1:3
         ],
     ),
 }

@@ -1,21 +1,19 @@
 import argparse
 import logging
-import random
 import time
 from enum import StrEnum
 from typing import Optional
 
 import torch
 
-from . import config
+from . import config, device_profiles  # noqa: F401
 from .compilation import get_backend
 from .device import DeviceProfile
 
-from .layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
+from .layers.attention import AttentionTensorCast
 from .layers.mla import MultiheadLatentAttentionTensorCast
 from .layers.quant_linear import TensorCastQuantLinear
 
-from .layers.sampler import SamplingMetadata
 from .model_config import (
     LinearQuantConfig,
     LinearQuantType,
@@ -28,6 +26,8 @@ from .model_config import (
 from .performance_model.analytic import AnalyticPerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
 from .runtime import Runtime
+
+from .scripts.utils import generate_inputs
 from .transformers.model import TransformerModel
 from .transformers.utils import (
     default_repetition_config,
@@ -77,7 +77,7 @@ def run_inference(
     device: str,
     model_id: str,
     num_queries: int,
-    input_length: int,
+    query_len: int,
     context_length: int,
     do_compile: bool,
     allow_graph_break: bool,
@@ -118,13 +118,14 @@ def run_inference(
     batch_size = (
         num_queries + parallel_config.data_parallel_size - 1
     ) // parallel_config.data_parallel_size
+    seq_len = context_length + query_len  # Total sequence length for each query
 
     print("--- Configuration ---")
     print(f"Device: {device}")
     print(f"Model ID: {model_id}")
     print(f"Number of Queries: {num_queries}")
     print(f"Number of Queries per DP rank: {batch_size}")
-    print(f"Input Length (per query): {input_length}")
+    print(f"Input Length (per query): {query_len}")
     print(f"Context Length (per query): {context_length}")
     print(f"Decode: {is_decode}")
     print(f"Enable repetition: {enable_repetition}")
@@ -137,51 +138,6 @@ def run_inference(
     if chrome_trace:
         print(f"Chrome trace output file: {chrome_trace}")
     print("---------------------\n")
-
-    # Derived parameters
-    query_len = input_length
-    seq_len = context_length + query_len  # Total sequence length for each query
-    max_context_length = seq_len + num_mtp_layers + 1
-
-    # Paged attention parameters (can be adjusted)
-    block_size = 128
-    num_blocks = (
-        max_context_length * batch_size + block_size
-    ) // block_size  # Total number of blocks available in the KV cache
-
-    # Prepare Attention Metadata for Paged Attention
-    # `query_start_loc` indicates the start of each query in the concatenated input tensor.
-    # Shape: [num_queries + 1] -> e.g., [0, 50, 100, 150] for 3 queries of length 50.
-    query_start_loc = torch.arange(
-        0, (batch_size + 1) * query_len, query_len, dtype=torch.long
-    )
-
-    # `seq_lens` is the total length (context + new tokens) for each sequence in the batch.
-    seq_lens = torch.tensor([seq_len] * batch_size, dtype=torch.long)
-
-    # `block_tables` map logical sequence blocks to physical blocks in the KV cache.
-    max_num_blocks_per_seq = (seq_len + block_size - 1) // block_size
-
-    block_tables = []
-    for _ in range(batch_size):
-        # Assign random physical blocks to each sequence's logical blocks.
-        block_table = [
-            random.randint(0, num_blocks - 1) for _ in range(max_num_blocks_per_seq)
-        ]
-        block_tables.append(block_table)
-
-    block_table_tensor = torch.tensor(block_tables, dtype=torch.long)
-
-    slot_mapping = torch.empty(
-        (batch_size * query_len,), dtype=torch.long, device="meta"
-    )
-
-    attn_meta = AttentionMetadataTensorCast(
-        query_start_loc=query_start_loc,
-        seq_lens=seq_lens,
-        block_table_tensor=block_table_tensor,
-        slot_mapping=slot_mapping,
-    )
 
     # Initialize Model
     print("Initializing model on 'meta' device...")
@@ -235,54 +191,7 @@ def run_inference(
         print("   ...compilation complete.")
 
     print("Preparing dummy input tensors...")
-    # The total number of new tokens to be processed in this batch, concatenated.
-    num_tokens = batch_size * query_len
-    inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-    position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-    # Initialize the KV cache structure (also on 'meta' device).
-    kv_cache_by_layers = {}
-    for i in range(model.num_hidden_layers):
-        if mla_module_name is not None:
-            # Shape: [num_blocks, block_size, kv_lora_head_dim + qk_rope_head_dim]
-            kv_cache_by_layers[i] = torch.empty(
-                [
-                    num_blocks,
-                    block_size,
-                    model.text_config.kv_lora_rank + model.text_config.qk_rope_head_dim,
-                ],
-                dtype=model_config.dtype,
-                device="meta",
-            )
-        else:
-            # Shape: [2 (K/V), num_blocks, block_size, num_heads, head_dim]
-            assert (
-                model.text_config.num_key_value_heads
-                % parallel_config.tensor_parallel_size
-                == 0
-            )
-            kv_cache_by_layers[i] = torch.empty(
-                [
-                    2,
-                    num_blocks,
-                    block_size,
-                    model.text_config.num_key_value_heads
-                    // parallel_config.tensor_parallel_size,
-                    model.text_config.head_dim,
-                ],
-                dtype=model_config.dtype,
-                device="meta",
-            )
-    sampling_metadata = SamplingMetadata(
-        query_start_loc=attn_meta.query_start_loc,
-    )
-    if is_decode:
-        # do not prune logits
-        sampling_metadata.selected_token_indices = None
-    kwargs = {}
-    if model_id.startswith("Qwen/Qwen3-Next"):
-        kwargs["cache_position"] = torch.arange(
-            0, num_tokens, dtype=torch.long, device="cpu"
-        )
+    input_kwargs = generate_inputs(model, query_len, seq_len, num_queries)
     print("Running simulated inference...")
     run_start = time.perf_counter()
     with (
@@ -291,14 +200,7 @@ def run_inference(
         ) as runtime,
         torch.no_grad(),
     ):
-        _ = model.forward(
-            inputs,
-            position_ids,
-            attention_meta=attn_meta,
-            kv_cache_by_layers=kv_cache_by_layers,
-            sampling_metadata=sampling_metadata,
-            **kwargs,
-        )
+        _ = model.forward(**input_kwargs)
     run_end = time.perf_counter()
     print()
     print(f"Model compilation and execution time: {run_end - run_start}s")
@@ -311,7 +213,7 @@ def run_inference(
     total_kv_cache_size_gb = (
         sum(
             kv_cache.nelement() * kv_cache.element_size()
-            for kv_cache in kv_cache_by_layers.values()
+            for kv_cache in input_kwargs["kv_cache_by_layers"].values()
         )
         / 1024**3
     )
@@ -513,7 +415,7 @@ def main():
         device=args.device,
         model_id=args.model_id,
         num_queries=args.num_queries,
-        input_length=args.input_length,
+        query_len=args.input_length,
         context_length=args.context_length,
         do_compile=args.compile,
         allow_graph_break=args.compile_allow_graph_break,

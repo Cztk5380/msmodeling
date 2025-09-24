@@ -51,7 +51,7 @@ class OpInvokeInfo:
             run_once(
                 self.func,
                 logger.warning,
-                f"No performance estimator defined for {self.func}, "
+                f"No op properties function defined for {self.func}, "
                 f"assuming it is memory-bandwidth bound.",
             )
             return self.get_memory_access_properties()

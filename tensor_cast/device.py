@@ -128,10 +128,19 @@ class ATLAS_800:
         grid=torch.arange(128 * 8).reshape(128, 8),  # up to 1024 devices
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=50 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=25 * 1e9, latency_s=1.5 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(  # Full mesh
-                bandwidth_bytes_ps=196 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=196 * 1e9, latency_s=0.5 * 1e-6, comm_efficiency=0.7
+            ),
+        },
+    )
+
+    A2_INTERCONNECT_PCIE = CommGrid(
+        grid=torch.arange(8).reshape(8),
+        topologies={
+            0: InterconnectTopology(
+                bandwidth_bytes_ps=63 * 1e9, latency_s=0.2 * 1e-6, comm_efficiency=0.7
             ),
         },
     )
@@ -140,10 +149,10 @@ class ATLAS_800:
         grid=torch.arange(48 * 8 * 2).reshape(48, 8, 2),  # up to 768 devices (dies)
         topologies={
             0: InterconnectTopology(  # 2-level CLOS?
-                bandwidth_bytes_ps=196 * 1e9, latency_s=6.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=196 * 1e9, latency_s=5.5 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(  # Full mesh
-                bandwidth_bytes_ps=196 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=196 * 1e9, latency_s=0.5 * 1e-6, comm_efficiency=0.7
             ),
             2: InterconnectTopology(  # SIO
                 bandwidth_bytes_ps=224 * 1e9, latency_s=0.2 * 1e-6, comm_efficiency=0.7
@@ -195,6 +204,72 @@ class ATLAS_800:
         static_cost=STATIC_COST,
     )
 
+    A2_280T_64G = DeviceProfile(
+        name="ATLAS_800_A2_280T_64G",
+        mma_ops={
+            torch.float32: 75 * 1e12,
+            torch.bfloat16: 245.8 * 1e12,
+            torch.half: 280 * 1e12,
+            torch.int8: 280 * 2 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 11 / 2 * 1e12,
+            torch.bfloat16: 11 / 2 * 1e12,
+            torch.half: 11 * 1e12,
+        },
+        memory_size_bytes=64 * (1024**3),
+        memory_bandwidth_bytes_ps=1.6 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=A2_INTERCONNECT,
+        static_cost=STATIC_COST,
+    )
+
+    A2_280T_64G_PCIE = DeviceProfile(
+        name="ATLAS_800_A2_280T_64G_PCIE",
+        mma_ops={
+            torch.float32: 75 * 1e12,
+            torch.bfloat16: 245.8 * 1e12,
+            torch.half: 280 * 1e12,
+            torch.int8: 280 * 2 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 11 / 2 * 1e12,
+            torch.bfloat16: 11 / 2 * 1e12,
+            torch.half: 11 * 1e12,
+        },
+        memory_size_bytes=64 * (1024**3),
+        memory_bandwidth_bytes_ps=1.6 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=A2_INTERCONNECT_PCIE,
+        static_cost=STATIC_COST,
+    )
+
+    A2_280T_32G_PCIE = DeviceProfile(
+        name="ATLAS_800_A2_280T_32G_PCIE",
+        mma_ops={
+            torch.float32: 75 * 1e12,
+            torch.bfloat16: 245.8 * 1e12,
+            torch.half: 280 * 1e12,
+            torch.int8: 280 * 2 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 11 / 2 * 1e12,
+            torch.bfloat16: 11 / 2 * 1e12,
+            torch.half: 11 * 1e12,
+        },
+        memory_size_bytes=32 * (1024**3),
+        memory_bandwidth_bytes_ps=0.8 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=A2_INTERCONNECT_PCIE,
+        static_cost=STATIC_COST,
+    )
+
     A3_752T_128G_DIE = DeviceProfile(  # one die of A3
         name="ATLAS_800_A3_752T_128G_DIE",
         mma_ops={
@@ -217,7 +292,7 @@ class ATLAS_800:
         static_cost=STATIC_COST,
     )
 
-    A3_560T_128G = DeviceProfile(  # one die of A3
+    A3_560T_128G_DIE = DeviceProfile(  # one die of A3
         name="ATLAS_800_A3_560T_128G_DIE",
         mma_ops={
             torch.float32: 83 * 1e12,
@@ -298,7 +373,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=4.0 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_NVLINK_IB,
         static_cost=STATIC_COST,
     )
@@ -321,7 +396,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=4.0 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_NVLINK_IB,
         static_cost=STATIC_COST,
     )
@@ -344,7 +419,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=3.35 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_NVLINK_IB,
         static_cost=STATIC_COST,
     )
@@ -367,7 +442,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=4.8 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_NVLINK_IB,
         static_cost=STATIC_COST,
     )
@@ -390,7 +465,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=3.35 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_RESTRICTED_NVLINK_IB,
         static_cost=STATIC_COST,
     )
@@ -413,7 +488,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=0.864 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_PCIE_5,
         static_cost=STATIC_COST,
     )
@@ -436,7 +511,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=1.4 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_PCIE_5,
         static_cost=STATIC_COST,
     )
@@ -460,7 +535,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=1.792 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_PCIE_5,
         static_cost=STATIC_COST,
     )
@@ -482,7 +557,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=1.008 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_PCIE_5,
         static_cost=STATIC_COST,
     )
@@ -504,7 +579,7 @@ class NVIDIA:
         memory_bandwidth_bytes_ps=1.008 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
-        memory_efficiency=0.6,
+        memory_efficiency=0.75,
         comm_grid=INTERCONNECT_PCIE_5,
         static_cost=STATIC_COST,
     )

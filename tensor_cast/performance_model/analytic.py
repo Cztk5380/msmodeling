@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 
 class StatsKey(StrEnum):
     COMPUTE = "compute_time_s"
+    MMA_OPS = "mma_ops_time_s"
+    GP_OPS = "gp_ops_time_s"
     MEMORY_ACCESS = "memory_access_time_s"
     COMMUNICATION = "comm_time_s"
 
@@ -56,24 +58,32 @@ class OpBoundClassifier(PerformanceModel.OpClassifier):
     def classify(
         self, event_list: List[Tuple[OpInvokeInfo, "PerformanceModel.Result"]]
     ) -> Dict[str, float]:
-        COMPUTE_BOUND = "compute_bound"
+        COMPUTE_BOUND_MMA = "compute_bound_mma"
+        COMPUTE_BOUND_GP = "compute_bound_gp"
         MEMORY_BOUND = "memory_bound"
         COMM_BOUND = "communication_bound"
         breakdown: Dict[str, float] = {
-            COMPUTE_BOUND: 0,
             MEMORY_BOUND: 0,
             COMM_BOUND: 0,
+            COMPUTE_BOUND_MMA: 0,
+            COMPUTE_BOUND_GP: 0,
         }
         breakdown_keys = list(breakdown.keys())
         for _, result in event_list:
             time_list = [
-                result.statistics.get(StatsKey.COMPUTE, 0),
                 result.statistics.get(StatsKey.MEMORY_ACCESS, 0),
                 result.statistics.get(StatsKey.COMMUNICATION, 0),
+                result.statistics.get(StatsKey.COMPUTE, 0),
             ]
             max_value = max(time_list)
             max_index = time_list.index(max_value)
-            breakdown[breakdown_keys[max_index]] += max_value
+            if max_index < 2:
+                breakdown[breakdown_keys[max_index]] += max_value
+            else:
+                breakdown[COMPUTE_BOUND_MMA] += result.statistics.get(
+                    StatsKey.MMA_OPS, 0
+                )
+                breakdown[COMPUTE_BOUND_GP] += result.statistics.get(StatsKey.GP_OPS, 0)
         return breakdown
 
 
@@ -119,7 +129,8 @@ def _estimate_default_without_static_cost(
         return PerformanceModel.Result(0.0)
     perf_properties = op_invoke_info.get_perf_properties()
     # By default, we do not consider instruction-level parallelism when counting computation time
-    compute_time_s = 0
+    mma_ops_time_s = 0
+    gp_ops_time_s = 0
     for dtype in DeviceProfile.DTYPES:
         if dtype in perf_properties.compute_ops:
             compute_ops = perf_properties.compute_ops[dtype]
@@ -129,7 +140,7 @@ def _estimate_default_without_static_cost(
                         device_profile.mma_ops[dtype]
                         * device_profile.compute_efficiency
                     )
-                    compute_time_s += compute_ops.mma_ops / device_mma_ops
+                    mma_ops_time_s += compute_ops.mma_ops / device_mma_ops
                 else:
                     logger.warning(
                         "Ignoring mma compute ops of %s for %s since it is not supported on %s",
@@ -143,7 +154,7 @@ def _estimate_default_without_static_cost(
                     device_gp_ops = (
                         device_profile.gp_ops[dtype] * device_profile.compute_efficiency
                     )
-                    compute_time_s += compute_ops.gp_ops / device_gp_ops
+                    gp_ops_time_s += compute_ops.gp_ops / device_gp_ops
                 else:
                     logger.warning(
                         "Ignoring gp compute ops of %s for %s since it is not supported on %s",
@@ -151,6 +162,7 @@ def _estimate_default_without_static_cost(
                         op_invoke_info,
                         device_profile,
                     )
+    compute_time_s = mma_ops_time_s + gp_ops_time_s
     memory_bandwidth = (
         device_profile.memory_bandwidth_bytes_ps * device_profile.memory_efficiency
     )
@@ -169,6 +181,8 @@ def _estimate_default_without_static_cost(
             "memory_readwrite_time_s": memory_readwrite_time_s,
             StatsKey.MEMORY_ACCESS: memory_access_time_s,
             StatsKey.COMPUTE: compute_time_s,
+            StatsKey.MMA_OPS: mma_ops_time_s,
+            StatsKey.GP_OPS: gp_ops_time_s,
             "is_compute_bound": compute_time_s > memory_access_time_s,
         },
     )

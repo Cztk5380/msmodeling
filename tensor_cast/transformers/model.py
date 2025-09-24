@@ -600,6 +600,14 @@ class TransformerModel(ModelWrapperBase):
         return self.text_config.vocab_size
 
     @property
+    def head_dim(self):
+        return getattr(
+            self.text_config,
+            "head_dim",
+            self.hidden_size // self.text_config.num_attention_heads,
+        )
+
+    @property
     def weight_size(self):
         def get_weight_size_nested(mod):
             total_size = 0
