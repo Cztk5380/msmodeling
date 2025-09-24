@@ -119,7 +119,7 @@ def summarize(requests_list):
     for k, v in report.items():
         output_str += f"\n{k:<30} {v:.3f}"
 
-    logger.info(output_str)
+    print(output_str)
 
 
 def _convert_value(value: Any, *, skip_none: bool) -> Any:
