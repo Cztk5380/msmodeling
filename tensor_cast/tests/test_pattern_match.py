@@ -96,3 +96,29 @@ class PatternReplaceTestCase(unittest.TestCase):
         self.assertIn("tensor_cast.add_rms_norm.default", result)
         self.assertIn("tensor_cast.rms_norm_quant.default", result)
         self.assertIn("tensor_cast.add_rms_norm_quant2.default", result)
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B"],
+        ]
+    )
+    # TODO(hw-whx): add support for special rope type of GLM4.5.
+    def test_rope_pattern(self, model_id):
+        num_tokens = 100
+        model_config = ModelConfig(
+            ParallelConfig(),
+            get_quant_config(),
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=2,
+        )
+        model = TransformerModel(model_id, model_config)
+        model = torch.compile(
+            model, backend=self.compile_backend, fullgraph=True, dynamic=True
+        )
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(self.inputs, self.position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.apply_rope.default", result)

@@ -4,7 +4,7 @@ from typing import Any, Callable, List
 import torch
 
 from ..passes.pattern_match_pass import PatternMatchPass
-from . import rms_norm
+from . import rms_norm, rotary_embedding
 
 # three levels of graph passes, apply them in order
 all_passes = [
@@ -30,3 +30,4 @@ def register_pattern(
 def lazy_init():
     # register all patterns of a certain dtype below
     rms_norm.register_all_patterns()
+    rotary_embedding.register_all_patterns()

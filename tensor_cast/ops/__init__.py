@@ -8,4 +8,5 @@ from . import (  # noqa: F401
     mla,
     mtp,
     quantization,
+    rotary_embedding,
 )
