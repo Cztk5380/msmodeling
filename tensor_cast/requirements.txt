@@ -1,4 +1,5 @@
+torch==2.7.1
 transformers
-torch
 pytest
 parameterized
+overrides
