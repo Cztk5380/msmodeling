@@ -1,6 +1,9 @@
 from typing import Tuple
+
 import torch
+
 from ... import config
+
 
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
@@ -8,11 +11,13 @@ def rotate_half(x):
     x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
+
 class NormalRopePattern:
     """
     Pattern for Applying rotary embedding.
     This pattern applies rotary embedding to the query and key tensors.
     """
+
     @staticmethod
     def create(is_neox, unsqueeze_dim=1) -> Tuple:
         def get_inputs():
@@ -34,6 +39,9 @@ class NormalRopePattern:
 
             q_embed = (q * cos) + (rotate_half(q) * sin)
             k_embed = (k * cos) + (rotate_half(k) * sin)
+            # BHSD -> BSHD
+            q_embed = q_embed.transpose(1, 2)
+            k_embed = k_embed.transpose(1, 2)
             return q_embed, k_embed
 
         def pattern_neox(q, k, cos, sin):
@@ -41,6 +49,9 @@ class NormalRopePattern:
             sin = sin.unsqueeze(unsqueeze_dim)
             q_embed = (q * cos) + (rotate_half(q) * sin)
             k_embed = (k * cos) + (rotate_half(k) * sin)
+            # BHSD -> BSHD
+            q_embed = q_embed.transpose(1, 2)
+            k_embed = k_embed.transpose(1, 2)
             return q_embed, k_embed
 
         def replacement(q, k, cos, sin):
@@ -51,7 +62,8 @@ class NormalRopePattern:
             return (pattern_neox, replacement, get_inputs())
         else:
             return (pattern_interleave, replacement, get_inputs())
-        
+
+
 class PartialRopePattern:
     pass
 
@@ -63,4 +75,10 @@ def register_all_patterns():
         for is_neox in [False, True]:
             pattern, replacement, example_inputs = NormalRopePattern.create(is_neox)
             # Register the pattern with the PatternManager
-            register_pattern(f"apply_rope_pattern_is_neox({is_neox})", pattern, replacement, example_inputs, level=0)
+            register_pattern(
+                f"apply_rope_pattern_is_neox({is_neox})",
+                pattern,
+                replacement,
+                example_inputs,
+                level=0,
+            )

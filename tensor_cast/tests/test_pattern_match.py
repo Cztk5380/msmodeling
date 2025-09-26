@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
+from ..layers.attention import AttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
 
 from ..model_config import (
@@ -109,6 +110,7 @@ class PatternReplaceTestCase(unittest.TestCase):
             ParallelConfig(),
             get_quant_config(),
             quant_linear_cls=TensorCastQuantLinear,
+            attention_cls=AttentionTensorCast,
             num_hidden_layers_override=2,
         )
         model = TransformerModel(model_id, model_config)
