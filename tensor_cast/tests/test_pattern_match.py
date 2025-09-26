@@ -103,7 +103,6 @@ class PatternReplaceTestCase(unittest.TestCase):
             ["Qwen/Qwen3-32B"],
         ]
     )
-    # TODO(hw-whx): add support for special rope type of GLM4.5.
     def test_rope_pattern(self, model_id):
         num_tokens = 100
         model_config = ModelConfig(

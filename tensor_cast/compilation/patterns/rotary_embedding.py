@@ -64,10 +64,7 @@ class NormalRopePattern:
             return (pattern_interleave, replacement, get_inputs())
 
 
-class PartialRopePattern:
-    pass
-
-
+# TODO(hw-whx): add support for special rope type of GLM4.5.
 def register_all_patterns():
     from . import register_pattern
 
