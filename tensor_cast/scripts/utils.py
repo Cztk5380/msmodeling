@@ -73,10 +73,12 @@ def build_model(
     model_id: str,
     parallel_config: ParallelConfig,
     quant_config: QuantConfig,
+    enable_lmhead: bool = True,
     num_mtp_tokens: int = 0,
     compile: bool = False,
     allow_graph_break: bool = True,
     enable_repetition=True,
+    num_hidden_layers_override=0,
 ) -> TransformerModel:
     """
     Build a transformer model based on the given args
@@ -97,6 +99,7 @@ def build_model(
         attention_cls=AttentionTensorCast,
         quant_linear_cls=TensorCastQuantLinear,
         hf_config_json=model_id_to_json(model_id),
+        enable_lmhead=enable_lmhead,
     )
     mla_module_name = model_id_to_mla_module_name(model_id)
     if mla_module_name is not None:
@@ -120,6 +123,8 @@ def build_model(
         if not repetition_config:
             repetition_config = default_repetition_config()
         model_config.repetitive_layer_config = repetition_config
+    if num_hidden_layers_override > 0:
+        model_config.num_hidden_layers_override = num_hidden_layers_override
     model = TransformerModel(model_id, model_config)
     if compile:
         model = torch.compile(

@@ -80,7 +80,17 @@ def model_id_to_mtp_block_module_name(model_id: str) -> str:
 def strip_module_name(name: str) -> str:
     """Strip `_inner` module name from the given module path name"""
     stripped = name.removeprefix("_inner.")
-    return stripped.replace("._inner.", ".")
+    stripped_before = name
+    while stripped != stripped_before:
+        stripped_before = stripped
+        stripped = stripped_before.removeprefix("_inner.")
+    stripped = stripped.replace("._inner.", ".")
+    stripped_before = stripped
+    stripped = stripped_before.removesuffix("._inner")
+    while stripped != stripped_before:
+        stripped_before = stripped
+        stripped = stripped_before.removesuffix("._inner")
+    return stripped
 
 
 _model_id_to_repetition_config: Dict[str, RepetitiveLayerConfig] = {

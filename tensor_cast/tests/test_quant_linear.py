@@ -456,3 +456,87 @@ class TestQuantLinear(unittest.TestCase):
             self.assertEqual(outputs.shape, (2, num_mtp_layers + 1))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.dynamic_quant_linear.default", result)
+
+    def test_quant_lmhead(self):
+        model_id = "Qwen/Qwen3-32B"
+        linear_quant_config = get_linear_quant_config(
+            LinearQuantType.W8A8,
+            torch.randn(1),
+        )
+        quant_config = QuantConfig()
+        quant_config.linear_configs["lm_head"] = linear_quant_config
+        model_config = ModelConfig(
+            ParallelConfig(),
+            quant_config,
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=2,
+            enable_lmhead=True,
+        )
+        model = TransformerModel(model_id, model_config)
+
+        num_tokens = 100
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            _ = model.forward(inputs, position_ids)
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.dynamic_quant_linear.default", result)
+
+    def test_quant_lmhead_mtp(self):
+        model_id = "deepseek-ai/DeepSeek-V3.1"
+        hf_config_json = model_id_to_json(model_id)
+        linear_quant_config = get_linear_quant_config(
+            LinearQuantType.W8A8,
+            torch.randn(1),
+        )
+        quant_config = QuantConfig()
+        quant_config.linear_configs["*.lm_head"] = linear_quant_config
+        model_config = ModelConfig(
+            ParallelConfig(),
+            quant_config,
+            hf_config_json=hf_config_json,
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=1,
+            enable_lmhead=True,
+        )
+        mla_config = MlaConfig(
+            module_name="DeepseekV3Attention",
+            mla_cls=MultiheadLatentAttentionTensorCast,
+        )
+        model_config.mla_config = mla_config
+        num_mtp_layers = 1
+        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
+        self.assertIsNotNone(mtp_block_module_name)
+        mtp_config = MtpConfig(
+            num_mtp_layers=num_mtp_layers,
+            mtp_block_module_name=mtp_block_module_name,
+        )
+        model_config.mtp_config = mtp_config
+        model = TransformerModel(model_id, model_config)
+        # make sure all original attention modules have been replaced
+        self.assertTrue(
+            has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
+        )
+        attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
+            model, model_config
+        )
+        num_tokens = 100
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(
+                inputs,
+                position_ids,
+                attention_meta=attn_meta,
+                kv_cache_by_layers=kv_cache_by_layers,
+                sampling_metadata=SamplingMetadata(
+                    query_start_loc=attn_meta.query_start_loc
+                ),
+            )
+            self.assertEqual(outputs.shape, (2, num_mtp_layers + 1))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.dynamic_quant_linear.default", result)

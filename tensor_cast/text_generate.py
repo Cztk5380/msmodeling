@@ -7,19 +7,11 @@ from typing import Optional
 import torch
 
 from . import config, device_profiles  # noqa: F401
-from .compilation import get_backend
 from .device import DeviceProfile
-
-from .layers.attention import AttentionTensorCast
-from .layers.mla import MultiheadLatentAttentionTensorCast
-from .layers.quant_linear import TensorCastQuantLinear
 
 from .model_config import (
     LinearQuantConfig,
     LinearQuantType,
-    MlaConfig,
-    ModelConfig,
-    MtpConfig,
     ParallelConfig,
     QuantConfig,
 )
@@ -27,15 +19,7 @@ from .performance_model.analytic import AnalyticPerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
 from .runtime import Runtime
 
-from .scripts.utils import generate_inputs
-from .transformers.model import TransformerModel
-from .transformers.utils import (
-    default_repetition_config,
-    model_id_to_json,
-    model_id_to_mla_module_name,
-    model_id_to_mtp_block_module_name,
-    model_id_to_repetition_config,
-)
+from .scripts.utils import build_model, generate_inputs
 
 
 class QuantLinearAction(StrEnum):
@@ -67,9 +51,13 @@ def get_linear_quant_config(quant_action: QuantLinearAction):
     return LinearQuantConfig(**config_args)
 
 
-def get_quant_config(quant_action: QuantLinearAction):
+def get_quant_config(quant_action: QuantLinearAction, quant_lmhead: bool = False):
     quant_config = QuantConfig()
-    quant_config.linear_configs["*"] = get_linear_quant_config(quant_action)
+    quant_config.linear_configs["layers.*"] = get_linear_quant_config(quant_action)
+    quant_config.linear_configs["*.layers.*"] = get_linear_quant_config(quant_action)
+    if quant_lmhead:
+        quant_config.linear_configs["lm_head"] = get_linear_quant_config(quant_action)
+        quant_config.linear_configs["*.lm_head"] = get_linear_quant_config(quant_action)
     return quant_config
 
 
@@ -84,7 +72,8 @@ def run_inference(
     dump_input_shapes: bool = False,
     chrome_trace: Optional[str] = None,
     quantize_linear_action: Optional[QuantLinearAction] = None,
-    num_mtp_layers: int = 0,
+    quantize_lmhead: bool = False,
+    num_mtp_tokens: int = 0,
     num_hidden_layers_override: int = 0,
     is_decode: bool = False,
     enable_repetition: bool = False,
@@ -128,9 +117,13 @@ def run_inference(
     print(f"Input Length (per query): {query_len}")
     print(f"Context Length (per query): {context_length}")
     print(f"Decode: {is_decode}")
+    if quantize_linear_action:
+        print(
+            f"Quantization: {quantize_linear_action}, quantize LM Head: {quantize_lmhead}"
+        )
     print(f"Enable repetition: {enable_repetition}")
-    if num_mtp_layers > 0:
-        print(f"Number of MTP layers: {num_mtp_layers}")
+    if num_mtp_tokens > 0:
+        print(f"Number of MTP layers: {num_mtp_tokens}")
     print(f"Use torch.compile: {do_compile}")
     if do_compile:
         print(f"  allow graph break: {allow_graph_break}")
@@ -144,52 +137,20 @@ def run_inference(
     perf_model = AnalyticPerformanceModel(device_profile)
     quant_config = QuantConfig()
     if quantize_linear_action:
-        quant_config = get_quant_config(quantize_linear_action)
-    model_config = ModelConfig(
+        quant_config = get_quant_config(
+            quantize_linear_action, quant_lmhead=quantize_lmhead
+        )
+    model = build_model(
+        model_id,
         parallel_config,
         quant_config,
-        attention_cls=AttentionTensorCast,
-        quant_linear_cls=TensorCastQuantLinear,
-        hf_config_json=model_id_to_json(model_id),
+        enable_lmhead=True,
+        num_mtp_tokens=num_mtp_tokens,
+        compile=do_compile,
+        allow_graph_break=allow_graph_break,
+        enable_repetition=enable_repetition,
+        num_hidden_layers_override=num_hidden_layers_override,
     )
-    if num_hidden_layers_override > 0:
-        model_config.num_hidden_layers_override = num_hidden_layers_override
-    mla_module_name = model_id_to_mla_module_name(model_id)
-    if mla_module_name is not None:
-        mla_config = MlaConfig(
-            module_name=mla_module_name,
-            mla_cls=MultiheadLatentAttentionTensorCast,
-        )
-        model_config.mla_config = mla_config
-
-    if num_mtp_layers > 0:
-        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
-        if not mtp_block_module_name:
-            raise ValueError(
-                f"Could not find mtp block module name for {model_id}. Check if the model supports MTP."
-            )
-        mtp_config = MtpConfig(
-            num_mtp_layers=num_mtp_layers,
-            mtp_block_module_name=mtp_block_module_name,
-        )
-        model_config.mtp_config = mtp_config
-    hf_config_json = model_id_to_json(model_id)
-    if hf_config_json:
-        model_config.hf_config_json = hf_config_json
-    if enable_repetition:
-        repetition_config = model_id_to_repetition_config(model_id)
-        if not repetition_config:
-            repetition_config = default_repetition_config()
-        model_config.repetitive_layer_config = repetition_config
-    model = TransformerModel(model_id, model_config)
-    if do_compile:
-        print("   Compiling model with torch.compile...")
-        compile_backend = get_backend()
-        model = torch.compile(
-            model, backend=compile_backend, dynamic=True, fullgraph=not allow_graph_break
-        )
-        print("   ...compilation complete.")
-
     print("Preparing dummy input tensors...")
     input_kwargs = generate_inputs(model, query_len, seq_len, num_queries)
     print("Running simulated inference...")
@@ -276,7 +237,7 @@ def main():
         help="Number of inference queries to run in a batch.",
     )
     parser.add_argument(
-        "--input-length",
+        "--query-length",
         type=int,
         required=True,
         help="The length of the new input tokens for each query.",
@@ -316,6 +277,11 @@ def main():
         help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
     )
     parser.add_argument(
+        "--quantize-lmhead",
+        action="store_true",
+        help="Whether to quantize LM Head, off by default since quantizing LM Head usually impact accuracy a lot",
+    )
+    parser.add_argument(
         "--graph-log-url",
         type=str,
         default=None,
@@ -333,10 +299,10 @@ def main():
         help="Whether we are doing decode",
     )
     parser.add_argument(
-        "--num-mtp-layers",
+        "--num-mtp-tokens",
         type=int,
         default=0,
-        help="Number of MTP layers, 0 means disabled - only support models having MTP like DeepSeek",
+        help="Number of MTP tokens, 0 means disabled - only support models having MTP like DeepSeek",
     )
     parser.add_argument(
         "--num-hidden-layers-override",
@@ -415,14 +381,15 @@ def main():
         device=args.device,
         model_id=args.model_id,
         num_queries=args.num_queries,
-        query_len=args.input_length,
+        query_len=args.query_length,
         context_length=args.context_length,
         do_compile=args.compile,
         allow_graph_break=args.compile_allow_graph_break,
         dump_input_shapes=args.dump_input_shapes,
         chrome_trace=args.chrome_trace,
         quantize_linear_action=args.quantize_linear_action,
-        num_mtp_layers=args.num_mtp_layers,
+        quantize_lmhead=args.quantize_lmhead,
+        num_mtp_tokens=args.num_mtp_tokens,
         num_hidden_layers_override=args.num_hidden_layers_override,
         is_decode=args.decode,
         enable_repetition=args.enable_repetition,

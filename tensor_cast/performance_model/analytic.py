@@ -215,4 +215,5 @@ def _estimate_collective_comm(
     comm_model = CommAnalyticModel(device_profile)
     comm_result = comm_model.process_op(op_invoke_info)
     result.combine(comm_result)
+    result.execution_time_s += device_profile.static_cost.comm_op_cost_s
     return result

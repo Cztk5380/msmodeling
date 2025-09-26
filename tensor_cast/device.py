@@ -105,7 +105,7 @@ TEST_DEVICE = DeviceProfile(
     },
     gp_ops={
         torch.float32: 11 / 2 * 1e12,
-        torch.bfloat16: 11 / 2 * 1e12,
+        torch.bfloat16: 11 * 1e12,
         torch.half: 11 * 1e12,
     },
     memory_size_bytes=64 * (1024**3),
@@ -120,7 +120,9 @@ TEST_DEVICE = DeviceProfile(
 
 class ATLAS_800:
     # TODO(jgong5): double-confirm static cost
-    STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6)
+    STATIC_COST = StaticCost(
+        mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6, comm_op_cost_s=10 * 1e-6
+    )
 
     # TODO(jgong5): double-confirm latency
     # TODO(jgong5): double-confirm communication efficiency
@@ -170,7 +172,7 @@ class ATLAS_800:
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
-            torch.bfloat16: 11 / 2 * 1e12,
+            torch.bfloat16: 11 * 1e12,
             torch.half: 11 * 1e12,
         },
         memory_size_bytes=64 * (1024**3),
@@ -192,7 +194,7 @@ class ATLAS_800:
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
-            torch.bfloat16: 11 / 2 * 1e12,
+            torch.bfloat16: 11 * 1e12,
             torch.half: 11 * 1e12,
         },
         memory_size_bytes=64 * (1024**3),
@@ -214,7 +216,7 @@ class ATLAS_800:
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
-            torch.bfloat16: 11 / 2 * 1e12,
+            torch.bfloat16: 11 * 1e12,
             torch.half: 11 * 1e12,
         },
         memory_size_bytes=64 * (1024**3),
@@ -236,7 +238,7 @@ class ATLAS_800:
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
-            torch.bfloat16: 11 / 2 * 1e12,
+            torch.bfloat16: 11 * 1e12,
             torch.half: 11 * 1e12,
         },
         memory_size_bytes=64 * (1024**3),
@@ -258,7 +260,7 @@ class ATLAS_800:
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
-            torch.bfloat16: 11 / 2 * 1e12,
+            torch.bfloat16: 11 * 1e12,
             torch.half: 11 * 1e12,
         },
         memory_size_bytes=32 * (1024**3),
@@ -280,7 +282,7 @@ class ATLAS_800:
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
-            torch.bfloat16: 11 / 2 * 1e12,
+            torch.bfloat16: 11 * 1e12,
             torch.half: 11 * 1e12,
         },
         memory_size_bytes=64 * (1024**3),
@@ -302,7 +304,7 @@ class ATLAS_800:
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
-            torch.bfloat16: 11 / 2 * 1e12,
+            torch.bfloat16: 11 * 1e12,
             torch.half: 11 * 1e12,
         },
         memory_size_bytes=64 * (1024**3),
@@ -342,6 +344,18 @@ class NVIDIA:
         },
     )
 
+    INTERCONNECT_NVLINK_IB_16 = CommGrid(
+        grid=torch.arange(128 * 16).reshape(128, 16),
+        topologies={
+            0: InterconnectTopology(
+                bandwidth_bytes_ps=50 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+            ),
+            1: InterconnectTopology(
+                bandwidth_bytes_ps=450 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+            ),
+        },
+    )
+
     INTERCONNECT_RESTRICTED_NVLINK_IB = CommGrid(
         grid=torch.arange(128 * 8).reshape(128, 8),
         topologies={
@@ -357,31 +371,31 @@ class NVIDIA:
     B30A = DeviceProfile(  # based on rumours
         name="B30A",
         mma_ops={
-            torch.float32: 41.5 * 1e12,
-            torch.bfloat16: 937.5 * 1e12,
-            torch.half: 937.5 * 1e12,
-            torch.float8_e5m2: 1875 * 1e12,
-            torch.int8: 1875 * 1e12,
-            DTYPE_FP4: 3750 * 1e12,
+            torch.float32: 750 * 1e12,
+            torch.bfloat16: 1500 * 1e12,
+            torch.half: 1500 * 1e12,
+            torch.float8_e5m2: 3000 * 1e12,
+            torch.int8: 3000 * 1e12,
+            DTYPE_FP4: 6000 * 1e12,
         },
         gp_ops={
-            torch.float32: 41.5 * 1e12,
-            torch.bfloat16: 41.5 * 1e12,
-            torch.half: 83 * 1e12,
+            torch.float32: 120 * 1e12,
+            torch.bfloat16: 120 * 1e12,
+            torch.half: 120 * 1e12,
         },
         memory_size_bytes=144 * (1024**3),
         memory_bandwidth_bytes_ps=4.0 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
         memory_efficiency=0.75,
-        comm_grid=INTERCONNECT_NVLINK_IB,
+        comm_grid=INTERCONNECT_NVLINK_IB_16,
         static_cost=STATIC_COST,
     )
 
     H20 = DeviceProfile(
         name="H20",
         mma_ops={
-            torch.float32: 44 * 1e12,
+            torch.float32: 74 * 1e12,
             torch.bfloat16: 148 * 1e12,
             torch.half: 148 * 1e12,
             torch.float8_e5m2: 296 * 1e12,
@@ -390,7 +404,7 @@ class NVIDIA:
         gp_ops={
             torch.float32: 44 * 1e12,
             torch.bfloat16: 44 * 1e12,
-            torch.half: 88 * 1e12,
+            torch.half: 44 * 1e12,
         },
         memory_size_bytes=96 * (1024**3),
         memory_bandwidth_bytes_ps=4.0 * (1024**4),
@@ -404,7 +418,7 @@ class NVIDIA:
     H100_SXM = DeviceProfile(
         name="H100_SXM",
         mma_ops={
-            torch.float32: 67 * 1e12,
+            torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
             torch.half: 989.5 * 1e12,
             torch.float8_e5m2: 1979 * 1e12,
@@ -412,7 +426,7 @@ class NVIDIA:
         },
         gp_ops={
             torch.float32: 67 * 1e12,
-            torch.bfloat16: 67 * 1e12,
+            torch.bfloat16: 134 * 1e12,
             torch.half: 134 * 1e12,
         },
         memory_size_bytes=80 * (1024**3),
@@ -427,7 +441,7 @@ class NVIDIA:
     H200_SXM = DeviceProfile(
         name="H200_SXM",
         mma_ops={
-            torch.float32: 67 * 1e12,
+            torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
             torch.half: 989.5 * 1e12,
             torch.float8_e5m2: 1979 * 1e12,
@@ -435,7 +449,7 @@ class NVIDIA:
         },
         gp_ops={
             torch.float32: 67 * 1e12,
-            torch.bfloat16: 67 * 1e12,
+            torch.bfloat16: 134 * 1e12,
             torch.half: 134 * 1e12,
         },
         memory_size_bytes=141 * (1024**3),
@@ -450,7 +464,7 @@ class NVIDIA:
     H800_SXM = DeviceProfile(
         name="H800_SXM",
         mma_ops={
-            torch.float32: 67 * 1e12,
+            torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
             torch.half: 989.5 * 1e12,
             torch.float8_e5m2: 1979 * 1e12,
@@ -458,7 +472,7 @@ class NVIDIA:
         },
         gp_ops={
             torch.float32: 67 * 1e12,
-            torch.bfloat16: 67 * 1e12,
+            torch.bfloat16: 134 * 1e12,
             torch.half: 134 * 1e12,
         },
         memory_size_bytes=80 * (1024**3),
@@ -482,7 +496,7 @@ class NVIDIA:
         gp_ops={
             torch.float32: 59.8 * 1e12,
             torch.bfloat16: 59.8 * 1e12,
-            torch.half: 119.6 * 1e12,
+            torch.half: 59.8 * 1e12,
         },
         memory_size_bytes=48 * (1024**3),
         memory_bandwidth_bytes_ps=0.864 * (1024**4),
@@ -493,10 +507,33 @@ class NVIDIA:
         static_cost=STATIC_COST,
     )
 
+    RTX_PRO_6000D = DeviceProfile(
+        name="RTX_PRO_6000D",
+        mma_ops={
+            torch.float32: 74 * 1e12,
+            torch.bfloat16: 148 * 1e12,
+            torch.half: 148 * 1e12,
+            torch.float8_e5m2: 296 * 1e12,
+            torch.int8: 296 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 75 * 1e12,
+            torch.bfloat16: 75 * 1e12,
+            torch.half: 75 * 1e12,
+        },
+        memory_size_bytes=96 * (1024**3),
+        memory_bandwidth_bytes_ps=1.4 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.75,
+        comm_grid=INTERCONNECT_PCIE_5,
+        static_cost=STATIC_COST,
+    )
+
     RTX_6000D = DeviceProfile(
         name="RTX_6000D",
         mma_ops={
-            torch.float32: 91.1 * 1e12,
+            torch.float32: 74 * 1e12,
             torch.bfloat16: 148 * 1e12,
             torch.half: 148 * 1e12,
             torch.float8_e5m2: 296 * 1e12,
@@ -505,7 +542,7 @@ class NVIDIA:
         gp_ops={
             torch.float32: 91.1 * 1e12,
             torch.bfloat16: 91.1 * 1e12,
-            torch.half: 182.2 * 1e12,
+            torch.half: 91.1 * 1e12,
         },
         memory_size_bytes=96 * (1024**3),
         memory_bandwidth_bytes_ps=1.4 * (1024**4),
@@ -529,7 +566,7 @@ class NVIDIA:
         gp_ops={
             torch.float32: 104.8 * 1e12,
             torch.bfloat16: 104.8 * 1e12,
-            torch.half: 209.6 * 1e12,
+            torch.half: 104.8 * 1e12,
         },
         memory_size_bytes=32 * (1024**3),
         memory_bandwidth_bytes_ps=1.792 * (1024**4),
@@ -540,18 +577,42 @@ class NVIDIA:
         static_cost=STATIC_COST,
     )
 
+    RTX_5090Dv2 = DeviceProfile(
+        name="RTX_5090Dv2",
+        mma_ops={
+            torch.float32: 104.8 * 1e12,
+            torch.bfloat16: 297 * 1e12,
+            torch.half: 297 * 1e12,
+            torch.float8_e5m2: 593 * 1e12,
+            torch.int8: 593 * 1e12,
+            DTYPE_FP4: 1186 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 104.8 * 1e12,
+            torch.bfloat16: 104.8 * 1e12,
+            torch.half: 104.8 * 1e12,
+        },
+        memory_size_bytes=24 * (1024**3),
+        memory_bandwidth_bytes_ps=1.34 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.75,
+        comm_grid=INTERCONNECT_PCIE_5,
+        static_cost=STATIC_COST,
+    )
+
     RTX_4090 = DeviceProfile(
         name="RTX_4090",
         mma_ops={
-            torch.float32: 82.6 * 1e12,
-            torch.bfloat16: 247.8 * 1e12,
+            torch.float32: 115 * 1e12,
+            torch.bfloat16: 330.3 * 1e12,
             torch.half: 330.3 * 1e12,
             torch.int8: 660.6 * 1e12,
         },
         gp_ops={
             torch.float32: 82.6 * 1e12,
             torch.bfloat16: 82.6 * 1e12,
-            torch.half: 165.2 * 1e12,
+            torch.half: 82.6 * 1e12,
         },
         memory_size_bytes=24 * (1024**3),
         memory_bandwidth_bytes_ps=1.008 * (1024**4),
@@ -573,7 +634,7 @@ class NVIDIA:
         gp_ops={
             torch.float32: 73.5 * 1e12,
             torch.bfloat16: 73.5 * 1e12,
-            torch.half: 147 * 1e12,
+            torch.half: 73.5 * 1e12,
         },
         memory_size_bytes=24 * (1024**3),
         memory_bandwidth_bytes_ps=1.008 * (1024**4),
@@ -598,32 +659,100 @@ class CAMBRICON:
                 bandwidth_bytes_ps=25 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=293 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=200 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
             ),
         },
+    )
+
+    INTERCONNECT_690 = CommGrid(
+        grid=torch.arange(128 * 8).reshape(128, 8),
+        topologies={
+            0: InterconnectTopology(
+                bandwidth_bytes_ps=25 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
+            ),
+            1: InterconnectTopology(
+                bandwidth_bytes_ps=400 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+            ),
+        },
+    )
+
+    INTERCONNECT_PCIE = CommGrid(
+        grid=torch.arange(8),
+        topologies={
+            0: InterconnectTopology(
+                bandwidth_bytes_ps=32 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
+            ),
+        },
+    )
+
+    MLU690 = DeviceProfile(
+        name="MLU690",
+        mma_ops={
+            torch.float32: 406 * 1e12,
+            torch.bfloat16: 813 * 1e12,
+            torch.half: 813 * 1e12,
+            torch.float8_e5m2: 1626 * 1e12,
+            torch.int8: 1626 * 1e12,
+            DTYPE_FP4: 3252 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 51 * 1e12,
+            torch.bfloat16: 51 * 1e12,
+            torch.half: 51 * 1e12,
+        },
+        memory_size_bytes=192 * (1024**3),
+        memory_bandwidth_bytes_ps=8 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=INTERCONNECT_690,
+        static_cost=STATIC_COST,
     )
 
     MLU590 = DeviceProfile(
         name="MLU590",
         mma_ops={
-            torch.float32: 104.8 * 1e12,
-            torch.bfloat16: 297 * 1e12,
-            torch.half: 297 * 1e12,
-            torch.float8_e5m2: 593 * 1e12,
-            torch.int8: 593 * 1e12,
-            DTYPE_FP4: 1186 * 1e12,
+            torch.float32: 157 * 1e12,
+            torch.bfloat16: 314 * 1e12,
+            torch.half: 314 * 1e12,
+            torch.float8_e5m2: 628 * 1e12,
+            torch.int8: 628 * 1e12,
+            DTYPE_FP4: 1256 * 1e12,
         },
         gp_ops={
-            torch.float32: 26 * 1e12,
-            torch.bfloat16: 54 * 1e12,
-            torch.half: 54 * 1e12,
+            torch.float32: 20 * 1e12,
+            torch.bfloat16: 20 * 1e12,
+            torch.half: 20 * 1e12,
         },
-        memory_size_bytes=32 * (1024**3),
-        memory_bandwidth_bytes_ps=1.792 * (1024**4),
+        memory_size_bytes=96 * (1024**3),
+        memory_bandwidth_bytes_ps=2.7 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
         memory_efficiency=0.6,
         comm_grid=INTERCONNECT,
+        static_cost=STATIC_COST,
+    )
+
+    MLU580 = DeviceProfile(
+        name="MLU580",
+        mma_ops={
+            torch.float32: 157 * 1e12,
+            torch.bfloat16: 275 * 1e12,
+            torch.half: 275 * 1e12,
+            torch.float8_e5m2: 550 * 1e12,
+            torch.int8: 550 * 1e12,
+        },
+        gp_ops={
+            torch.float32: 17 * 1e12,
+            torch.bfloat16: 17 * 1e12,
+            torch.half: 17 * 1e12,
+        },
+        memory_size_bytes=48 * (1024**3),
+        memory_bandwidth_bytes_ps=1.2 * (1024**4),
+        # The efficiencies are something we need to calibrate
+        compute_efficiency=0.7,
+        memory_efficiency=0.6,
+        comm_grid=INTERCONNECT_PCIE,
         static_cost=STATIC_COST,
     )
 
@@ -648,15 +777,15 @@ class KUNLUNXIN:
     P800 = DeviceProfile(
         name="P800",
         mma_ops={
-            torch.float32: 87.5 * 1e12,
+            torch.float32: 175 * 1e12,
             torch.bfloat16: 350 * 1e12,
             torch.half: 350 * 1e12,
             torch.int8: 700 * 1e12,
         },
         gp_ops={
-            torch.float32: 87.5 * 1e12,
-            torch.bfloat16: 87.5 * 1e12,
-            torch.half: 175 * 1e12,
+            torch.float32: 40 * 1e12,
+            torch.bfloat16: 40 * 1e12,
+            torch.half: 40 * 1e12,
         },
         memory_size_bytes=96 * (1024**3),
         memory_bandwidth_bytes_ps=2.7 * (1024**4),
@@ -688,7 +817,7 @@ class ALIBABA:
     PPU = DeviceProfile(
         name="PPU",
         mma_ops={
-            torch.float32: 25 * 1e12,
+            torch.float32: 61 * 1e12,
             torch.bfloat16: 123 * 1e12,
             torch.half: 123 * 1e12,
             torch.int8: 236 * 1e12,
@@ -696,7 +825,7 @@ class ALIBABA:
         gp_ops={
             torch.float32: 25 * 1e12,
             torch.bfloat16: 25 * 1e12,
-            torch.half: 50 * 1e12,
+            torch.half: 25 * 1e12,
         },
         memory_size_bytes=96 * (1024**3),
         memory_bandwidth_bytes_ps=2.762 * (1024**4),

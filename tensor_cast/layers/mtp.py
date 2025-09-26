@@ -76,7 +76,9 @@ class MultiTokenPredictor(torch.nn.Module):
         )
         # TODO(jgong5): lm_head should share the weights with the main model and among MTP layers.
         #               Otherwise, the memory consumption would be higher.
-        self.lm_head = torch.nn.Linear(hf_config.hidden_size, hf_config.vocab_size)
+        self.lm_head = torch.nn.Linear(
+            hf_config.hidden_size, hf_config.vocab_size, bias=False
+        )
 
     def forward(
         self,
