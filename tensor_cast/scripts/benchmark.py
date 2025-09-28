@@ -166,7 +166,7 @@ def main():
     parser = argparse.ArgumentParser(
         description="Benchmark LLM inference on given devices and models to search for best throughput under "
         "given input/output sequence length and SLO limitations",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+        formatter_class=argparse.RawTextHelpFormatter,
     )
     parser.add_argument(
         "--input-length",
@@ -209,16 +209,22 @@ Configuration file for device list, model list and number of devices, overriding
 Example config.yaml format:
 ---------------------------
 devices:
-  - "ATLAS_800.A2_280T_64G"
-  - "NVIDIA.H20"
+  - "ATLAS_800_A2_280T_64G"
+  - "H20"
 
 models:
   "Qwen/Qwen3-32B": [1, 2, 4]  # number of devices to test
   "zai-org/GLM-4.5": [4, 8]
+
 """,
     )
     parser.add_argument(
         "--compile",
+        action="store_true",
+        help="If set, invoke torch.compile() on the model before inference.",
+    )
+    parser.add_argument(
+        "--compile-allow-graph-break",
         action="store_true",
         help="If set, invoke torch.compile() on the model before inference.",
     )
@@ -282,6 +288,7 @@ models:
     if compile:
         torch._dynamo.config.recompile_limit = 10000
         torch._dynamo.config.accumulated_recompile_limit = 10000
+    allow_graph_break = args.compile_allow_graph_break
 
     mtp = args.num_mtp_tokens
     if args.quantize_linear == "W8A8":
@@ -334,6 +341,7 @@ models:
                             enable_lmhead=True,
                             num_mtp_tokens=mtp,
                             compile=compile,
+                            allow_graph_break=allow_graph_break,
                         )
                         num_mtp_layers = (
                             model.model_config.mtp_config.num_mtp_layers

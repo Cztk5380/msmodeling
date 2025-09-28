@@ -41,7 +41,7 @@ class MultiheadLatentAttentionBase(torch.nn.Module, ABC):
 # rotary embedding functions copied from DeepSeek-v3 model in Transformers
 def rotate_half(x):
     x1 = x[..., : x.shape[-1] // 2]
-    x2 = x[..., x.shape[-1] // 2 :]  # noqa: E203
+    x2 = x[..., x.shape[-1] // 2 :]
     return torch.cat((-x2, x1), dim=-1)
 
 

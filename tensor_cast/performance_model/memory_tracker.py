@@ -210,7 +210,6 @@ class MemoryTracker:
                 # This op is the one that defines (creates) the tensor.
                 self.tensor_infos[tensor_id].def_op_idx = op_idx
 
-        # import pdb; pdb.set_trace()
         self._handle_aliasing(op_invoke_info)
 
     def analyze(self):

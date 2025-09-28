@@ -299,7 +299,7 @@ class TransformerModel(ModelWrapperBase):
                     ):
                         raise ValueError(
                             f"no remaining layers left for the rest of the repetition ranges: "
-                            f"{new_repetitive_ranges[i + 1 :]}"  # noqa: E203
+                            f"{new_repetitive_ranges[i + 1 :]}"
                         )
             # check validity of the ranges first
             if (
@@ -320,7 +320,7 @@ class TransformerModel(ModelWrapperBase):
                         RepetitiveLayerWrapper(rr, id(rr), layer, i + rr.start)
                         if rr.repeats > 1
                         else layer
-                        for i, layer in enumerate(module.layers[rr.start : rr.stop])  # noqa: E203
+                        for i, layer in enumerate(module.layers[rr.start : rr.stop])
                     ]
                 )
             return torch.nn.ModuleList(new_layers)

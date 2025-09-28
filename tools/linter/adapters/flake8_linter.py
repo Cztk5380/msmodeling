@@ -182,6 +182,10 @@ def run_command(
 
 
 def get_issue_severity(code: str) -> LintSeverity:
+    if code == "E203":
+        # ignore "whitespace before ':'". RUFF would fix it but
+        # FLAKE8 complains about it, causing conflicts.
+        return LintSeverity.DISABLED
     # "B901": `return x` inside a generator
     # "B902": Invalid first argument to a method
     # "B903": __slots__ efficiency
@@ -360,6 +364,8 @@ def main() -> None:
         args.filenames, flake8_plugins_path, severities, args.retries
     )
     for lint_message in lint_messages:
+        if lint_message.severity == LintSeverity.DISABLED:
+            continue
         print(json.dumps(lint_message._asdict()), flush=True)
 
 

@@ -48,6 +48,7 @@ class Runtime(TorchDispatchMode):
         )
         self.device_profile = device_profile
         self.memory_tracker: Optional[MemoryTracker] = memory_tracker
+        self.op_invoke_infos: List[OpInvokeInfo] = []
         self.event_list: List[RuntimeEvent] = []
         # TODO: add multi-stream support
 
@@ -61,16 +62,20 @@ class Runtime(TorchDispatchMode):
         kwargs = {} if kwargs is None else kwargs
         out = func(*args, **kwargs)
         op_invoke_info = OpInvokeInfo(func, args, kwargs, out)
-        if self.memory_tracker:
-            self.memory_tracker.record_op_invocation(op_invoke_info)
-        perf_results = {}
-        for perf_model in self.perf_models:
-            result = perf_model.process_op(op_invoke_info)
-            perf_results[perf_model.name] = result
-        self.event_list.append(
-            RuntimeEvent(op_invoke_info=op_invoke_info, perf_results=perf_results)
-        )
+        self.op_invoke_infos.append(op_invoke_info)
         return out
+
+    def replay_op_invoke_infos(self):
+        for op_invoke_info in self.op_invoke_infos:
+            if self.memory_tracker:
+                self.memory_tracker.record_op_invocation(op_invoke_info)
+            perf_results = {}
+            for perf_model in self.perf_models:
+                result = perf_model.process_op(op_invoke_info)
+                perf_results[perf_model.name] = result
+            self.event_list.append(
+                RuntimeEvent(op_invoke_info=op_invoke_info, perf_results=perf_results)
+            )
 
     def __enter__(self):
         super().__enter__()
@@ -79,6 +84,7 @@ class Runtime(TorchDispatchMode):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.replay_op_invoke_infos()
         self.event_list = self.repeat_event_list()
         if self.memory_tracker:
             self.memory_tracker.analyze()
@@ -114,7 +120,7 @@ class Runtime(TorchDispatchMode):
                 )
                 id_to_repetitive_range[current_id].stop = i
                 rr = id_to_repetitive_range[current_id]
-                repeated_events = self.event_list[rr.start : rr.stop] * rr.repeats  # noqa: E203
+                repeated_events = self.event_list[rr.start : rr.stop] * rr.repeats
                 new_event_list.extend(repeated_events)
                 copied_offset = i + 1
         new_event_list.extend(self.event_list[copied_offset:])
