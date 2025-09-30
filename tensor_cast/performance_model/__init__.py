@@ -186,9 +186,14 @@ def _bmm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformancePro
     n = mat2.size(2)
     assert mat2.size(0) == b
     assert mat2.size(1) == k
+
+    mma_ops = b * m * n * k * 2
+    if mma_ops == 0:
+        return OpInvokeInfo.PerformanceProperties()
+
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[mat1.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[mat1.dtype].mma_ops = b * m * n * k * 2
+    properties.compute_ops[mat1.dtype].mma_ops = mma_ops
     return properties
 
 
@@ -205,9 +210,14 @@ def _mm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProp
     k = mat1.size(1)
     n = mat2.size(1)
     assert mat2.size(0) == k
+
+    mma_ops = m * n * k * 2
+    if mma_ops == 0:
+        return OpInvokeInfo.PerformanceProperties()
+
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[mat1.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[mat1.dtype].mma_ops = m * n * k * 2
+    properties.compute_ops[mat1.dtype].mma_ops = mma_ops
     return properties
 
 
@@ -261,6 +271,9 @@ def _dynamic_quant_linear_properties_helper(
     bias_ops = 0
     if bias is not None:
         bias_ops = m * n
+
+    if matmul_ops == 0:
+        return OpInvokeInfo.PerformanceProperties()
 
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[torch.int8] = OpInvokeInfo.ComputeOps()
@@ -332,6 +345,9 @@ def _static_quant_linear_properties_helper(
     bias_ops = 0
     if bias is not None:
         bias_ops = m * n
+
+    if matmul_ops == 0:
+        return OpInvokeInfo.PerformanceProperties()
 
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[x.dtype] = OpInvokeInfo.ComputeOps()

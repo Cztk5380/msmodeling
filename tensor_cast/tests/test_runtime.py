@@ -230,6 +230,61 @@ class PerfAnalysisTestCase(unittest.TestCase):
             _ = func(x)
         self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
 
+    def test_model_cost_with_zero_shape_matmul(self):
+        def func(x, y):
+            return torch.matmul(x, y)
+
+        x = torch.randn([0, 10], device="meta")
+        y = torch.randn([10, 10], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_batched_matmul(self):
+        def func(x, y):
+            return torch.matmul(x, y)
+
+        x = torch.randn([0, 10, 10], device="meta")
+        y = torch.randn([10, 10], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_static_quant_linear(self):
+        def func(x, w, w_scale):
+            return torch.ops.tensor_cast.static_quant_linear(x, w, w_scale)
+
+        x = torch.randn([0, 10], device="meta")
+        w = torch.randint(0, 255, [10, 10], dtype=torch.uint8, device="meta")
+        w_scale = torch.randn([10], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, w, w_scale)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
     def test_runtime_breakdown_compute_bound(self):
         def func(x, y):
             return torch.matmul(x, y)

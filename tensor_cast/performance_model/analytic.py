@@ -192,9 +192,9 @@ def _estimate_default_without_static_cost(
 def _estimate_default(
     op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
 ) -> PerformanceModel.Result:
-    if is_view_op(op_invoke_info.func):
-        return PerformanceModel.Result(0.0)
     result = _estimate_default_without_static_cost(op_invoke_info, device_profile)
+    if result.execution_time_s == 0:
+        return result
     result.execution_time_s += _estimate_static_cost(op_invoke_info, device_profile)
     return result
 
