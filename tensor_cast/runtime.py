@@ -93,6 +93,7 @@ class Runtime(TorchDispatchMode):
         if self.memory_tracker:
             self.memory_tracker.analyze()
         _current_runtime.value = None
+        self.exit_stack.__exit__(exc_type, exc_val, exc_tb)
         super().__exit__(exc_type, exc_val, exc_tb)
 
     def repeat_event_list(self):

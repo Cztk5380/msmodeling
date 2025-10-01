@@ -116,7 +116,8 @@ def find_best_throughput(
                 next(iter(runtime.get_breakdowns().values())),
             )
         except (
-            AssertionError
+            AssertionError,
+            torch._dynamo.exc.Unsupported,
         ):  # TODO(jgong5): catch assertion due to limited support of TP+EP, need to fix
             return 0, math.inf, {}
 
@@ -286,8 +287,8 @@ models:
 
     compile = args.compile
     if compile:
-        torch._dynamo.config.recompile_limit = 10000
-        torch._dynamo.config.accumulated_recompile_limit = 10000
+        torch._dynamo.config.recompile_limit = 1000000
+        torch._dynamo.config.accumulated_recompile_limit = 1000000
     allow_graph_break = args.compile_allow_graph_break
 
     mtp = args.num_mtp_tokens

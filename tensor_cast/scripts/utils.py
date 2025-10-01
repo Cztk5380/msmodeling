@@ -165,7 +165,9 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     # `block_tables` map logical sequence blocks to physical blocks in the KV cache.
     max_num_blocks_per_seq = (seq_len + block_size - 1) // block_size
 
-    block_table_tensor = torch.empty((batch_size, max_num_blocks_per_seq), dtype=torch.long, device="meta")
+    block_table_tensor = torch.empty(
+        (batch_size, max_num_blocks_per_seq), dtype=torch.long, device="meta"
+    )
 
     slot_mapping = torch.empty(
         (batch_size * query_len,), dtype=torch.long, device="meta"
