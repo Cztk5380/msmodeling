@@ -71,9 +71,49 @@ def meta_nonzero_assume_all_nonzero():
 
 
 @contextlib.contextmanager
+def specialize_float():
+    """
+    Patch torch._dynamo.config.specialize_float to True, so that the float dtype
+    information can be preserved in the graph. We assume floats are specialized
+    in our pattern matching passes like RMSNorm for params like eps.
+    """
+    old_flag = torch._dynamo.config.specialize_float
+    torch._dynamo.config.specialize_float = True
+    yield
+    torch._dynamo.config.specialize_float = old_flag
+
+
+@contextlib.contextmanager
+def patch_fallback_node_due_to_unsupported_type():
+    """
+    Patch torch._inductor.pattern_matcher.fallback_node_due_to_unsupported_type to always return False,
+    so that the pattern matching passes can be applied without being blocked due to meta tensors.
+    """
+    import torch._inductor.pattern_matcher as pattern_matcher
+
+    if not hasattr(pattern_matcher, "fallback_node_due_to_unsupported_type"):
+        yield
+        return
+
+    original_func = pattern_matcher.fallback_node_due_to_unsupported_type
+
+    def always_false(*args, **kwargs):
+        return False
+
+    pattern_matcher.fallback_node_due_to_unsupported_type = always_false
+    yield
+    pattern_matcher.fallback_node_due_to_unsupported_type = original_func
+
+
+@contextlib.contextmanager
 def patch_torch():
     """
     Apply all patches to PyTorch.
     """
-    with support_autocast_for_meta(), meta_nonzero_assume_all_nonzero():
+    with (
+        support_autocast_for_meta(),
+        meta_nonzero_assume_all_nonzero(),
+        specialize_float(),
+        patch_fallback_node_due_to_unsupported_type(),
+    ):
         yield

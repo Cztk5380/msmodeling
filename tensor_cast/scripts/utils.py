@@ -135,7 +135,7 @@ def build_model(
 
 def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     model_config = model.model_config
-    num_mtp_layers = (
+    num_mtp_tokens = (
         model_config.mtp_config.num_mtp_layers if model_config.mtp_config else 0
     )
     parallel_config = model_config.parallel_config
@@ -143,7 +143,7 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
         concurrency + parallel_config.data_parallel_size - 1
     ) // parallel_config.data_parallel_size
 
-    max_context_length = seq_len + num_mtp_layers + 1
+    max_context_length = seq_len + num_mtp_tokens + 1
 
     # Paged attention parameters (can be adjusted)
     block_size = 128
@@ -159,17 +159,13 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     )
 
     # `seq_lens` is the total length (context + new tokens) for each sequence in the batch.
-    seq_lens = torch.tensor([seq_len] * batch_size, dtype=torch.long)
+    seq_lens = torch.empty(batch_size, dtype=torch.long)
+    seq_lens.fill_(seq_len)
 
     # `block_tables` map logical sequence blocks to physical blocks in the KV cache.
     max_num_blocks_per_seq = (seq_len + block_size - 1) // block_size
 
-    block_tables = []
-    for _ in range(batch_size):
-        block_table = [0 for _ in range(max_num_blocks_per_seq)]
-        block_tables.append(block_table)
-
-    block_table_tensor = torch.tensor(block_tables, dtype=torch.long)
+    block_table_tensor = torch.empty((batch_size, max_num_blocks_per_seq), dtype=torch.long, device="meta")
 
     slot_mapping = torch.empty(
         (batch_size * query_len,), dtype=torch.long, device="meta"

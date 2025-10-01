@@ -43,6 +43,7 @@ class Runtime(TorchDispatchMode):
         device_profile: DeviceProfile,
         memory_tracker: Optional[MemoryTracker] = None,
     ):
+        super().__init__()
         self.perf_models = (
             perf_models if isinstance(perf_models, (list, tuple)) else [perf_models]
         )
@@ -60,10 +61,13 @@ class Runtime(TorchDispatchMode):
 
     def __torch_dispatch__(self, func, types, args=(), kwargs=None):
         kwargs = {} if kwargs is None else kwargs
-        out = func(*args, **kwargs)
-        op_invoke_info = OpInvokeInfo(func, args, kwargs, out)
-        self.op_invoke_infos.append(op_invoke_info)
-        return out
+        if not torch.compiler.is_compiling():
+            out = func(*args, **kwargs)
+            op_invoke_info = OpInvokeInfo(func, args, kwargs, out)
+            self.op_invoke_infos.append(op_invoke_info)
+            return out
+        else:
+            return func(*args, **kwargs)
 
     def replay_op_invoke_infos(self):
         for op_invoke_info in self.op_invoke_infos:
