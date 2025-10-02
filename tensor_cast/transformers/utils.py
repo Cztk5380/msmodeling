@@ -1,11 +1,6 @@
 from typing import Dict, Optional
 
-from ..model_config import (
-    MoEConfig,
-    MoEFieldNames,
-    RepetitiveLayerConfig,
-    RepetitiveRange,
-)
+from ..model_config import MoEConfig, MoEFieldNames
 
 # TODO: Allow users to extend these default configurations from config.py
 
@@ -91,36 +86,3 @@ def strip_module_name(name: str) -> str:
         stripped_before = stripped
         stripped = stripped_before.removesuffix("._inner")
     return stripped
-
-
-_model_id_to_repetition_config: Dict[str, RepetitiveLayerConfig] = {
-    "deepseek-ai/DeepSeek-V3.1": RepetitiveLayerConfig(
-        repetitive_ranges=[
-            RepetitiveRange(0, 1, 3),  # Dense
-            RepetitiveRange(3, 4, -1),  # Sparse
-        ],
-    ),
-    "moonshotai/Kimi-K2-Base": RepetitiveLayerConfig(
-        repetitive_ranges=[
-            RepetitiveRange(0, 1, 1),  # Dense
-            RepetitiveRange(1, 2, -1),  # Sparse
-        ],
-    ),
-    "Qwen/Qwen3-Next-80B-A3B-Instruct": RepetitiveLayerConfig(
-        repetitive_ranges=[
-            RepetitiveRange(0, 3, -1),  # SDPA vs. LA ratio 1:3
-        ],
-    ),
-}
-
-
-def model_id_to_repetition_config(model_id: str) -> RepetitiveLayerConfig:
-    return _model_id_to_repetition_config.get(model_id)
-
-
-def default_repetition_config() -> RepetitiveLayerConfig:
-    return RepetitiveLayerConfig(
-        repetitive_ranges=[
-            RepetitiveRange(0, 1, -1),
-        ],
-    )

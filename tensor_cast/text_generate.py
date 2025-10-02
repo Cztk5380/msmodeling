@@ -76,7 +76,7 @@ def run_inference(
     num_mtp_tokens: int = 0,
     num_hidden_layers_override: int = 0,
     is_decode: bool = False,
-    enable_repetition: bool = False,
+    disable_repetition: bool = False,
     reserved_memory_gb=0,
     world_size: int = 1,
     tp_size: int = 1,
@@ -121,7 +121,7 @@ def run_inference(
         print(
             f"Quantization: {quantize_linear_action}, quantize LM Head: {quantize_lmhead}"
         )
-    print(f"Enable repetition: {enable_repetition}")
+    print(f"Enable repetition: {not disable_repetition}")
     if num_mtp_tokens > 0:
         print(f"Number of MTP layers: {num_mtp_tokens}")
     print(f"Use torch.compile: {do_compile}")
@@ -148,7 +148,7 @@ def run_inference(
         num_mtp_tokens=num_mtp_tokens,
         compile=do_compile,
         allow_graph_break=allow_graph_break,
-        enable_repetition=enable_repetition,
+        enable_repetition=not disable_repetition,
         num_hidden_layers_override=num_hidden_layers_override,
     )
     print("Preparing dummy input tensors...")
@@ -311,9 +311,10 @@ def main():
         help="Override the number of hidden layers, for debugging only",
     )
     parser.add_argument(
-        "--enable-repetition",
+        "--disable-repetition",
         action="store_true",
-        help="Leverage the repetition pattern of the transformer models to save runtime cost",
+        help="Preserve the original behavior of the transformer models. Do not leverage the repetition "
+        "pattern of the transformer models to save runtime cost",
     )
     parser.add_argument(
         "--reserved-memory-gb",
@@ -392,7 +393,7 @@ def main():
         num_mtp_tokens=args.num_mtp_tokens,
         num_hidden_layers_override=args.num_hidden_layers_override,
         is_decode=args.decode,
-        enable_repetition=args.enable_repetition,
+        disable_repetition=args.disable_repetition,
         reserved_memory_gb=args.reserved_memory_gb,
         world_size=args.world_size,
         tp_size=args.tp_size,

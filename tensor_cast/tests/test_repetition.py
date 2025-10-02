@@ -5,6 +5,8 @@ from parameterized import parameterized
 
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
+
+from ..layers.internal import CopyLayerWrapper
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.sampler import SamplingMetadata
 
@@ -14,18 +16,12 @@ from ..model_config import (
     MtpConfig,
     ParallelConfig,
     QuantConfig,
-    RepetitiveLayerConfig,
-    RepetitiveRange,
 )
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import (
-    model_id_to_json,
-    model_id_to_mtp_block_module_name,
-    model_id_to_repetition_config,
-)
+from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
 
 from .test_common import (
     assert_close,
@@ -37,6 +33,10 @@ from .test_common import (
 class RepetitionTestCase(unittest.TestCase):
     def setUp(self):
         torch.compiler.reset()
+
+    def check_num_effective_layers(self, layers, expected_num):
+        count = sum(1 for layer in layers if not isinstance(layer, CopyLayerWrapper))
+        self.assertEqual(count, expected_num, f"{layers}")
 
     @parameterized.expand(
         [
@@ -50,15 +50,11 @@ class RepetitionTestCase(unittest.TestCase):
         model_config_with_repeats = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
-            repetitive_layer_config=RepetitiveLayerConfig(
-                repetitive_ranges=[
-                    RepetitiveRange(0, 1, -2),
-                    RepetitiveRange(1, 2, 1),
-                ]
-            ),
+            enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
         model_with_repeats = TransformerModel(model_id, model_config_with_repeats)
+        self.check_num_effective_layers(model_with_repeats.unwrap().layers, 1)
         if do_compile:
             model = torch.compile(
                 model, backend=get_backend(), dynamic=True, fullgraph=True
@@ -90,21 +86,33 @@ class RepetitionTestCase(unittest.TestCase):
                 outputs.shape, (2, num_tokens, model_with_repeats.hidden_size)
             )
 
-        if do_compile:
-            # NOTE: we might miss some cross-layer fusion patterns with repetitions
-            #       so we allow some errors here.
-            assert_close(
-                self, len(runtime.event_list), len(runtime_with_repeats.event_list)
-            )
-        else:
-            self.assertEqual(
-                len(runtime.event_list), len(runtime_with_repeats.event_list)
-            )
+        # NOTE: we might miss some cross-layer fusion patterns with repetitions
+        #       so we allow some errors here.
+        assert_close(
+            self,
+            len(runtime.event_list),
+            len(runtime_with_repeats.event_list),
+            rtol=0.01 if do_compile else 0,
+        )
+        runtime_cost_s = runtime.total_execution_time_s()[perf_model.name]
+        runtime_cost_with_repeats_s = runtime_with_repeats.total_execution_time_s()[
+            perf_model.name
+        ]
+        assert_close(
+            self,
+            runtime_cost_s,
+            runtime_cost_with_repeats_s,
+            rtol=0.01 if do_compile else 0,
+        )
         peak_mem_usage = runtime.memory_tracker.peak_mem_usage()
         peak_mem_usage_with_repeats = (
             runtime_with_repeats.memory_tracker.peak_mem_usage()
         )
-        assert_close(self, peak_mem_usage, peak_mem_usage_with_repeats)
+        assert_close(
+            self,
+            peak_mem_usage,
+            peak_mem_usage_with_repeats,
+        )
 
     @parameterized.expand(
         [
@@ -119,7 +127,7 @@ class RepetitionTestCase(unittest.TestCase):
             ParallelConfig(),
             QuantConfig(),
             hf_config_json=hf_config_json,
-            repetitive_layer_config=model_id_to_repetition_config(model_id),
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -135,6 +143,8 @@ class RepetitionTestCase(unittest.TestCase):
         )
         model_config.mtp_config = mtp_config
         model = TransformerModel(model_id, model_config)
+        self.check_num_effective_layers(model.unwrap().layers, 2)
+        self.check_num_effective_layers(model._inner.mtp.layers, 1)
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
             model, model_config
         )

@@ -7,10 +7,11 @@ import threading
 from typing import Dict, List, Optional, Union
 
 import torch
+from torch.utils._mode_utils import no_dispatch
 from torch.utils._python_dispatch import TorchDispatchMode
+from torch.utils._pytree import tree_map
 
 from .device import DeviceProfile
-from .model_config import RepetitiveRange
 from .patch_torch import patch_torch
 from .performance_model import OpInvokeInfo, PerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
@@ -69,6 +70,140 @@ class Runtime(TorchDispatchMode):
         else:
             return func(*args, **kwargs)
 
+    def repeat_op_invoke_infos(self):
+        class Region:
+            def __init__(self, mark_begin: OpInvokeInfo):
+                # Region contains a sequence of op invocations excluding the region markers
+                self.mark_begin = mark_begin
+                self.mark_end: Optional[OpInvokeInfo] = None
+                self.op_invoke_infos: List[OpInvokeInfo] = []
+
+            def finalize(self, mark_end: OpInvokeInfo):
+                # Patch op_invoke_infos' in/out tensors so that they use the input of mark_begin
+                # and output of mark_end so that the region is connected to the full model after
+                # removing the markers.
+                def patch_inout(t):
+                    if not isinstance(t, torch.Tensor):
+                        return t
+                    if id(t) == id(self.mark_begin.out):
+                        return self.mark_begin.args[0]
+                    if id(t) == id(mark_end.args[0]):
+                        return mark_end.out
+                    return t
+
+                self.mark_end = mark_end
+                for op_invoke_info in self.op_invoke_infos:
+                    op_invoke_info.args = tree_map(patch_inout, op_invoke_info.args)
+                    op_invoke_info.kwargs = tree_map(patch_inout, op_invoke_info.kwargs)
+                    if op_invoke_info.out is not None:
+                        op_invoke_info.out = tree_map(
+                            patch_inout, (op_invoke_info.out,)
+                        )[0]
+
+            @property
+            def input_tensor(self):
+                return self.mark_begin.args[0]
+
+            @property
+            def output_tensor(self):
+                assert self.mark_end is not None, "Region end not finalized"
+                return self.mark_end.out
+
+        def copy_region(
+            input_tensor, output_tensor, region: Region
+        ) -> List[OpInvokeInfo]:
+            """
+            Copy a region of op invocations and return the copied op invocations.
+            We assume that there are no data sharing among regions so that we just clone
+            all the input tensors of the region (which might be inaccurate in estimating
+            memory usage).
+
+            TODO(jgong5): support data sharing among regions.
+            """
+            tensor_mapping = {
+                id(region.input_tensor): input_tensor,
+                id(region.output_tensor): output_tensor,
+            }
+
+            def map_param(t):
+                if not isinstance(t, torch.Tensor):
+                    return t
+                if id(t) in tensor_mapping:
+                    return tensor_mapping[id(t)]
+                with no_dispatch():
+                    new_t = t.clone()
+                tensor_mapping[id(t)] = new_t
+                return new_t
+
+            new_op_invoke_infos = []
+            for op_invoke_info in region.op_invoke_infos:
+                new_args = tree_map(map_param, op_invoke_info.args)
+                new_kwargs = tree_map(map_param, op_invoke_info.kwargs)
+                new_out = None
+                if op_invoke_info.out is not None:
+                    new_out = tree_map(map_param, (op_invoke_info.out,))[0]
+                new_op_invoke_info = OpInvokeInfo(
+                    op_invoke_info.func, new_args, new_kwargs, new_out
+                )
+                new_op_invoke_infos.append(new_op_invoke_info)
+            return new_op_invoke_infos
+
+        new_op_invoke_infos = []
+        region_id_to_op_invoke_infos = {}
+        current_id = None
+        for op_invoke_info in self.op_invoke_infos:
+            if (
+                op_invoke_info.func
+                == torch.ops.tensor_cast._internal_mark_region_begin.default
+            ):
+                assert current_id is None, (
+                    f"Already in region {current_id}, we do not support nested regions"
+                )
+                current_id = op_invoke_info.args[1]
+                assert current_id not in region_id_to_op_invoke_infos, (
+                    f"Duplicated region id {current_id} found"
+                )
+                region_id_to_op_invoke_infos[current_id] = Region(op_invoke_info)
+            elif (
+                op_invoke_info.func
+                == torch.ops.tensor_cast._internal_mark_region_end.default
+            ):
+                current_id = op_invoke_info.args[1]
+                assert current_id in region_id_to_op_invoke_infos, (
+                    f"Region end with id {current_id} not paired with a region begin"
+                )
+                region_id_to_op_invoke_infos[current_id].finalize(op_invoke_info)
+                new_op_invoke_infos.extend(
+                    region_id_to_op_invoke_infos[current_id].op_invoke_infos
+                )
+                current_id = None
+            elif (
+                op_invoke_info.func
+                == torch.ops.tensor_cast._internal_copy_region.default
+            ):
+                assert current_id is None, (
+                    f"Already in region {current_id}, we do not support nested regions"
+                )
+                copy_id = op_invoke_info.args[1]
+                assert copy_id in region_id_to_op_invoke_infos, (
+                    f"Regioin {copy_id} not marked before copy"
+                )
+                new_op_invoke_infos.extend(
+                    copy_region(
+                        op_invoke_info.args[0],
+                        op_invoke_info.out,
+                        region_id_to_op_invoke_infos[copy_id],
+                    )
+                )
+            else:
+                if current_id is not None:
+                    region_id_to_op_invoke_infos[current_id].op_invoke_infos.append(
+                        op_invoke_info
+                    )
+                else:
+                    new_op_invoke_infos.append(op_invoke_info)
+        self.op_invoke_infos = new_op_invoke_infos
+
     def replay_op_invoke_infos(self):
         for op_invoke_info in self.op_invoke_infos:
             if self.memory_tracker:
@@ -88,47 +223,12 @@ class Runtime(TorchDispatchMode):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        self.repeat_op_invoke_infos()
         self.replay_op_invoke_infos()
-        self.event_list = self.repeat_event_list()
         if self.memory_tracker:
             self.memory_tracker.analyze()
         _current_runtime.value = None
         super().__exit__(exc_type, exc_val, exc_tb)
-
-    def repeat_event_list(self):
-        id_to_repetitive_range = {}
-        new_event_list = []
-        copied_offset = 0  # we have copied self.event_list[:copied_offset] so far
-        for i, event in enumerate(self.event_list):
-            if (
-                event.op_invoke_info.func
-                == torch.ops.tensor_cast._internal_repeat_marker_begin.default
-            ):
-                current_id = event.op_invoke_info.args[1]
-                assert current_id not in id_to_repetitive_range, (
-                    f"Already in repetition block {current_id}, we do not support nested repetition blocks"
-                )
-                repeats = event.op_invoke_info.args[2]
-                id_to_repetitive_range[current_id] = RepetitiveRange(
-                    start=i + 1, stop=-1, repeats=repeats
-                )
-                new_event_list.extend(self.event_list[copied_offset:i])
-                copied_offset = i
-            elif (
-                event.op_invoke_info.func
-                == torch.ops.tensor_cast._internal_repeat_marker_end.default
-            ):
-                current_id = event.op_invoke_info.args[1]
-                assert current_id in id_to_repetitive_range, (
-                    f"repeat_marker_end with {current_id} not paired with a repeat_marker_begin"
-                )
-                id_to_repetitive_range[current_id].stop = i
-                rr = id_to_repetitive_range[current_id]
-                repeated_events = self.event_list[rr.start : rr.stop] * rr.repeats
-                new_event_list.extend(repeated_events)
-                copied_offset = i + 1
-        new_event_list.extend(self.event_list[copied_offset:])
-        return new_event_list
 
     def table_averages(self, group_by_input_shapes=False) -> str:
         """

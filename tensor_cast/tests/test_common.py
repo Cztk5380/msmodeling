@@ -7,7 +7,7 @@ from ..model_config import ModelConfig
 
 
 def assert_close(self, value1, value2, rtol=0.01):
-    self.assertLess(
+    self.assertLessEqual(
         abs(value1 - value2) / value1, rtol, f"{value1} vs. {value2}, rtol={rtol}"
     )
 
