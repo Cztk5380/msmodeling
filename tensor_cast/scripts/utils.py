@@ -18,11 +18,9 @@ from ..model_config import (
 )
 from ..transformers.model import TransformerModel
 from ..transformers.utils import (
-    default_repetition_config,
     model_id_to_json,
     model_id_to_mla_module_name,
     model_id_to_mtp_block_module_name,
-    model_id_to_repetition_config,
 )
 
 
@@ -118,11 +116,7 @@ def build_model(
             mtp_block_module_name=mtp_block_module_name,
         )
         model_config.mtp_config = mtp_config
-    if enable_repetition:
-        repetition_config = model_id_to_repetition_config(model_id)
-        if not repetition_config:
-            repetition_config = default_repetition_config()
-        model_config.repetitive_layer_config = repetition_config
+    model_config.enable_repetition = enable_repetition
     if num_hidden_layers_override > 0:
         model_config.num_hidden_layers_override = num_hidden_layers_override
     model = TransformerModel(model_id, model_config)

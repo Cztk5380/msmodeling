@@ -14,14 +14,14 @@ from transformers import AutoConfig, AutoModel, PretrainedConfig
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
 from ..layers.attention import flash_attention_forward
-from ..layers.internal import RepetitiveLayerWrapper
+from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 
 from ..layers.parallel_linear import COLWISE_LINEAR, PARALLEL_MODULE_CLS, ROWWISE_LINEAR
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
-from ..model_config import ModelConfig, MoEConfig, RepetitiveRange
+from ..model_config import ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from .utils import model_id_to_moe_config, strip_module_name
 
@@ -269,69 +269,44 @@ class TransformerModel(ModelWrapperBase):
         )
 
     def maybe_repeat_layers(self):
-        if not self.model_config.repetitive_layer_config:
+        if not self.model_config.enable_repetition:
             return
 
-        def canonicalize_repetitive_ranges(module, repetitive_ranges):
-            """Fill the actual value of the repeats fields if they are negative"""
-            new_repetitive_ranges = repetitive_ranges[:]
-            num_hidden_layers = len(module.layers)
-            # fill up repeats placeholder
-            num_remaining_layers = num_hidden_layers
-            for i, rr in enumerate(repetitive_ranges):
-                if rr.repeats >= 0:
-                    num_remaining_layers -= (rr.stop - rr.start) * rr.repeats
-                else:
-                    num_layers = num_remaining_layers + rr.repeats + 1
-                    if num_layers % (rr.stop - rr.start) != 0:
-                        raise ValueError(
-                            f"Number of remaining layers {num_layers} not dividable by {rr.stop - rr.start}"
-                        )
-                    new_repetitive_ranges[i] = RepetitiveRange(
-                        rr.start,
-                        rr.stop,
-                        num_layers // (rr.stop - rr.start),
+        def get_submodule_structure_key(module: torch.nn.Module) -> str:
+            submodule_types = []
+            for name, sub_module in module.named_modules():
+                submodule_types.append(name)
+                submodule_types.append(
+                    ".".join([type(sub_module).__module__, type(sub_module).__name__])
+                )
+            return ",".join(submodule_types)
+
+        def repeat_layers(layers):
+            # We analyze the structure of sub-modules of each layer to detect repetition patterns.
+            # For the first layer of the repetition, we wrap it with RegionMarkerWrapper and then
+            # wrap the rest layers of the same pattern with CopyLayerWrapper. This tells the runtime
+            # that we can copy the execution of the first layer to the rest layers.
+            seen_keys = {}
+            for i, layer in enumerate(layers):
+                key = get_submodule_structure_key(layer)
+                if key not in seen_keys:
+                    seen_keys[key] = id(layer)
+                    layers[i] = RegionMarkerWrapper(
+                        region_id=seen_keys[key],
+                        layer=layer,
                     )
-                    num_remaining_layers -= num_layers
-                    if (
-                        num_remaining_layers == 0
-                        and i != len(new_repetitive_ranges) - 1
-                    ):
-                        raise ValueError(
-                            f"no remaining layers left for the rest of the repetition ranges: "
-                            f"{new_repetitive_ranges[i + 1 :]}"
-                        )
-            # check validity of the ranges first
-            if (
-                sum([rr.repeats * (rr.stop - rr.start) for rr in new_repetitive_ranges])
-                != num_hidden_layers
-            ):
-                raise ValueError(
-                    f"The sum of all the ranges with repeats should match the original number of "
-                    f"hidden layers: expected {num_hidden_layers}, got {new_repetitive_ranges}"
-                )
-            return new_repetitive_ranges
+                else:
+                    layers[i] = CopyLayerWrapper(
+                        region_id=seen_keys[key],
+                        layer=layer,
+                    )
 
-        def repeat_layers(module, repetitive_ranges):
-            new_layers = []
-            for rr in repetitive_ranges:
-                new_layers.extend(
-                    [
-                        RepetitiveLayerWrapper(rr, id(rr), layer, i + rr.start)
-                        if rr.repeats > 1
-                        else layer
-                        for i, layer in enumerate(module.layers[rr.start : rr.stop])
-                    ]
-                )
-            return torch.nn.ModuleList(new_layers)
-
-        config = self.model_config.repetitive_layer_config
         unwrapped = self.unwrap()
-        self.repetitive_ranges = canonicalize_repetitive_ranges(
-            unwrapped, config.repetitive_ranges
-        )
-        if hasattr(unwrapped, "layers") and config.repetitive_ranges:
-            unwrapped.layers = repeat_layers(unwrapped, self.repetitive_ranges)
+        if hasattr(unwrapped, "layers"):
+            repeat_layers(unwrapped.layers)
+
+        if isinstance(self._inner, MtpWrapper):
+            repeat_layers(self._inner.mtp.layers)
 
     def patch_model(self):
         """
@@ -617,18 +592,7 @@ class TransformerModel(ModelWrapperBase):
                 total_size += buffer.nelement() * buffer.element_size()
             return total_size
 
-        total_size = get_weight_size_nested(self)
-        if self.model_config.repetitive_layer_config:
-            unwrapped = self.unwrap()
-            if hasattr(unwrapped, "layers"):
-                assert len(self.repetitive_ranges) == len(unwrapped.layers)
-                for i, rr in enumerate(self.repetitive_ranges):
-                    if rr.repeats == 1:
-                        continue
-                    total_size += get_weight_size_nested(unwrapped.layers[i]) * (
-                        rr.repeats - 1
-                    )
-        return total_size
+        return get_weight_size_nested(self)
 
     def forward(
         self,

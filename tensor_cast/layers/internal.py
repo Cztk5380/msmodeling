@@ -1,42 +1,59 @@
 import torch
 
 from .. import ops  # noqa: F401
-from ..model_config import RepetitiveRange
 from .utils import ModelWrapperBase
 
 
-class RepetitiveLayerWrapper(ModelWrapperBase):
+class RegionMarkerWrapper(ModelWrapperBase):
     def __init__(
         self,
-        repetitive_range: RepetitiveRange,
-        range_id: int,
+        region_id: int,
         layer: torch.nn.Module,
-        layer_idx,
     ):
         """
+        Wrap a layer with region markers.
         Args:
-            repetitive_range: Describe a range of the layers for repeating
-            range_id: The id of the range to repeat.
-            layer: Original layer instance to repeat from
-            layer_idx: The index of the layer within the repetitive range
+            region_id: The id of the region to mark.
+            layer: Original layer instance to wrap
         """
         super().__init__(layer)
-        self.repetitive_range = repetitive_range
-        self.range_id = range_id
-        self.layer_idx = layer_idx
+        self.region_id = region_id
 
     def forward(self, *args, **kwargs):
         hidden_states = args[0]
-        if self.repetitive_range.start == self.layer_idx:
-            hidden_states = torch.ops.tensor_cast._internal_repeat_marker_begin(
-                hidden_states,
-                self.range_id,
-                self.repetitive_range.repeats,
-            )
+        hidden_states = torch.ops.tensor_cast._internal_mark_region_begin(
+            hidden_states,
+            self.region_id,
+        )
         hidden_states = self._inner.forward(*args, **kwargs)
-        if self.repetitive_range.stop == self.layer_idx + 1:
-            hidden_states = torch.ops.tensor_cast._internal_repeat_marker_end(
-                hidden_states,
-                self.range_id,
-            )
+        hidden_states = torch.ops.tensor_cast._internal_mark_region_end(
+            hidden_states,
+            self.region_id,
+        )
+        return hidden_states
+
+
+class CopyLayerWrapper(ModelWrapperBase):
+    def __init__(
+        self,
+        region_id: int,
+        layer: torch.nn.Module,
+    ):
+        """
+        Wrap a layer with a copy operation that copies a previously marked region.
+        Args:
+            region_id: The id of the range to repeat.
+            layer: Original layer instance to repeat from
+        """
+        super().__init__(layer)
+        self.region_id = region_id
+
+    def forward(self, *args, **kwargs):
+        hidden_states = args[0]
+        # The following copy operation would be equivalent to:
+        # hidden_states = self._inner.forward(*args, **kwargs)
+        hidden_states = torch.ops.tensor_cast._internal_copy_region(
+            hidden_states,
+            self.region_id,
+        )
         return hidden_states
