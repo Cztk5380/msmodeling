@@ -228,6 +228,7 @@ class Runtime(TorchDispatchMode):
         if self.memory_tracker:
             self.memory_tracker.analyze()
         _current_runtime.value = None
+        self.exit_stack.__exit__(exc_type, exc_val, exc_tb)
         super().__exit__(exc_type, exc_val, exc_tb)
 
     def table_averages(self, group_by_input_shapes=False) -> str:

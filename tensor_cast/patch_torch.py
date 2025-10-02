@@ -14,6 +14,9 @@ def _set_meta_autocast_enabled(enabled):
     _meta_autocast_enabled.value = enabled
 
 
+_in_support_autocast_for_meta = False
+
+
 @contextlib.contextmanager
 def support_autocast_for_meta():
     """
@@ -50,6 +53,11 @@ def support_autocast_for_meta():
         else:
             set_autocast_enabled_orig(device, enabled)
 
+    global _in_support_autocast_for_meta
+    if _in_support_autocast_for_meta:
+        yield
+        return
+    _in_support_autocast_for_meta = True
     torch.get_autocast_dtype = get_autocast_dtype
     torch.is_autocast_enabled = is_autocast_enabled
     torch.set_autocast_enabled = set_autocast_enabled
@@ -59,6 +67,7 @@ def support_autocast_for_meta():
     torch.set_autocast_enabled = set_autocast_enabled_orig
     torch.is_autocast_enabled = is_autocast_enabled_orig
     torch.get_autocast_dtype = get_autocast_dtype_orig
+    _in_support_autocast_for_meta = False
 
 
 @contextlib.contextmanager
