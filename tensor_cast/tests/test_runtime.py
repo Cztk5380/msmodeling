@@ -106,7 +106,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
             ParallelConfig(),
             QuantConfig(),
             hf_config_json=hf_config_json,
-            num_hidden_layers_override=5,  # large enough to include MoE layers
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",

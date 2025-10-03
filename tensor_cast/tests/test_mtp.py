@@ -40,7 +40,7 @@ class MtpTestCase(unittest.TestCase):
             ParallelConfig(),
             QuantConfig(),
             hf_config_json=hf_config_json,
-            num_hidden_layers_override=2,
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -87,7 +87,7 @@ class MtpTestCase(unittest.TestCase):
             ParallelConfig(),
             QuantConfig(),
             hf_config_json=hf_config_json,
-            num_hidden_layers_override=2,
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -143,7 +143,7 @@ class MtpTestCase(unittest.TestCase):
             ParallelConfig(),
             QuantConfig(),
             hf_config_json=hf_config_json,
-            num_hidden_layers_override=2,
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",

@@ -30,7 +30,6 @@ class MtpTestCase(unittest.TestCase):
             ["deepseek-ai/DeepSeek-V3.1", (16, True), True],
             ["deepseek-ai/DeepSeek-V3.1", (16, False), True],
             ["moonshotai/Kimi-K2-Base", (16, True), False],
-            # ["moonshotai/Kimi-K2-Base", True],  # long test time
         ]
     )
     def test_deepseek_prefill_without_kvcache(
@@ -47,7 +46,7 @@ class MtpTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            num_hidden_layers_override=6,
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -85,7 +84,6 @@ class MtpTestCase(unittest.TestCase):
             ["deepseek-ai/DeepSeek-V3.1", (16, True), True],
             ["deepseek-ai/DeepSeek-V3.1", (16, False), True],
             ["moonshotai/Kimi-K2-Base", (16, True), False],
-            # ["moonshotai/Kimi-K2-Base", True],  # long test time
         ]
     )
     def test_deepseek_prefill_with_kvcache(
@@ -101,7 +99,7 @@ class MtpTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            num_hidden_layers_override=6,
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -164,7 +162,7 @@ class MtpTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            num_hidden_layers_override=6,
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
