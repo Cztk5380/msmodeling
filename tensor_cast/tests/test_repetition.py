@@ -6,6 +6,8 @@ from parameterized import parameterized
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 
+from ..layers.attention import AttentionTensorCast
+
 from ..layers.internal import CopyLayerWrapper
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.sampler import SamplingMetadata
@@ -46,10 +48,15 @@ class RepetitionTestCase(unittest.TestCase):
     )
     def test_vanilla_transformer_model(self, model_id, do_compile):
         num_tokens = 100
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        model_config = ModelConfig(
+            ParallelConfig(),
+            QuantConfig(),
+            num_hidden_layers_override=3,
+        )
         model_config_with_repeats = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
+            num_hidden_layers_override=3,
             enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
@@ -126,6 +133,7 @@ class RepetitionTestCase(unittest.TestCase):
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
+            attention_cls=AttentionTensorCast,
             hf_config_json=hf_config_json,
             enable_repetition=True,
         )

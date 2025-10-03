@@ -410,7 +410,7 @@ class TestQuantLinear(unittest.TestCase):
             ),
             quant_linear_cls=TensorCastQuantLinear,
             hf_config_json=hf_config_json,
-            num_hidden_layers_override=5,
+            enable_repetition=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",

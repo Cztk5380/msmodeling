@@ -1,4 +1,5 @@
 import dataclasses
+import hashlib
 import itertools
 import logging
 from abc import ABC, abstractmethod
@@ -36,11 +37,12 @@ class OpInvokeInfo:
         memory_readwrite_bytes: int = 0
         """Read-write bytes"""
 
-    def __init__(self, func, args, kwargs, out):
+    def __init__(self, func, args, kwargs, out, cache_key=None):
         self.func = func
         self.args = args
         self.kwargs = {} if kwargs is None else kwargs
         self.out = out
+        self.cache_key = cache_key or self.compute_cache_key()
 
     @classmethod
     def get_op_properties_functor(cls, op):
@@ -107,6 +109,44 @@ class OpInvokeInfo:
         functor = self.get_op_properties_functor(self.func)
         return functor(self)
 
+    def compute_cache_key(self) -> str:
+        """
+        Compute an efficient cache key based on operation signature and tensor properties.
+        This key represents the computational characteristics of the operation.
+
+        Returns:
+            A string hash that can be used as a cache key
+        """
+        key_components = []
+
+        key_components.append(str(self.func))
+
+        def add_tensor_info(t, components):
+            if isinstance(t, torch.Tensor):
+                components.extend(
+                    [
+                        str(t.shape),
+                        str(t.dtype),
+                        str(t.device),
+                        str(t.stride()) if not t.is_contiguous() else "contiguous",
+                        str(t.requires_grad),
+                    ]
+                )
+            else:
+                components.append(str(t))
+
+        for arg in self.args:
+            add_tensor_info(arg, key_components)
+
+        if self.kwargs:
+            for k, v in sorted(self.kwargs.items()):
+                key_components.append(k)
+                add_tensor_info(v, key_components)
+
+        # Create hash
+        key_string = "|".join(key_components)
+        return hashlib.sha256(key_string.encode()).hexdigest()
+
     def __repr__(self):
         return f"OpInvokeInfo({self.func}, {self.args}, {self.kwargs}, {self.out})"
 
@@ -169,6 +209,27 @@ class PerformanceModel(ABC):
 
     def get_classifiers(self) -> List[OpClassifier]:
         return []
+
+
+class CachingPerformanceModel(PerformanceModel):
+    """
+    A performance model that caches the results of another performance model.
+    """
+
+    def __init__(self, base_model: PerformanceModel):
+        super().__init__(base_model.name, base_model.device_profile)
+        self._base_model = base_model
+        self._cache: Dict[str, PerformanceModel.Result] = {}
+
+    def process_op(self, op_invoke_info: OpInvokeInfo) -> "PerformanceModel.Result":
+        if op_invoke_info.cache_key in self._cache:
+            return self._cache[op_invoke_info.cache_key]
+        result = self._base_model.process_op(op_invoke_info)
+        self._cache[op_invoke_info.cache_key] = result
+        return result
+
+    def get_classifiers(self) -> List[PerformanceModel.OpClassifier]:
+        return self._base_model.get_classifiers()
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.bmm.default)

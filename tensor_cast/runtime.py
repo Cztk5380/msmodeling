@@ -7,13 +7,13 @@ import threading
 from typing import Dict, List, Optional, Union
 
 import torch
+from torch.utils._cxx_pytree import tree_map
 from torch.utils._mode_utils import no_dispatch
 from torch.utils._python_dispatch import TorchDispatchMode
-from torch.utils._pytree import tree_map
 
 from .device import DeviceProfile
 from .patch_torch import patch_torch
-from .performance_model import OpInvokeInfo, PerformanceModel
+from .performance_model import CachingPerformanceModel, OpInvokeInfo, PerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,12 @@ class Runtime(TorchDispatchMode):
         self.perf_models = (
             perf_models if isinstance(perf_models, (list, tuple)) else [perf_models]
         )
+        self.perf_models = [
+            perf_model
+            if isinstance(perf_model, CachingPerformanceModel)
+            else CachingPerformanceModel(perf_model)
+            for perf_model in self.perf_models
+        ]
         self.device_profile = device_profile
         self.memory_tracker: Optional[MemoryTracker] = memory_tracker
         self.op_invoke_infos: List[OpInvokeInfo] = []
@@ -92,13 +98,18 @@ class Runtime(TorchDispatchMode):
                     return t
 
                 self.mark_end = mark_end
+                inouts = []
                 for op_invoke_info in self.op_invoke_infos:
-                    op_invoke_info.args = tree_map(patch_inout, op_invoke_info.args)
-                    op_invoke_info.kwargs = tree_map(patch_inout, op_invoke_info.kwargs)
-                    if op_invoke_info.out is not None:
-                        op_invoke_info.out = tree_map(
-                            patch_inout, (op_invoke_info.out,)
-                        )[0]
+                    inouts.append(
+                        (op_invoke_info.args, op_invoke_info.kwargs, op_invoke_info.out)
+                    )
+                new_inouts = tree_map(patch_inout, inouts)
+                for op_invoke_info, (new_args, new_kwargs, new_out) in zip(
+                    self.op_invoke_infos, new_inouts
+                ):
+                    op_invoke_info.args = new_args
+                    op_invoke_info.kwargs = new_kwargs
+                    op_invoke_info.out = new_out
 
             @property
             def input_tensor(self):
@@ -125,25 +136,32 @@ class Runtime(TorchDispatchMode):
                 id(region.output_tensor): output_tensor,
             }
 
-            def map_param(t):
+            def copy(t):
                 if not isinstance(t, torch.Tensor):
                     return t
                 if id(t) in tensor_mapping:
                     return tensor_mapping[id(t)]
-                with no_dispatch():
-                    new_t = t.clone()
+                new_t = t.clone()
                 tensor_mapping[id(t)] = new_t
                 return new_t
 
             new_op_invoke_infos = []
+            inouts = []
             for op_invoke_info in region.op_invoke_infos:
-                new_args = tree_map(map_param, op_invoke_info.args)
-                new_kwargs = tree_map(map_param, op_invoke_info.kwargs)
-                new_out = None
-                if op_invoke_info.out is not None:
-                    new_out = tree_map(map_param, (op_invoke_info.out,))[0]
+                inouts.append(
+                    (op_invoke_info.args, op_invoke_info.kwargs, op_invoke_info.out)
+                )
+            with no_dispatch():
+                new_inouts = tree_map(copy, inouts)
+            for op_invoke_info, (new_args, new_kwargs, new_out) in zip(
+                region.op_invoke_infos, new_inouts
+            ):
                 new_op_invoke_info = OpInvokeInfo(
-                    op_invoke_info.func, new_args, new_kwargs, new_out
+                    op_invoke_info.func,
+                    new_args,
+                    new_kwargs,
+                    new_out,
+                    op_invoke_info.cache_key,
                 )
                 new_op_invoke_infos.append(new_op_invoke_info)
             return new_op_invoke_infos
@@ -228,7 +246,6 @@ class Runtime(TorchDispatchMode):
         if self.memory_tracker:
             self.memory_tracker.analyze()
         _current_runtime.value = None
-        self.exit_stack.__exit__(exc_type, exc_val, exc_tb)
         super().__exit__(exc_type, exc_val, exc_tb)
 
     def table_averages(self, group_by_input_shapes=False) -> str:
