@@ -259,17 +259,13 @@ class TestQuantLinear(unittest.TestCase):
         ]
     )
     def test_model_quant_wildcard(self, model_id):
-        import time
-
         model_config_with_quant = ModelConfig(
             ParallelConfig(),
             get_quant_config(),
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
         )
-        start = time.time()
         qmodel = TransformerModel(model_id, model_config_with_quant)
-        print(f"model init time: {time.time() - start}")
         num_linear_modules = sum(
             1
             for _, module in qmodel.named_modules()
@@ -327,18 +323,28 @@ class TestQuantLinear(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["Qwen/Qwen3-32B"],
-            ["Qwen/Qwen3-235B-A22B"],
-            ["zai-org/GLM-4.5"],
+            ["Qwen/Qwen3-32B", True, False],
+            ["Qwen/Qwen3-235B-A22B", True, True],
+            ["zai-org/GLM-4.5", True, False],
+            ["Qwen/Qwen3-32B", False, True],
         ]
     )
-    def test_model_quant_tensorcast_dynamic_w4a8(self, model_id):
+    def test_model_quant_tensorcast_dynamic_w4a8(self, model_id, symmetric, per_sample):
         model_config = ModelConfig(ParallelConfig(), QuantConfig())
         model = TransformerModel(model_id, model_config)
 
         model_config_with_quant = ModelConfig(
             ParallelConfig(),
-            get_quant_config(model.unwrap(), quant_type=LinearQuantType.W4A8),
+            get_quant_config(
+                model.unwrap(),
+                quant_type=LinearQuantType.W4A8,
+                dynamic_quant_scheme=QuantScheme.SYMMETRIC
+                if symmetric
+                else QuantScheme.ASYMMETRIC,
+                dynamic_quant_granularity=QuantGranularity.PER_SAMPLE
+                if per_sample
+                else QuantGranularity.PER_TENSOR,
+            ),
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
         )
@@ -353,7 +359,11 @@ class TestQuantLinear(unittest.TestCase):
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
         result = runtime.table_averages()
-        self.assertTrue("tensor_cast.dynamic_quant_linear_int4.default" in result)
+        if symmetric:
+            self.assertIn("tensor_cast.dynamic_quantize_symmetric.default", result)
+        else:
+            self.assertIn("tensor_cast.dynamic_quantize_asymmetric.default", result)
+        self.assertIn("tensor_cast.static_quant_linear_int4.default", result)
 
     @parameterized.expand(
         [
@@ -407,6 +417,7 @@ class TestQuantLinear(unittest.TestCase):
             ParallelConfig(),
             get_quant_config(
                 quant_type=LinearQuantType.W8A8,
+                activation_scale=torch.empty([], dtype=torch.float, device="meta"),
             ),
             quant_linear_cls=TensorCastQuantLinear,
             hf_config_json=hf_config_json,
@@ -455,7 +466,8 @@ class TestQuantLinear(unittest.TestCase):
             )
             self.assertEqual(outputs.shape, (2, num_mtp_layers + 1))
         result = runtime.table_averages()
-        self.assertIn("tensor_cast.dynamic_quant_linear.default", result)
+        self.assertIn("tensor_cast.quantize.default", result)
+        self.assertIn("tensor_cast.static_quant_linear.default", result)
 
     def test_quant_lmhead(self):
         model_id = "Qwen/Qwen3-32B"
@@ -482,7 +494,8 @@ class TestQuantLinear(unittest.TestCase):
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             _ = model.forward(inputs, position_ids)
         result = runtime.table_averages()
-        self.assertIn("tensor_cast.dynamic_quant_linear.default", result)
+        self.assertIn("tensor_cast.dynamic_quantize_symmetric.default", result)
+        self.assertIn("tensor_cast.static_quant_linear.default", result)
 
     def test_quant_lmhead_mtp(self):
         model_id = "deepseek-ai/DeepSeek-V3.1"
@@ -539,4 +552,5 @@ class TestQuantLinear(unittest.TestCase):
             )
             self.assertEqual(outputs.shape, (2, num_mtp_layers + 1))
         result = runtime.table_averages()
-        self.assertIn("tensor_cast.dynamic_quant_linear.default", result)
+        self.assertIn("tensor_cast.dynamic_quantize_symmetric.default", result)
+        self.assertIn("tensor_cast.static_quant_linear.default", result)

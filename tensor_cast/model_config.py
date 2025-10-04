@@ -54,10 +54,15 @@ class LinearQuantConfig:
     dynamic_quant_granularity: QuantGranularity = QuantGranularity.PER_TENSOR
     dynamic_quant_scheme: QuantScheme = QuantScheme.SYMMETRIC
     activation_scale: Optional[torch.Tensor] = None
+    """Scale for static quantization, None for dynamic quantization"""
     activation_offset: Optional[torch.Tensor] = None
+    """Offset for static quantization, None for symmetric quantization or dynamic quantization"""
 
     # output config
     out_dtype: Optional[torch.dtype] = None
+    """We deliberately not support output scales and only support out_dtype as
+    high-precision dtype (fp16, bf16, fp32) for simplicity. Use-case for quantized
+    output is not common."""
 
 
 @dataclasses.dataclass
