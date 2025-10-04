@@ -232,43 +232,61 @@ class TensorCastQuantLinear(QuantLinearBase):
             if self.quant_config.out_dtype is not None
             else x.dtype
         )
-        if self.activation_scale is not None:
-            op = (
-                torch.ops.tensor_cast.static_quant_linear_int4
-                if self.quant_config.quant_type == LinearQuantType.W4A8
-                else torch.ops.tensor_cast.static_quant_linear
-            )
-            if self.activation_scale is not None:
-                # TODO: perhaps we can consider to explicitly model dynamic quant outside the quant linear op
-                #       so that we can fuse this quant op with previous ops too.
-                x = torch.ops.tensor_cast.quantize(
+        if self.activation_scale is None:
+            # Dynamic quantization path
+            if (
+                self.quant_config.dynamic_quant_granularity
+                == QuantGranularity.PER_TENSOR
+            ):
+                dims = []
+            else:
+                assert (
+                    self.quant_config.dynamic_quant_granularity
+                    == QuantGranularity.PER_SAMPLE
+                )
+                dims = [-1]
+            if self.quant_config.dynamic_quant_scheme == QuantScheme.SYMMETRIC:
+                x, activation_scale = torch.ops.tensor_cast.dynamic_quantize_symmetric(
                     x,
-                    self.activation_scale,
-                    self.activation_offset,
+                    dims=dims,
+                    scale_dtype=self.weight_scale.dtype,
                     out_dtype=torch.int8,
                 )
-            out = op(
-                x,
-                qweight,
-                self.weight_scale,
-                w_offset=self.weight_offset,
-                x_scale=self.activation_scale,
-                x_offset=self.activation_offset,
-                bias=self.bias,
-                out_dtype=out_dtype,
-            )
+                activation_offset = None
+            else:
+                assert self.quant_config.dynamic_quant_scheme == QuantScheme.ASYMMETRIC
+                x, activation_scale, activation_offset = (
+                    torch.ops.tensor_cast.dynamic_quantize_asymmetric(
+                        x,
+                        dims=dims,
+                        scale_dtype=self.weight_scale.dtype,
+                        out_dtype=torch.int8,
+                    )
+                )
         else:
-            op = (
-                torch.ops.tensor_cast.dynamic_quant_linear_int4
-                if self.quant_config.quant_type == LinearQuantType.W4A8
-                else torch.ops.tensor_cast.dynamic_quant_linear
-            )
-            out = op(
+            # Static quantization path
+            activation_scale = self.activation_scale
+            activation_offset = self.activation_offset
+            x = torch.ops.tensor_cast.quantize(
                 x,
-                qweight,
-                self.weight_scale,
-                w_offset=self.weight_offset,
-                bias=self.bias,
-                out_dtype=out_dtype,
+                activation_scale,
+                activation_offset,
+                out_dtype=torch.int8,
             )
+
+        op = (
+            torch.ops.tensor_cast.static_quant_linear_int4
+            if self.quant_config.quant_type == LinearQuantType.W4A8
+            else torch.ops.tensor_cast.static_quant_linear
+        )
+        out = op(
+            x,
+            qweight,
+            self.weight_scale,
+            w_offset=self.weight_offset,
+            x_scale=activation_scale,
+            x_offset=activation_offset,
+            bias=self.bias,
+            out_dtype=out_dtype,
+        )
         return out.reshape(*x_shape[:-1], out.shape[-1]).to(out_dtype)

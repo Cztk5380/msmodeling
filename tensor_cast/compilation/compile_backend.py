@@ -1,6 +1,6 @@
 import functools
 import logging
-from typing import Callable, Any, Optional
+from typing import Any, Callable, Optional
 
 import torch
 import torch.fx as fx
@@ -21,6 +21,7 @@ class CompilerBackend:
     The compilation backend for 'torch.compile'.
     It is used to process the FX graph and perform custom operation fusing etc.
     """
+
     def __call__(self, graph: fx.GraphModule, example_inputs) -> Callable:
         """
         Process the FX graph and perform custom operation fusing.
@@ -46,6 +47,9 @@ class CompilerBackend:
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(fx_graph.print_readable(print_output=False))
             self.apply_quantization_passes(fx_graph)
+            logger.debug("Graph before pattern matching:")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(fx_graph.print_readable(print_output=False))
             self.apply_pattern_match_passes(fx_graph)
             self.apply_decompose_auto_functionalized_pass(fx_graph)
             logger.debug("Graph after compiling:")
@@ -54,9 +58,11 @@ class CompilerBackend:
             return fx_graph
 
         # Use the default decomposition table to decompose operators.
-        decompositions = (select_decomp_table())
+        decompositions = select_decomp_table()
         # Use AOT Autograd to handle the forward compilation.
-        return aot_autograd(fw_compiler=compile_inner, decompositions=decompositions)(gm, example_inputs)
+        return aot_autograd(fw_compiler=compile_inner, decompositions=decompositions)(
+            gm, example_inputs
+        )
 
     def apply_quantization_passes(self, graph: fx.GraphModule):
         GraphTransformObserver = functools.partial(
@@ -80,7 +86,7 @@ class CompilerBackend:
             GraphTransformObserver(graph, f"pattern_match_pass_{i}").apply_gm_pass(
                 pattern_match_pass
             )
-        
+
     def apply_decompose_auto_functionalized_pass(self, graph: fx.GraphModule):
         GraphTransformObserver = functools.partial(
             torch.fx.passes.graph_transform_observer.GraphTransformObserver,
@@ -89,4 +95,4 @@ class CompilerBackend:
         )
         GraphTransformObserver(graph, "decompose_auto_functionalized").apply_graph_pass(
             decompose_auto_functionalized
-        )  
+        )
