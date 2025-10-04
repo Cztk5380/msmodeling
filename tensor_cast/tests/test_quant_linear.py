@@ -30,6 +30,8 @@ from ..transformers.utils import (
     strip_module_name,
 )
 
+from ..utils import DTYPE_FP8
+
 from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 
 # Define common parameters for tests
@@ -40,10 +42,12 @@ MODEL_DTYPE = torch.bfloat16
 DEVICE = "cpu"
 
 
-def get_linear_quant_config(quant_type, weight, **kwargs):
+def get_linear_quant_config(quant_type, weight=None, **kwargs):
     """Helper to create a default symmetric per-tensor weight quant config."""
     # Per-tensor symmetric quantization for weight
-    w_scale = torch.max(torch.abs(weight)) / 127.0
+    if weight is None:
+        weight = torch.randn(1)
+    w_scale = kwargs.pop("weight_scale", torch.max(torch.abs(weight)) / 127.0)
     config_args = {
         "weight_scale": w_scale,
         "quant_type": quant_type,
@@ -554,3 +558,199 @@ class TestQuantLinear(unittest.TestCase):
         result = runtime.table_averages()
         self.assertIn("tensor_cast.dynamic_quantize_symmetric.default", result)
         self.assertIn("tensor_cast.static_quant_linear.default", result)
+
+    def test_fp8_validation(self):
+        """Test that FP8 quantization validates configuration correctly."""
+
+        # Test valid FP8 configuration
+        valid_config = get_linear_quant_config(
+            quant_type=LinearQuantType.FP8,
+            weight_scale=torch.tensor(1.0),
+            dynamic_quant_scheme=QuantScheme.SYMMETRIC,
+            dynamic_quant_dtype=DTYPE_FP8,
+        )
+        # This should not raise an error
+        fp8_layer = QuantLinearBase(self.linear_layer_no_bias, valid_config)
+        self.assertEqual(fp8_layer.quant_config.quant_type, LinearQuantType.FP8)
+
+        # Test invalid configurations
+
+        # 1. Asymmetric scheme not allowed
+        with self.assertRaises(ValueError) as cm:
+            invalid_config = LinearQuantConfig(
+                quant_type=LinearQuantType.FP8,
+                weight_scale=torch.tensor(1.0),
+                dynamic_quant_scheme=QuantScheme.ASYMMETRIC,
+                dynamic_quant_dtype=DTYPE_FP8,
+            )
+            QuantLinearBase(self.linear_layer_no_bias, invalid_config)
+        self.assertIn("symmetric scheme", str(cm.exception))
+
+        # 2. Wrong dtype not allowed
+        with self.assertRaises(ValueError) as cm:
+            invalid_config = LinearQuantConfig(
+                quant_type=LinearQuantType.FP8,
+                weight_scale=torch.tensor(1.0),
+                dynamic_quant_dtype=torch.int8,
+            )
+            QuantLinearBase(self.linear_layer_no_bias, invalid_config)
+        self.assertIn("FP8 dtype", str(cm.exception))
+
+        # 3. Static activation quantization not allowed
+        with self.assertRaises(ValueError) as cm:
+            invalid_config = LinearQuantConfig(
+                quant_type=LinearQuantType.FP8,
+                weight_scale=torch.tensor(1.0),
+                dynamic_quant_dtype=DTYPE_FP8,
+                activation_scale=torch.tensor(1.0),
+            )
+            QuantLinearBase(self.linear_layer_no_bias, invalid_config)
+        self.assertIn("static activation", str(cm.exception))
+
+    def test_fp8_dynamic_qparams_calculation(self):
+        """Test FP8 dynamic quantization parameter calculation."""
+
+        config = get_linear_quant_config(
+            quant_type=LinearQuantType.FP8,
+            weight_scale=torch.tensor(1.0),
+            dynamic_quant_scheme=QuantScheme.SYMMETRIC,
+            dynamic_quant_dtype=DTYPE_FP8,
+            dynamic_quant_granularity=QuantGranularity.PER_TENSOR,
+        )
+        fp8_layer = QuantLinearBase(self.linear_layer_no_bias, config)
+
+        # Test per-tensor FP8 quantization
+        scale, offset = fp8_layer._calculate_dynamic_qparams(self.input_tensor)
+
+        # FP8 should always be symmetric (offset = 0)
+        self.assertEqual(offset.item(), 0.0)
+
+        # Scale should be computed based on FP8 max value
+        fp8_max = torch.finfo(DTYPE_FP8).max
+        expected_scale = torch.max(torch.abs(self.input_tensor)) / fp8_max
+        self.assertTrue(torch.allclose(scale, expected_scale))
+
+        # Test per-sample FP8 quantization
+        config.dynamic_quant_granularity = QuantGranularity.PER_SAMPLE
+        scale, offset = fp8_layer._calculate_dynamic_qparams(self.input_tensor)
+
+        self.assertEqual(scale.shape, (BATCH_SIZE,))
+        self.assertEqual(offset.shape, (BATCH_SIZE,))
+        self.assertTrue(torch.allclose(offset, torch.zeros_like(offset)))
+
+    def test_fp8_forward_pass_base(self):
+        """Test FP8 forward pass in QuantLinearBase."""
+
+        config = get_linear_quant_config(
+            quant_type=LinearQuantType.FP8,
+            weight_scale=torch.tensor(1.0),
+            dynamic_quant_scheme=QuantScheme.SYMMETRIC,
+            dynamic_quant_dtype=DTYPE_FP8,
+        )
+        fp8_layer = QuantLinearBase(self.linear_layer_with_bias, config)
+
+        # Test forward pass
+        output = fp8_layer(self.input_tensor)
+
+        # Check output shape and dtype
+        expected_shape = (BATCH_SIZE, OUT_FEATURES)
+        self.assertEqual(output.shape, expected_shape)
+        self.assertEqual(output.dtype, MODEL_DTYPE)
+
+    @parameterized.expand(
+        [
+            [True, True],  # per_sample=True, with_bias=True
+            [True, False],  # per_sample=True, with_bias=False
+            [False, True],  # per_sample=False, with_bias=True
+            [False, False],  # per_sample=False, with_bias=False
+        ]
+    )
+    def test_fp8_tensorcast_dynamic(self, per_sample, with_bias):
+        """Test FP8 dynamic quantization with TensorCastQuantLinear."""
+
+        # Create linear layer with or without bias
+        linear_layer = torch.nn.Linear(IN_FEATURES, OUT_FEATURES, bias=with_bias).to(
+            DEVICE, dtype=MODEL_DTYPE
+        )
+
+        config = get_linear_quant_config(
+            quant_type=LinearQuantType.FP8,
+            weight_scale=torch.tensor(1.0),
+            dynamic_quant_scheme=QuantScheme.SYMMETRIC,
+            dynamic_quant_dtype=DTYPE_FP8,
+            dynamic_quant_granularity=QuantGranularity.PER_SAMPLE
+            if per_sample
+            else QuantGranularity.PER_TENSOR,
+        )
+
+        fp8_layer = TensorCastQuantLinear(linear_layer, config)
+
+        # Test forward pass
+        output = fp8_layer(self.input_tensor.to("meta"))
+
+        # Check output shape and dtype
+        expected_shape = (BATCH_SIZE, OUT_FEATURES)
+        self.assertEqual(output.shape, expected_shape)
+
+        # Verify the layer uses FP8 operations
+        self.assertEqual(fp8_layer.quant_config.quant_type, LinearQuantType.FP8)
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B"],
+            ["Qwen/Qwen3-235B-A22B"],
+            ["zai-org/GLM-4.5"],
+        ]
+    )
+    def test_model_quant_tensorcast_fp8(self, model_id):
+        """Test FP8 quantization on full model."""
+        # Create FP8 quantization config
+        fp8_quant_config = get_quant_config(
+            quant_type=LinearQuantType.FP8,
+            dynamic_quant_dtype=DTYPE_FP8,
+        )
+        model_config_with_fp8 = ModelConfig(
+            ParallelConfig(),
+            fp8_quant_config,
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=2,
+        )
+        qmodel = TransformerModel(model_id, model_config_with_fp8)
+
+        num_tokens = 100
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = qmodel.forward(inputs, position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
+
+        result = runtime.table_averages()
+        # Check that FP8 operations are being used
+        self.assertIn("tensor_cast.dynamic_quantize_symmetric.default", result)
+        self.assertIn("tensor_cast.fp8_linear.default", result)
+
+    def test_fp8_weight_quantization(self):
+        """Test that FP8 weights are properly quantized during initialization."""
+
+        config = LinearQuantConfig(
+            quant_type=LinearQuantType.FP8,
+            weight_scale=torch.tensor(1.0),
+            dynamic_quant_scheme=QuantScheme.SYMMETRIC,
+            dynamic_quant_dtype=DTYPE_FP8,
+        )
+
+        fp8_layer = QuantLinearBase(self.linear_layer_with_bias, config)
+
+        # Check that quantized weights have FP8 dtype
+        self.assertEqual(fp8_layer.qweight.dtype, DTYPE_FP8)
+
+        # Check that bias is preserved
+        if self.linear_layer_with_bias.bias is not None:
+            self.assertIsNotNone(fp8_layer.bias)
+            self.assertEqual(
+                fp8_layer.bias.shape, self.linear_layer_with_bias.bias.shape
+            )

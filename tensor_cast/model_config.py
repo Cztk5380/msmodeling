@@ -9,6 +9,7 @@ class LinearQuantType(Enum):
     W8A16 = auto()  # Weight in int8, activation in bfloat16 or half
     W8A8 = auto()  # Weight in int8, activation in int8
     W4A8 = auto()  # Weight in int4, activation in int8
+    FP8 = auto()  # Weight in float8, activation in float8
 
 
 class QuantGranularity(Enum):

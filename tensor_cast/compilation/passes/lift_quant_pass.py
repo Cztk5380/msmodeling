@@ -5,6 +5,7 @@ from typing import Any, Dict, Tuple
 import torch
 import torch.fx as fx
 
+from ... import ops  # noqa: F401
 from ..pass_base import TensorCastGraphModulePass
 
 logger = logging.getLogger(__name__)

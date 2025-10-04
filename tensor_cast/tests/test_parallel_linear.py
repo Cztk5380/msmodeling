@@ -122,7 +122,7 @@ class ParallelLinearTestCase(unittest.TestCase):
             get_quant_config(model.unwrap(), quant_type=LinearQuantType.W4A8),
             quant_linear_cls=TensorCastQuantLinear,
             enable_lmhead=True,
-            num_hidden_layers_override=6,
+            num_hidden_layers_override=2,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
 
@@ -151,4 +151,4 @@ class ParallelLinearTestCase(unittest.TestCase):
         else:
             self.assertNotIn(comm_op_name, result)
 
-        self.assertTrue("tensor_cast.dynamic_quant_linear_int4.default" in result)
+        self.assertTrue("tensor_cast.dynamic_quantize_symmetric.default" in result)

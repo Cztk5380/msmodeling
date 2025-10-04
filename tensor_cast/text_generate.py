@@ -1,7 +1,6 @@
 import argparse
 import logging
 import time
-from enum import StrEnum
 from typing import Optional
 
 import torch
@@ -9,56 +8,17 @@ import torch
 from . import config, device_profiles  # noqa: F401
 from .device import DeviceProfile
 
-from .model_config import (
-    LinearQuantConfig,
-    LinearQuantType,
-    ParallelConfig,
-    QuantConfig,
-)
+from .model_config import ParallelConfig, QuantConfig
 from .performance_model.analytic import AnalyticPerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
 from .runtime import Runtime
 
-from .scripts.utils import build_model, generate_inputs
-
-
-class QuantLinearAction(StrEnum):
-    W8A16_STATIC = ("W8A16_STATIC",)
-    W8A8_STATIC = ("W8A8_STATIC",)
-    W4A8_STATIC = ("W4A8_STATIC",)
-    W8A16_DYNAMIC = ("W8A16_DYNAMIC",)
-    W8A8_DYNAMIC = ("W8A8_DYNAMIC",)
-    W4A8_DYNAMIC = ("W4A8_DYNAMIC",)
-
-
-def get_linear_quant_config(quant_action: QuantLinearAction):
-    # TODO: support per-channel/per-group setting
-    # TODO: support asymmetric quant setting
-
-    if quant_action in ("W8A16_STATIC", "W8A16_DYNAMIC"):
-        quant_type = LinearQuantType.W8A16
-    elif quant_action in ("W8A8_STATIC", "W8A8_DYNAMIC"):
-        quant_type = LinearQuantType.W8A8
-    else:
-        quant_type = LinearQuantType.W4A8
-
-    config_args = {
-        "weight_scale": torch.max(torch.abs(torch.randn(1))) / 127.0,
-        "quant_type": quant_type,
-    }
-    if quant_action in ("W8A16_STATIC", "W8A8_STATIC", "W4A8_STATIC"):
-        config_args["activation_scale"] = torch.max(torch.abs(torch.randn(1))) / 127.0
-    return LinearQuantConfig(**config_args)
-
-
-def get_quant_config(quant_action: QuantLinearAction, quant_lmhead: bool = False):
-    quant_config = QuantConfig()
-    quant_config.linear_configs["layers.*"] = get_linear_quant_config(quant_action)
-    quant_config.linear_configs["*.layers.*"] = get_linear_quant_config(quant_action)
-    if quant_lmhead:
-        quant_config.linear_configs["lm_head"] = get_linear_quant_config(quant_action)
-        quant_config.linear_configs["*.lm_head"] = get_linear_quant_config(quant_action)
-    return quant_config
+from .scripts.utils import (
+    build_model,
+    generate_inputs,
+    get_quant_config,
+    QuantLinearAction,
+)
 
 
 def run_inference(
@@ -71,7 +31,7 @@ def run_inference(
     allow_graph_break: bool,
     dump_input_shapes: bool = False,
     chrome_trace: Optional[str] = None,
-    quantize_linear_action: Optional[QuantLinearAction] = None,
+    quantize_linear_action: QuantLinearAction = QuantLinearAction.W8A8_DYNAMIC,
     quantize_lmhead: bool = False,
     num_mtp_tokens: int = 0,
     num_hidden_layers_override: int = 0,
@@ -117,10 +77,12 @@ def run_inference(
     print(f"Input Length (per query): {query_len}")
     print(f"Context Length (per query): {context_length}")
     print(f"Decode: {is_decode}")
-    if quantize_linear_action:
+    if quantize_linear_action != QuantLinearAction.DISABLED:
         print(
             f"Quantization: {quantize_linear_action}, quantize LM Head: {quantize_lmhead}"
         )
+    else:
+        print("Quantization: Disabled")
     print(f"Enable repetition: {not disable_repetition}")
     if num_mtp_tokens > 0:
         print(f"Number of MTP layers: {num_mtp_tokens}")
@@ -136,7 +98,7 @@ def run_inference(
     print("Initializing model on 'meta' device...")
     perf_model = AnalyticPerformanceModel(device_profile)
     quant_config = QuantConfig()
-    if quantize_linear_action:
+    if quantize_linear_action != QuantLinearAction.DISABLED:
         quant_config = get_quant_config(
             quantize_linear_action, quant_lmhead=quantize_lmhead
         )
@@ -207,6 +169,19 @@ def run_inference(
     if chrome_trace:
         runtime.export_chrome_trace(chrome_trace)
 
+    # Return metrics for validation
+    return {
+        "total_device_memory_gb": total_device_memory_gb,
+        "model_weight_size_gb": model_weight_size_gb,
+        "peak_memory_usage_gb": peak_memory_usage_gb,
+        "kv_cache_size_gb": total_kv_cache_size_gb,
+        "model_activation_size_gb": model_activation_size_gb,
+        "device_memory_available_gb": device_memory_available_gb,
+        "execution_time_s": run_end - run_start,
+        "table_result": result,
+        "breakdowns": runtime.get_breakdowns(),
+    }
+
 
 def main():
     """
@@ -273,7 +248,7 @@ def main():
         "--quantize-linear-action",
         type=QuantLinearAction,
         choices=list(QuantLinearAction),
-        default=None,
+        default=QuantLinearAction.W8A8_DYNAMIC,
         help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
     )
     parser.add_argument(

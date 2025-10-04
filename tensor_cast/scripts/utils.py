@@ -1,3 +1,5 @@
+from enum import StrEnum
+
 import torch
 
 from .. import device_profiles  # noqa: F401
@@ -22,6 +24,19 @@ from ..transformers.utils import (
     model_id_to_mla_module_name,
     model_id_to_mtp_block_module_name,
 )
+
+from ..utils import DTYPE_FP8
+
+
+class QuantLinearAction(StrEnum):
+    DISABLED = "DISABLED"
+    W8A16_STATIC = "W8A16_STATIC"
+    W8A8_STATIC = "W8A8_STATIC"
+    W4A8_STATIC = "W4A8_STATIC"
+    W8A16_DYNAMIC = "W8A16_DYNAMIC"
+    W8A8_DYNAMIC = "W8A8_DYNAMIC"
+    W4A8_DYNAMIC = "W4A8_DYNAMIC"
+    FP8 = "FP8"
 
 
 def get_available_memory_gb(device_profile, runtime, reserved_memory_size_gb=0):
@@ -48,22 +63,52 @@ def get_parallel_config(world_size: int, tp_size: int = 1, ep: bool = False):
     )
 
 
-def get_quant_config(quant_type=LinearQuantType.W8A8, **kwargs):
-    # TODO(jgong5): only support dynamic quant and symmetric weight quant
-    def get_linear_quant_config(weight):
-        # Per-tensor symmetric quantization for weight
-        w_scale = torch.max(torch.abs(weight)) / 127.0
-        config_args = {
-            "weight_scale": w_scale,
-            "quant_type": quant_type,
-        }
-        config_args.update(kwargs)
-        return LinearQuantConfig(**config_args)
+def get_linear_quant_config(quant_action: QuantLinearAction, **kwargs):
+    # TODO: support per-channel/per-group setting
+    # TODO: support asymmetric quant setting
 
+    if quant_action in ("W8A16_STATIC", "W8A16_DYNAMIC"):
+        quant_type = LinearQuantType.W8A16
+    elif quant_action in ("W8A8_STATIC", "W8A8_DYNAMIC"):
+        quant_type = LinearQuantType.W8A8
+    elif quant_action == "FP8":
+        quant_type = LinearQuantType.FP8
+    elif quant_action in ("W4A8_STATIC", "W4A8_DYNAMIC"):
+        quant_type = LinearQuantType.W4A8
+    else:
+        raise ValueError(f"Unsupported quantization action {quant_action}")
+
+    config_args = {
+        "weight_scale": torch.tensor(1.0),
+        "quant_type": quant_type,
+    }
+    if quant_action in ("W8A16_STATIC", "W8A8_STATIC", "W4A8_STATIC"):
+        config_args["activation_scale"] = torch.tensor(1.0)
+    if quant_type == LinearQuantType.FP8:
+        config_args["dynamic_quant_dtype"] = DTYPE_FP8
+    config_args.update(kwargs)
+    return LinearQuantConfig(**config_args)
+
+
+def get_quant_config(
+    quant_action: QuantLinearAction, quant_lmhead: bool = False, **kwargs
+):
     quant_config = QuantConfig()
-    quant_config.linear_configs["*"] = get_linear_quant_config(
-        torch.randn(1),
+    if quant_action == QuantLinearAction.DISABLED:
+        return quant_config
+    quant_config.linear_configs["layers.*"] = get_linear_quant_config(
+        quant_action, **kwargs
     )
+    quant_config.linear_configs["*.layers.*"] = get_linear_quant_config(
+        quant_action, **kwargs
+    )
+    if quant_lmhead:
+        quant_config.linear_configs["lm_head"] = get_linear_quant_config(
+            quant_action, **kwargs
+        )
+        quant_config.linear_configs["*.lm_head"] = get_linear_quant_config(
+            quant_action, **kwargs
+        )
     return quant_config
 
 
