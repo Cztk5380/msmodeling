@@ -282,95 +282,9 @@ def _mm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProp
     return properties
 
 
-def _dynamic_quant_linear_properties_helper(
-    op_invoke_info: OpInvokeInfo, is_int4: bool
-) -> OpInvokeInfo.PerformanceProperties:
-    assert len(op_invoke_info.args) >= 3
-    x = op_invoke_info.args[0]
-    w = op_invoke_info.args[1]
-    w_offset = op_invoke_info.args[3] if len(op_invoke_info.args) > 3 else None
-    bias = op_invoke_info.args[4] if len(op_invoke_info.args) > 4 else None
-
-    # Get the logical dimensions of the operation.
-    # x is (M, K), so its dimensions are not packed.
-    m = x.size(0)
-    k = x.size(1)
-
-    if is_int4:
-        if w.size(0) == k:
-            n = w.size(1) * 2
-        else:
-            assert w.size(0) == k // 2
-            n = w.size(1)
-    else:
-        n = w.size(1)
-
-    # Dynamic quant of x: quant(x, x_scale, x_offset)
-    dynamic_quant_ops = m * k * 2
-
-    # Dequantization of weights: dequant(w) if w is int4
-    # Here, we suppose HW supports int8 @ int8 but not int8 @ int4 directly.
-    # The operation is semantically `(w - w_offset) * w_scale`.
-    dequant_ops = 0
-    if is_int4:
-        if w_offset is not None:
-            # K * N subtractions (offset) + K * N multiplications (scale)
-            dequant_ops = k * n * 2
-        else:
-            # K * N multiplications (scale only)
-            dequant_ops = k * n
-
-    # Matrix Multiplication: x @ dequant(w)
-    # This is an (M, K) @ (K, N) multiplication.
-    # The cost is M * N * K fused multiply-adds (FMAs).
-    # Each FMA is 2 FLOPs (1 multiplication, 1 addition).
-    matmul_ops = m * n * k * 2
-
-    # Bias Addition: ... + bias
-    # This adds the bias vector (broadcasted) to the (M, N) result matrix.
-    # This requires M * N additions.
-    bias_ops = 0
-    if bias is not None:
-        bias_ops = m * n
-
-    if matmul_ops == 0:
-        return OpInvokeInfo.PerformanceProperties()
-
-    properties = op_invoke_info.get_memory_access_properties()
-    properties.compute_ops[torch.int8] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[torch.int8].mma_ops = matmul_ops
-    assert torch.is_floating_point(x)
-    properties.compute_ops[x.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[x.dtype].gp_ops = dynamic_quant_ops + dequant_ops + bias_ops
-
-    return properties
-
-
-@OpInvokeInfo.register_op_properties(
-    torch.ops.tensor_cast.dynamic_quant_linear_int4.default
-)
-def _dynamic_quant_linear_int4_properties(
-    op_invoke_info: OpInvokeInfo,
-) -> OpInvokeInfo.PerformanceProperties:
-    return _dynamic_quant_linear_properties_helper(op_invoke_info, is_int4=True)
-
-
-@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.dynamic_quant_linear.default)
-def _dynamic_quant_linear_properties(
-    op_invoke_info: OpInvokeInfo,
-) -> OpInvokeInfo.PerformanceProperties:
-    return _dynamic_quant_linear_properties_helper(op_invoke_info, is_int4=False)
-
-
 def _static_quant_linear_properties_helper(
-    op_invoke_info: OpInvokeInfo, is_int4: bool
+    op_invoke_info: OpInvokeInfo, x, w, w_offset, bias, is_int4: bool
 ) -> OpInvokeInfo.PerformanceProperties:
-    assert len(op_invoke_info.args) >= 3
-    x = op_invoke_info.args[0]
-    w = op_invoke_info.args[1]
-    w_offset = op_invoke_info.args[3] if len(op_invoke_info.args) > 3 else None
-    bias = op_invoke_info.args[6] if len(op_invoke_info.args) > 6 else None
-
     # Get the logical dimensions of the operation.
     # x is (M, K).
     m = x.size(0)
@@ -436,14 +350,41 @@ def _static_quant_linear_properties_helper(
 def _static_quant_linear_int4_properties(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
-    return _static_quant_linear_properties_helper(op_invoke_info, is_int4=True)
+    assert len(op_invoke_info.args) >= 3
+    x = op_invoke_info.args[0]
+    w = op_invoke_info.args[1]
+    w_offset = op_invoke_info.args[3] if len(op_invoke_info.args) > 3 else None
+    bias = op_invoke_info.args[6] if len(op_invoke_info.args) > 6 else None
+    return _static_quant_linear_properties_helper(
+        op_invoke_info, x, w, w_offset, bias, is_int4=True
+    )
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.static_quant_linear.default)
 def _static_quant_linear_properties(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
-    return _static_quant_linear_properties_helper(op_invoke_info, is_int4=False)
+    assert len(op_invoke_info.args) >= 3
+    x = op_invoke_info.args[0]
+    w = op_invoke_info.args[1]
+    w_offset = op_invoke_info.args[3] if len(op_invoke_info.args) > 3 else None
+    bias = op_invoke_info.args[6] if len(op_invoke_info.args) > 6 else None
+    return _static_quant_linear_properties_helper(
+        op_invoke_info, x, w, w_offset, bias, is_int4=False
+    )
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.fp8_linear.default)
+def _fp8_linear_properties(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) >= 3
+    x = op_invoke_info.args[0]
+    w = op_invoke_info.args[1]
+    bias = op_invoke_info.args[4] if len(op_invoke_info.args) > 4 else None
+    return _static_quant_linear_properties_helper(
+        op_invoke_info, x, w, None, bias, is_int4=False
+    )
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.embedding.default)

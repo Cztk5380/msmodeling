@@ -1,5 +1,10 @@
 import torch
 
+# placeholder for FP8, don't hard-code specific fp8 format
+DTYPE_FP8 = torch.float8_e5m2
+# use int4 placeholder for FP4
+DTYPE_FP4 = torch.int4
+
 
 def register_tensor_cast_op(name, mutates_args=(), **kwargs):
     """

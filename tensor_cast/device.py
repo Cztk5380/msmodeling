@@ -3,8 +3,7 @@ from typing import ClassVar, Dict, List
 
 import torch
 
-
-DTYPE_FP4 = torch.int4  # use int4 placeholder for FP4
+from .utils import DTYPE_FP4, DTYPE_FP8
 
 
 @dataclass
@@ -62,8 +61,9 @@ class DeviceProfile:
         torch.float32,
         torch.half,
         torch.bfloat16,
-        torch.float8_e5m2,
+        DTYPE_FP8,
         torch.int8,
+        DTYPE_FP4,
     ]
 
     mma_ops: Dict[torch.dtype, float] = field(default_factory=dict)
@@ -374,7 +374,7 @@ class NVIDIA:
             torch.float32: 750 * 1e12,
             torch.bfloat16: 1500 * 1e12,
             torch.half: 1500 * 1e12,
-            torch.float8_e5m2: 3000 * 1e12,
+            DTYPE_FP8: 3000 * 1e12,
             torch.int8: 3000 * 1e12,
             DTYPE_FP4: 6000 * 1e12,
         },
@@ -398,7 +398,7 @@ class NVIDIA:
             torch.float32: 74 * 1e12,
             torch.bfloat16: 148 * 1e12,
             torch.half: 148 * 1e12,
-            torch.float8_e5m2: 296 * 1e12,
+            DTYPE_FP8: 296 * 1e12,
             torch.int8: 296 * 1e12,
         },
         gp_ops={
@@ -421,7 +421,7 @@ class NVIDIA:
             torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
             torch.half: 989.5 * 1e12,
-            torch.float8_e5m2: 1979 * 1e12,
+            DTYPE_FP8: 1979 * 1e12,
             torch.int8: 1979 * 1e12,
         },
         gp_ops={
@@ -444,7 +444,7 @@ class NVIDIA:
             torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
             torch.half: 989.5 * 1e12,
-            torch.float8_e5m2: 1979 * 1e12,
+            DTYPE_FP8: 1979 * 1e12,
             torch.int8: 1979 * 1e12,
         },
         gp_ops={
@@ -467,7 +467,7 @@ class NVIDIA:
             torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
             torch.half: 989.5 * 1e12,
-            torch.float8_e5m2: 1979 * 1e12,
+            DTYPE_FP8: 1979 * 1e12,
             torch.int8: 1979 * 1e12,
         },
         gp_ops={
@@ -490,7 +490,7 @@ class NVIDIA:
             torch.float32: 59.8 * 1e12,
             torch.bfloat16: 119.5 * 1e12,
             torch.half: 119.5 * 1e12,
-            torch.float8_e5m2: 239 * 1e12,
+            DTYPE_FP8: 239 * 1e12,
             torch.int8: 239 * 1e12,
         },
         gp_ops={
@@ -513,7 +513,7 @@ class NVIDIA:
             torch.float32: 74 * 1e12,
             torch.bfloat16: 148 * 1e12,
             torch.half: 148 * 1e12,
-            torch.float8_e5m2: 296 * 1e12,
+            DTYPE_FP8: 296 * 1e12,
             torch.int8: 296 * 1e12,
         },
         gp_ops={
@@ -536,7 +536,7 @@ class NVIDIA:
             torch.float32: 74 * 1e12,
             torch.bfloat16: 148 * 1e12,
             torch.half: 148 * 1e12,
-            torch.float8_e5m2: 296 * 1e12,
+            DTYPE_FP8: 296 * 1e12,
             torch.int8: 296 * 1e12,
         },
         gp_ops={
@@ -559,7 +559,7 @@ class NVIDIA:
             torch.float32: 104.8 * 1e12,
             torch.bfloat16: 297 * 1e12,
             torch.half: 297 * 1e12,
-            torch.float8_e5m2: 593 * 1e12,
+            DTYPE_FP8: 593 * 1e12,
             torch.int8: 593 * 1e12,
             DTYPE_FP4: 1186 * 1e12,
         },
@@ -583,7 +583,7 @@ class NVIDIA:
             torch.float32: 104.8 * 1e12,
             torch.bfloat16: 297 * 1e12,
             torch.half: 297 * 1e12,
-            torch.float8_e5m2: 593 * 1e12,
+            DTYPE_FP8: 593 * 1e12,
             torch.int8: 593 * 1e12,
             DTYPE_FP4: 1186 * 1e12,
         },
@@ -691,7 +691,7 @@ class CAMBRICON:
             torch.float32: 406 * 1e12,
             torch.bfloat16: 813 * 1e12,
             torch.half: 813 * 1e12,
-            torch.float8_e5m2: 1626 * 1e12,
+            DTYPE_FP8: 1626 * 1e12,
             torch.int8: 1626 * 1e12,
             DTYPE_FP4: 3252 * 1e12,
         },
@@ -715,7 +715,7 @@ class CAMBRICON:
             torch.float32: 157 * 1e12,
             torch.bfloat16: 314 * 1e12,
             torch.half: 314 * 1e12,
-            torch.float8_e5m2: 628 * 1e12,
+            DTYPE_FP8: 628 * 1e12,
             torch.int8: 628 * 1e12,
             DTYPE_FP4: 1256 * 1e12,
         },
@@ -739,7 +739,7 @@ class CAMBRICON:
             torch.float32: 157 * 1e12,
             torch.bfloat16: 275 * 1e12,
             torch.half: 275 * 1e12,
-            torch.float8_e5m2: 550 * 1e12,
+            DTYPE_FP8: 550 * 1e12,
             torch.int8: 550 * 1e12,
         },
         gp_ops={

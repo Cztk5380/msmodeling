@@ -9,7 +9,8 @@ import yaml
 from .. import device_profiles  # noqa: F401
 
 from ..device import DeviceProfile
-from ..model_config import LinearQuantType
+
+from ..model_config import QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
@@ -22,6 +23,7 @@ from .utils import (
     get_available_memory_gb,
     get_parallel_config,
     get_quant_config,
+    QuantLinearAction,
 )
 
 logger = logging.getLogger(__name__)
@@ -256,10 +258,10 @@ models:
         help="Inference mode",
     )
     parser.add_argument(
-        "--quantize-linear",
-        type=str,
-        choices=["W8A8", "W4A8"],
-        default="W8A8",
+        "--quantize-linear-action",
+        type=QuantLinearAction,
+        choices=list(QuantLinearAction),
+        default=QuantLinearAction.W8A8_DYNAMIC,
         help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
     )
     parser.add_argument(
@@ -292,11 +294,7 @@ models:
     allow_graph_break = args.compile_allow_graph_break
 
     mtp = args.num_mtp_tokens
-    if args.quantize_linear == "W8A8":
-        linear_quant_type = LinearQuantType.W8A8
-    else:
-        assert args.quantize_linear == "W4A8"
-        linear_quant_type = LinearQuantType.W4A8
+    quantize_linear_action = args.quantize_linear_action
     input_length = args.input_length
     output_length = args.output_length
     ttft_limits = args.ttft_limits
@@ -332,9 +330,10 @@ models:
                             tp_size=tp_size,
                             ep=ep,
                         )
-                        quant_config = get_quant_config(
-                            linear_quant_type
-                        )  # use W8A8 by default
+                        if quantize_linear_action != QuantLinearAction.DISABLED:
+                            quant_config = get_quant_config(quantize_linear_action)
+                        else:
+                            quant_config = QuantConfig()
                         model = build_model(
                             model_id,
                             parallel_config,
@@ -377,7 +376,7 @@ models:
                             ]
                             print(
                                 f"{device_profile.name}, {num_devices}, {input_length}, {output_length}, {model_id}, "
-                                f"{linear_quant_type.name}, {tp_size}, {ep}, {num_mtp_layers > 0}, "
+                                f"{quantize_linear_action}, {tp_size}, {ep}, {num_mtp_layers > 0}, "
                                 f"{slo_limit * 1000:.3f}, {concurrency}, {latency * 1000:.3f}, {TPS:.1f}, "
                                 f"{TPS / num_devices:.1f}, {','.join(percentage_breakdown)}, {err_msg}",
                                 flush=True,

@@ -10,6 +10,8 @@ from ..model_config import (
     QuantScheme,
 )
 
+from ..utils import DTYPE_FP8
+
 
 class QuantLinearBase(torch.nn.Module):
     """
@@ -22,6 +24,30 @@ class QuantLinearBase(torch.nn.Module):
         self.in_features = linear_layer.in_features
         self.out_features = linear_layer.out_features
         self.quant_config = quant_config
+
+        # Validate FP8 configuration
+        if quant_config.quant_type == LinearQuantType.FP8:
+            if (
+                quant_config.dynamic_quant_dtype is not None
+                and quant_config.dynamic_quant_dtype != DTYPE_FP8
+            ):
+                raise ValueError(
+                    "FP8 quantization only supports FP8 dtype for activations"
+                )
+            if (
+                quant_config.dynamic_quant_scheme is not None
+                and quant_config.dynamic_quant_scheme != QuantScheme.SYMMETRIC
+            ):
+                raise ValueError(
+                    "FP8 quantization only supports symmetric scheme for activations"
+                )
+            if (
+                quant_config.activation_scale is not None
+                or quant_config.activation_offset is not None
+            ):
+                raise ValueError(
+                    "FP8 quantization does not support static activation quantization"
+                )
 
         # Store bias if it exists
         if linear_layer.bias is not None:
@@ -38,6 +64,8 @@ class QuantLinearBase(torch.nn.Module):
             # We use int8 to store int4 data, packing two int4 values into one int8
             # This requires careful handling during dequantization.
             q_weight_dtype = torch.int8
+        elif self.quant_config.quant_type == LinearQuantType.FP8:
+            q_weight_dtype = DTYPE_FP8
         else:
             raise ValueError(f"Unsupported quant_type: {self.quant_config.quant_type}")
 
@@ -147,8 +175,13 @@ class QuantLinearBase(torch.nn.Module):
         """Calculates scale and offset for dynamic activation quantization."""
         x = x.reshape(-1, x.shape[-1])
         cfg = self.quant_config
+
         if cfg.dynamic_quant_dtype == torch.int8:
             q_min, q_max = -128.0, 127.0
+        elif cfg.quant_type == LinearQuantType.FP8:
+            # FP8 uses the full representable range
+            q_max = torch.finfo(DTYPE_FP8).max
+            q_min = -q_max  # Symmetric range for FP8
         else:
             raise ValueError(
                 f"Unsupported dynamic quant dtype: {cfg.dynamic_quant_dtype}"
@@ -162,14 +195,21 @@ class QuantLinearBase(torch.nn.Module):
         else:
             raise ValueError(f"Unknown granularity: {cfg.dynamic_quant_granularity}")
 
-        min_val = torch.amin(x, dim=dim)
-        max_val = torch.amax(x, dim=dim)
+        if dim is None:
+            min_val = torch.amin(x)
+            max_val = torch.amax(x)
+        else:
+            min_val = torch.amin(x, dim=dim)
+            max_val = torch.amax(x, dim=dim)
 
         if cfg.dynamic_quant_scheme == QuantScheme.SYMMETRIC:
             max_abs = torch.maximum(torch.abs(min_val), torch.abs(max_val))
             scale = max_abs / q_max
             offset = torch.zeros_like(scale)
         elif cfg.dynamic_quant_scheme == QuantScheme.ASYMMETRIC:
+            assert cfg.dynamic_quant_dtype != DTYPE_FP8, (
+                "FP8 only supports symmetric quantization"
+            )
             scale = (max_val - min_val) / (q_max - q_min)
             offset = q_min - min_val / scale
         else:
@@ -185,8 +225,12 @@ class QuantLinearBase(torch.nn.Module):
         # Dequantize weights
         dequantized_weight = self.dequantize_weight().to(x.dtype)
 
-        # Only quantize activations for W8A8 or W4A8 types
-        if self.quant_config.quant_type in [LinearQuantType.W8A8, LinearQuantType.W4A8]:
+        # Only quantize activations for W8A8 or W4A8 or FP8 types
+        if self.quant_config.quant_type in [
+            LinearQuantType.W8A8,
+            LinearQuantType.W4A8,
+            LinearQuantType.FP8,
+        ]:
             # Use pre-computed static parameters if available
             if self.activation_scale is not None:
                 act_scale = self.activation_scale
@@ -195,8 +239,15 @@ class QuantLinearBase(torch.nn.Module):
             else:
                 act_scale, act_offset = self._calculate_dynamic_qparams(x)
 
-            q_x = torch.round(x / act_scale + act_offset)
-            x = (q_x - act_offset) * act_scale
+            if self.quant_config.quant_type == LinearQuantType.FP8:
+                # For FP8, we directly convert to FP8 format without rounding
+                x = (x / act_scale).to(DTYPE_FP8)
+                # Scale it back for computation
+                x = x.to(dequantized_weight.dtype) * act_scale
+            else:
+                # For integer quantization (W8A8, W4A8)
+                q_x = torch.round(x / act_scale + act_offset)
+                x = (q_x - act_offset) * act_scale
 
         # Perform linear operation
         output = torch.nn.functional.linear(x, dequantized_weight, self.bias)
@@ -245,6 +296,7 @@ class TensorCastQuantLinear(QuantLinearBase):
                     == QuantGranularity.PER_SAMPLE
                 )
                 dims = [-1]
+
             if self.quant_config.dynamic_quant_scheme == QuantScheme.SYMMETRIC:
                 x, activation_scale = torch.ops.tensor_cast.dynamic_quantize_symmetric(
                     x,
@@ -265,6 +317,9 @@ class TensorCastQuantLinear(QuantLinearBase):
                 )
         else:
             # Static quantization path
+            assert self.quant_config.quant_type != LinearQuantType.FP8, (
+                "FP8 does not support static activation quantization"
+            )
             activation_scale = self.activation_scale
             activation_offset = self.activation_offset
             x = torch.ops.tensor_cast.quantize(
@@ -274,19 +329,31 @@ class TensorCastQuantLinear(QuantLinearBase):
                 out_dtype=torch.int8,
             )
 
-        op = (
-            torch.ops.tensor_cast.static_quant_linear_int4
-            if self.quant_config.quant_type == LinearQuantType.W4A8
-            else torch.ops.tensor_cast.static_quant_linear
-        )
-        out = op(
-            x,
-            qweight,
-            self.weight_scale,
-            w_offset=self.weight_offset,
-            x_scale=activation_scale,
-            x_offset=activation_offset,
-            bias=self.bias,
-            out_dtype=out_dtype,
-        )
+        if self.quant_config.quant_type == LinearQuantType.FP8:
+            # Use FP8 linear operation
+            out = torch.ops.tensor_cast.fp8_linear(
+                x,
+                qweight,
+                x_scale=activation_scale,
+                w_scale=self.weight_scale,
+                bias=self.bias,
+                out_dtype=out_dtype,
+            )
+        else:
+            # Use integer quantization operations
+            op = (
+                torch.ops.tensor_cast.static_quant_linear_int4
+                if self.quant_config.quant_type == LinearQuantType.W4A8
+                else torch.ops.tensor_cast.static_quant_linear
+            )
+            out = op(
+                x,
+                qweight,
+                self.weight_scale,
+                w_offset=self.weight_offset,
+                x_scale=activation_scale,
+                x_offset=activation_offset,
+                bias=self.bias,
+                out_dtype=out_dtype,
+            )
         return out.reshape(*x_shape[:-1], out.shape[-1]).to(out_dtype)
