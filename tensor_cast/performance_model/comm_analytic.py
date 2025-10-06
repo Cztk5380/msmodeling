@@ -11,6 +11,8 @@ from . import OpInvokeInfo, PerformanceModel
 
 from .analytic import StatsKey
 
+from .utils import bytes_of_elements, bytes_of_tensor
+
 
 class CommAnalyticModel(PerformanceModel):
     """
@@ -115,7 +117,7 @@ class CommAnalyticModel(PerformanceModel):
         latency = topology.latency_s
         bandwidth = topology.bandwidth_bytes_ps
 
-        message_size_bytes = x.numel() * x.element_size()
+        message_size_bytes = bytes_of_tensor(x)
 
         # --- Model 1: Ring Algorithm ---
         # Cost: 2*(N-1) steps. Good for bandwidth-bound (large) messages.
@@ -169,7 +171,7 @@ class CommAnalyticModel(PerformanceModel):
         bandwidth = topology.bandwidth_bytes_ps
 
         # M is the size of the tensor from a single rank
-        message_size_bytes = x.numel() * x.element_size()
+        message_size_bytes = bytes_of_tensor(x)
 
         # --- Model 1: Ring Algorithm ---
         # Cost: (N-1) steps. Good for bandwidth-bound (large) messages.
@@ -241,7 +243,7 @@ class CommAnalyticModel(PerformanceModel):
 
         # The bottleneck depends on the larger one of the data volumes sent and received respectively.
         bottleneck_elements = max(total_elements_sent, total_elements_received)
-        data_transfer_per_rank = bottleneck_elements * x.element_size()
+        data_transfer_per_rank = bytes_of_elements(bottleneck_elements, x.dtype)
 
         # --- Model 1: Pairwise Exchange Algorithm ---
         time_pairwise = (num_ranks - 1) * latency + data_transfer_per_rank / bandwidth
@@ -265,8 +267,8 @@ class CommAnalyticModel(PerformanceModel):
             StatsKey.COMMUNICATION: comm_time,
             "algorithm": algorithm,
             "message_size_bytes": data_transfer_per_rank,
-            "total_bytes_sent": total_elements_sent * x.element_size(),
-            "total_bytes_received": total_elements_received * x.element_size(),
+            "total_bytes_sent": bytes_of_elements(total_elements_sent, x.dtype),
+            "total_bytes_received": bytes_of_elements(total_elements_received, x.dtype),
             "group_size": num_ranks,
             "latency_s": latency,
             "bandwidth_bytes_ps": bandwidth,
@@ -291,7 +293,7 @@ class CommAnalyticModel(PerformanceModel):
         bandwidth = topology.bandwidth_bytes_ps
 
         # M is the total size of the input tensor before scattering.
-        message_size_bytes = x.numel() * x.element_size()
+        message_size_bytes = bytes_of_tensor(x)
 
         # --- Model 1: Ring Algorithm ---
         # Cost: (N-1) steps. Each step communicates a chunk of size M/N.

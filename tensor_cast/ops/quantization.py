@@ -75,3 +75,30 @@ def _dynamic_quantize_symmetric(
         torch.empty_like(x, dtype=out_dtype),
         torch.empty(scale_shape, dtype=scale_dtype, device="meta"),
     )
+
+
+@register_tensor_cast_op("dynamic_quantize_mxfp4")
+def _dynamic_quantize_mxfp4(
+    x: torch.Tensor,
+    group_size: int,
+) -> Tuple[torch.Tensor, torch.Tensor]:
+    """
+    Dynamically quantize the input tensor `x` to MXFP4. The quantization is applied
+    per channel group along the last dimension, where each channel group contains
+    `group_size` channels. The quantization is symmetric.
+
+    Args:
+        x: The input tensor to be quantized.
+        group_size: The channel group size for MXFP4 quantization.
+
+    Returns:
+        A tuple containing:
+        - The quantized tensor.
+        - The quantization scale tensor of shape (K_group,).
+    """
+    K = x.shape[-1]
+    K_group = (K + group_size - 1) // group_size
+    return (
+        torch.empty_like(x, dtype=torch.int4),
+        torch.empty((K_group,), dtype=torch.float8_e8m0fnu, device="meta"),
+    )

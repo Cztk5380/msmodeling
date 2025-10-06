@@ -25,8 +25,6 @@ from ..transformers.utils import (
     model_id_to_mtp_block_module_name,
 )
 
-from ..utils import DTYPE_FP8
-
 
 class QuantLinearAction(StrEnum):
     DISABLED = "DISABLED"
@@ -37,6 +35,7 @@ class QuantLinearAction(StrEnum):
     W8A8_DYNAMIC = "W8A8_DYNAMIC"
     W4A8_DYNAMIC = "W4A8_DYNAMIC"
     FP8 = "FP8"
+    MXFP4 = "MXFP4"
 
 
 def get_available_memory_gb(device_profile, runtime, reserved_memory_size_gb=0):
@@ -73,19 +72,27 @@ def get_linear_quant_config(quant_action: QuantLinearAction, **kwargs):
         quant_type = LinearQuantType.W8A8
     elif quant_action == "FP8":
         quant_type = LinearQuantType.FP8
+    elif quant_action == "MXFP4":
+        quant_type = LinearQuantType.MXFP4
+        if "weight_group_size" not in kwargs:
+            raise ValueError(
+                "weight_group_size must be provided for MXFP4 quantization"
+            )
     elif quant_action in ("W4A8_STATIC", "W4A8_DYNAMIC"):
         quant_type = LinearQuantType.W4A8
     else:
         raise ValueError(f"Unsupported quantization action {quant_action}")
 
     config_args = {
-        "weight_scale": torch.tensor(1.0),
         "quant_type": quant_type,
     }
+
+    if "weight_scale" not in kwargs and quant_type != LinearQuantType.MXFP4:
+        # For MXFP4, weight_scale is created from the weight tensor during model initialization
+        config_args["weight_scale"] = torch.tensor(1.0)
+
     if quant_action in ("W8A16_STATIC", "W8A8_STATIC", "W4A8_STATIC"):
         config_args["activation_scale"] = torch.tensor(1.0)
-    if quant_type == LinearQuantType.FP8:
-        config_args["dynamic_quant_dtype"] = DTYPE_FP8
     config_args.update(kwargs)
     return LinearQuantConfig(**config_args)
 

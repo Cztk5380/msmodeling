@@ -8,9 +8,11 @@ import torch
 from . import config, device_profiles  # noqa: F401
 from .device import DeviceProfile
 
-from .model_config import ParallelConfig, QuantConfig
+from .model_config import ParallelConfig, QuantConfig, QuantGranularity
 from .performance_model.analytic import AnalyticPerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
+
+from .performance_model.utils import bytes_of_tensor
 from .runtime import Runtime
 
 from .scripts.utils import (
@@ -33,6 +35,7 @@ def run_inference(
     chrome_trace: Optional[str] = None,
     quantize_linear_action: QuantLinearAction = QuantLinearAction.W8A8_DYNAMIC,
     quantize_lmhead: bool = False,
+    mxfp4_group_size: int = 32,
     num_mtp_tokens: int = 0,
     num_hidden_layers_override: int = 0,
     is_decode: bool = False,
@@ -81,6 +84,8 @@ def run_inference(
         print(
             f"Quantization: {quantize_linear_action}, quantize LM Head: {quantize_lmhead}"
         )
+        if quantize_linear_action == QuantLinearAction.MXFP4:
+            print(f"  MXFP4 group size: {mxfp4_group_size}")
     else:
         print("Quantization: Disabled")
     print(f"Enable repetition: {not disable_repetition}")
@@ -99,8 +104,14 @@ def run_inference(
     perf_model = AnalyticPerformanceModel(device_profile)
     quant_config = QuantConfig()
     if quantize_linear_action != QuantLinearAction.DISABLED:
+        extra_kwargs = {}
+        if quantize_linear_action == QuantLinearAction.MXFP4:
+            extra_kwargs.update(
+                weight_group_size=mxfp4_group_size,
+                weight_quant_granularity=QuantGranularity.PER_GROUP,
+            )
         quant_config = get_quant_config(
-            quantize_linear_action, quant_lmhead=quantize_lmhead
+            quantize_linear_action, quant_lmhead=quantize_lmhead, **extra_kwargs
         )
     model = build_model(
         model_id,
@@ -135,7 +146,7 @@ def run_inference(
     peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
     total_kv_cache_size_gb = (
         sum(
-            kv_cache.nelement() * kv_cache.element_size()
+            bytes_of_tensor(kv_cache)
             for kv_cache in input_kwargs["kv_cache_by_layers"].values()
         )
         / 1024**3
@@ -257,6 +268,12 @@ def main():
         help="Whether to quantize LM Head, off by default since quantizing LM Head usually impact accuracy a lot",
     )
     parser.add_argument(
+        "--mxfp4-group-size",
+        type=int,
+        default=32,
+        help="Group size for MXFP4 quantization",
+    )
+    parser.add_argument(
         "--graph-log-url",
         type=str,
         default=None,
@@ -365,6 +382,7 @@ def main():
         chrome_trace=args.chrome_trace,
         quantize_linear_action=args.quantize_linear_action,
         quantize_lmhead=args.quantize_lmhead,
+        mxfp4_group_size=args.mxfp4_group_size,
         num_mtp_tokens=args.num_mtp_tokens,
         num_hidden_layers_override=args.num_hidden_layers_override,
         is_decode=args.decode,

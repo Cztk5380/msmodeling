@@ -24,11 +24,11 @@ def _static_quant_linear(
 
     Args:
         x: (M, K)
-        x_scale: scalar, (1, M)
-        x_offset: scalar, (1, M)
+        x_scale: scalar, (M,)
+        x_offset: scalar, (M,)
         w: (K, N), for int4 (K/2, N) or (K, N/2)
-        w_scale: scalar, (1, N) or (K_group, N)
-        w_offset: scalar, (1, N) or (K_group, N)
+        w_scale: scalar, (N,) or (K_group, N)
+        w_offset: scalar, (N,) or (K_group, N)
         bias: scalar, (1, N)
     """
     if out_dtype is None:
@@ -60,4 +60,34 @@ def _fp8_linear(
     """
     if out_dtype is None:
         out_dtype = torch.float16  # Default output for FP8
+    return torch.empty((x.shape[0], w.shape[1]), dtype=out_dtype, device="meta")
+
+
+@register_tensor_cast_op("mxfp4_linear")
+def _mxfp4_linear(
+    x: torch.Tensor,
+    w: torch.Tensor,
+    x_scale: torch.Tensor,
+    w_scale: torch.Tensor,
+    bias: Optional[torch.Tensor] = None,
+    out_dtype: Optional[torch.dtype] = None,
+) -> torch.Tensor:
+    """
+    MXFP4 linear operation. Both x and w are in MXFP4 format with logical
+    dimension as (M, K) and (K, N). The MXFP4 format is logically represented
+    with torch.int4.
+
+    Semantically equivalent to:
+    `out = (dequant_mxfp4(x) @ dequant_mxfp4(w) + bias).to_dtype(out_dtype)`
+
+    Args:
+        x: (M, K) in MXFP4 format
+        w: (K, N) in MXFP4 format
+        x_scale: (Kg,) for activation scale in torch.float8_e8m0fnu
+        w_scale: (Kg,) for weight scale in torch.float8_e8m0fnu
+        bias: scalar or (N,) bias tensor
+        out_dtype: output data type
+    """
+    if out_dtype is None:
+        out_dtype = torch.float16  # Default output for MXFP4
     return torch.empty((x.shape[0], w.shape[1]), dtype=out_dtype, device="meta")

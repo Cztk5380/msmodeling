@@ -355,6 +355,100 @@ class AddRMSNormDynamicQuant2Pattern:
         return (pattern, replacement, get_inputs())
 
 
+class RMSNormDynamicQuantMXFP4Pattern:
+    """Pattern for RMS norm followed by MXFP4 dynamic quantization."""
+
+    @staticmethod
+    def create(eps: float = 1e-6, group_size: int = 32):
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, device="meta")
+            weight = torch.empty(4, device="meta")
+            return [hidden_states, weight]
+
+        def pattern(hidden_states, weight):
+            out = torch.ops.tensor_cast.rms_norm(hidden_states, weight, eps)
+            return torch.ops.tensor_cast.dynamic_quantize_mxfp4(
+                out, group_size=group_size
+            )
+
+        def replacement(hidden_states, weight):
+            return torch.ops.tensor_cast.rms_norm_dynamic_quant_mxfp4(
+                hidden_states,
+                weight,
+                eps,
+                group_size,
+            )
+
+        return (pattern, replacement, get_inputs())
+
+
+class AddRMSNormDynamicQuantMXFP4Pattern:
+    """Pattern for add RMS norm followed by MXFP4 dynamic quantization."""
+
+    @staticmethod
+    def create(eps: float = 1e-6, group_size: int = 64):
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, device="meta")
+            residual = torch.empty(2, 4, device="meta")
+            weight = torch.empty(4, device="meta")
+            return [hidden_states, residual, weight]
+
+        def pattern(hidden_states, residual, weight):
+            return torch.ops.tensor_cast.rms_norm_dynamic_quant_mxfp4(
+                hidden_states + residual,
+                weight,
+                eps,
+                group_size,
+            )
+
+        def replacement(hidden_states, residual, weight):
+            return torch.ops.tensor_cast.add_rms_norm_dynamic_quant_mxfp4(
+                hidden_states,
+                residual,
+                weight,
+                eps,
+                group_size,
+            )
+
+        return (pattern, replacement, get_inputs())
+
+
+class AddRMSNormDynamicQuant2MXFP4Pattern:
+    """Pattern for add RMS norm2 followed by MXFP4 dynamic quantization."""
+
+    @staticmethod
+    def create(eps: float = 1e-6, group_size: int = 64):
+        def get_inputs():
+            hidden_states = torch.empty(2, 4, device="meta")
+            residual = torch.empty(2, 4, device="meta")
+            weight = torch.empty(4, device="meta")
+            return [hidden_states, residual, weight]
+
+        def pattern(hidden_states, residual, weight):
+            residual = hidden_states + residual
+            result = torch.ops.tensor_cast.rms_norm_dynamic_quant_mxfp4(
+                residual,
+                weight,
+                eps,
+                group_size,
+            )
+            return *result, residual
+
+        def replacement(hidden_states, residual, weight):
+            out, scale, residual = (
+                torch.ops.tensor_cast.add_rms_norm_dynamic_quant2_mxfp4(
+                    hidden_states,
+                    residual,
+                    weight,
+                    eps,
+                    group_size,
+                )
+            )
+            return out, scale, residual
+
+        return (pattern, replacement, get_inputs())
+
+
 def register_all_patterns():
     from . import register_pattern
 
@@ -380,10 +474,12 @@ def register_all_patterns():
         register_pattern(
             "add_rms_norm_pattern",
             *AddRMSNormPattern.create(),
+            level=1,  # make sure RMSNorm+Quant is fused before it.
         )
         register_pattern(
             "add_rms_norm2_pattern",
             *AddRMSNorm2Pattern.create(),
+            level=1,  # make sure RMSNorm+Quant is fused before it.
         )
         if config.compilation.fusion_patterns.enable_rms_norm_quant:
             register_pattern(
@@ -428,3 +524,21 @@ def register_all_patterns():
                             symmetric=symmetric, per_sample=per_sample
                         ),
                     )
+
+        # Register MXFP4 patterns
+        for group_size in [32, 64]:
+            register_pattern(
+                f"rms_norm_dynamic_quant_mxfp4_g{group_size}_pattern",
+                *RMSNormDynamicQuantMXFP4Pattern.create(group_size=group_size),
+            )
+
+            if config.compilation.fusion_patterns.enable_add_rms_norm:
+                register_pattern(
+                    f"add_rms_norm_dynamic_quant_mxfp4_g{group_size}_pattern",
+                    *AddRMSNormDynamicQuantMXFP4Pattern.create(group_size=group_size),
+                )
+
+                register_pattern(
+                    f"add_rms_norm_dynamic_quant2_mxfp4_g{group_size}_pattern",
+                    *AddRMSNormDynamicQuant2MXFP4Pattern.create(group_size=group_size),
+                )

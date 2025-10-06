@@ -10,7 +10,7 @@ import torch
 from .. import ops  # noqa: F401
 
 from ..device import DeviceProfile
-from .utils import is_view_op, run_once
+from .utils import bytes_of_elements, bytes_of_tensor, is_view_op, run_once
 
 logger = logging.getLogger(__name__)
 
@@ -87,7 +87,7 @@ class OpInvokeInfo:
         args_schema = self.func._schema.arguments
         for i, arg in enumerate(itertools.chain(self.args, self.kwargs.values())):
             if isinstance(arg, torch.Tensor) and i not in exclude_input_ids:
-                access_bytes = arg.element_size() * arg.nelement()
+                access_bytes = bytes_of_tensor(arg)
                 if args_schema[i].is_out:
                     memory_write_bytes += access_bytes
                 elif args_schema[i].is_write:
@@ -97,7 +97,7 @@ class OpInvokeInfo:
         out = self.out if isinstance(self.out, (list, tuple)) else [self.out]
         for i, arg in enumerate(out):
             if isinstance(arg, torch.Tensor) and i not in exclude_output_ids:
-                access_bytes = arg.element_size() * arg.nelement()
+                access_bytes = bytes_of_tensor(arg)
                 memory_write_bytes += access_bytes
         return OpInvokeInfo.PerformanceProperties(
             memory_read_bytes=memory_read_bytes,
@@ -375,7 +375,8 @@ def _static_quant_linear_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.fp8_linear.default)
-def _fp8_linear_properties(
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.mxfp4_linear.default)
+def _fp8_fp4_linear_properties(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -396,7 +397,7 @@ def _embedding_properties(
     indices = op_invoke_info.args[1]
     properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={0})
     properties.memory_read_bytes += (
-        indices.nelement() * weight.shape[-1] * weight.element_size()
+        bytes_of_tensor(indices, weight.dtype) * weight.shape[-1]
     )
     return properties
 
@@ -411,7 +412,7 @@ def _index_select_properties(
     index = op_invoke_info.args[2]
     properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={0})
     properties.memory_read_bytes += (
-        index.nelement() * input.nelement() * input.element_size() / input.shape[dim]
+        bytes_of_tensor(input) * index.numel() / input.shape[dim]
     )
     return properties
 
@@ -426,9 +427,9 @@ def _reshape_and_cache_properties(
     kv_cache = op_invoke_info.args[2]
 
     properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={2})
-    properties.memory_write_bytes += (
-        key.nelement() + value.nelement()
-    ) * kv_cache.element_size()
+    properties.memory_write_bytes += bytes_of_tensor(
+        key, kv_cache.dtype
+    ) + bytes_of_tensor(value, kv_cache.dtype)
     return properties
 
 
@@ -452,8 +453,6 @@ def _attention_properties(
         )
 
     hidden_size = query.size(-1)
-    # key shape: (*, kv_head_num, head_size)
-    kv_head_num = key.size(-2)
     head_size = key.size(-1)
 
     # Infer the number of query heads
@@ -492,8 +491,9 @@ def _attention_properties(
 
     properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={1, 2})
     # KV cache access: query i accesses 2 * seq_len_i slots with kv_head_num * head_size * element_size each.
+    assert key.ndim >= 2
     properties.memory_read_bytes += torch.sum(
-        seq_lens * 2 * kv_head_num * head_size * key.element_size()
+        seq_lens * 2 * bytes_of_elements(key.size(-1) * key.size(-2), key.dtype)
     ).item()
     properties.compute_ops[query.dtype] = OpInvokeInfo.ComputeOps()
     properties.compute_ops[query.dtype].mma_ops = bmm1_ops + bmm2_ops
@@ -512,9 +512,9 @@ def _concat_and_cache_mla_properties(
     kv_cache = op_invoke_info.args[2]
 
     properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={2})
-    properties.memory_write_bytes += (
-        kv_c_normed.nelement() + k_rot.nelement()
-    ) * kv_cache.element_size()
+    properties.memory_write_bytes += bytes_of_tensor(
+        kv_c_normed, dtype=kv_cache.dtype
+    ) + bytes_of_tensor(k_rot, dtype=kv_cache.dtype)
     return properties
 
 
@@ -636,7 +636,7 @@ def _multihead_latent_attention_properties(
     # Estimate memory read from the KV Cache.
     # Each token in a sequence reads all previous key/value states for that sequence.
     # The size of a cached entry is (kv_lora_rank + qk_rope_head_dim).
-    cache_entry_size = (kv_lora_rank + qk_rope_head_dim) * kv_cache.element_size()
+    cache_entry_size = bytes_of_elements(kv_cache.size(-1), kv_cache.dtype)
 
     # `context_len_product_sum` from the previous example can be reused here.
     context_len_product_sum = torch.sum(

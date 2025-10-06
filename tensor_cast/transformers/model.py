@@ -23,6 +23,8 @@ from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
 from ..model_config import ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
+
+from ..performance_model.utils import bytes_of_tensor
 from .utils import model_id_to_moe_config, strip_module_name
 
 if typing.TYPE_CHECKING:
@@ -587,9 +589,9 @@ class TransformerModel(ModelWrapperBase):
         def get_weight_size_nested(mod):
             total_size = 0
             for _, param in mod.named_parameters():
-                total_size += param.nelement() * param.element_size()
+                total_size += bytes_of_tensor(param)
             for _, buffer in mod.named_buffers():
-                total_size += buffer.nelement() * buffer.element_size()
+                total_size += bytes_of_tensor(buffer)
             return total_size
 
         return get_weight_size_nested(self)

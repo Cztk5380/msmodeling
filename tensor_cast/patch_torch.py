@@ -115,6 +115,25 @@ def patch_fallback_node_due_to_unsupported_type():
 
 
 @contextlib.contextmanager
+def patch_dtype_abbrs():
+    """
+    Patch torch.utils._dtype_abbrs in order to support FX graph dump with int4 dtype used
+    by MXFP4.
+    """
+    from torch.utils._dtype_abbrs import dtype_abbrs
+
+    original_dtype_abbrs = dict(dtype_abbrs)
+    dtype_abbrs.update(
+        {
+            torch.int4: "i4",
+        }
+    )
+    yield
+    dtype_abbrs.clear()
+    dtype_abbrs.update(original_dtype_abbrs)
+
+
+@contextlib.contextmanager
 def patch_torch():
     """
     Apply all patches to PyTorch.
@@ -124,5 +143,6 @@ def patch_torch():
         meta_nonzero_assume_all_nonzero(),
         specialize_float(),
         patch_fallback_node_due_to_unsupported_type(),
+        patch_dtype_abbrs(),
     ):
         yield

@@ -11,6 +11,7 @@ class TestTextGenerate(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.device = "TEST_DEVICE"
+        self.device_b30a = "B30A"  # Device for FP8 and MXFP4 tests
         self.model_id = "Qwen/Qwen3-32B"
         self.num_queries = 2
         self.query_len = 10
@@ -235,7 +236,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_fp8_quantization(self):
         """Test with FP8 quantization."""
         result = run_inference(
-            device=self.device,
+            device=self.device_b30a,
             model_id=self.model_id,
             num_queries=2,
             query_len=20,
@@ -249,7 +250,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_fp8_with_context(self):
         """Test FP8 quantization with context length."""
         result = run_inference(
-            device=self.device,
+            device=self.device_b30a,
             model_id=self.model_id,
             num_queries=2,
             query_len=50,
@@ -265,7 +266,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_fp8_decode_mode(self):
         """Test FP8 quantization in decode mode."""
         result = run_inference(
-            device=self.device,
+            device=self.device_b30a,
             model_id=self.model_id,
             num_queries=5,
             query_len=1,
@@ -276,6 +277,51 @@ class TestTextGenerate(unittest.TestCase):
             is_decode=True,
         )
         self._validate_inference_result(result, "test_fp8_decode_mode")
+
+    def test_mxfp4_quantization(self):
+        """Test with MXFP4 quantization."""
+        result = run_inference(
+            device=self.device_b30a,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=20,
+            context_length=0,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantLinearAction.MXFP4,
+        )
+        self._validate_inference_result(result, "test_mxfp4_quantization")
+
+    def test_mxfp4_with_context(self):
+        """Test MXFP4 quantization with context length."""
+        result = run_inference(
+            device=self.device_b30a,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=50,
+            context_length=100,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantLinearAction.MXFP4,
+        )
+        self._validate_inference_result(result, "test_mxfp4_with_context")
+        # Should have KV cache due to context
+        self.assertGreater(result["kv_cache_size_gb"], 0)
+
+    def test_mxfp4_decode_mode(self):
+        """Test MXFP4 quantization in decode mode."""
+        result = run_inference(
+            device=self.device_b30a,
+            model_id=self.model_id,
+            num_queries=5,
+            query_len=1,
+            context_length=50,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantLinearAction.MXFP4,
+            is_decode=True,
+        )
+        self._validate_inference_result(result, "test_mxfp4_decode_mode")
 
     def test_with_quantized_lmhead(self):
         """Test with LM head quantization enabled."""
