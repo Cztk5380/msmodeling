@@ -10,7 +10,7 @@ from .. import device_profiles  # noqa: F401
 
 from ..device import DeviceProfile
 
-from ..model_config import QuantConfig
+from ..model_config import QuantConfig, QuantGranularity
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
@@ -265,6 +265,12 @@ models:
         help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
     )
     parser.add_argument(
+        "--mxfp4-group-size",
+        type=int,
+        default=32,
+        help="Group size for MXFP4 quantization",
+    )
+    parser.add_argument(
         "--log-level",
         type=str,
         default=None,
@@ -295,6 +301,7 @@ models:
 
     mtp = args.num_mtp_tokens
     quantize_linear_action = args.quantize_linear_action
+    mxfp4_group_size = args.mxfp4_group_size
     input_length = args.input_length
     output_length = args.output_length
     ttft_limits = args.ttft_limits
@@ -331,7 +338,15 @@ models:
                             ep=ep,
                         )
                         if quantize_linear_action != QuantLinearAction.DISABLED:
-                            quant_config = get_quant_config(quantize_linear_action)
+                            extra_kwargs = {}
+                            if quantize_linear_action == QuantLinearAction.MXFP4:
+                                extra_kwargs.update(
+                                    weight_group_size=mxfp4_group_size,
+                                    weight_quant_granularity=QuantGranularity.PER_GROUP,
+                                )
+                            quant_config = get_quant_config(
+                                quantize_linear_action, **extra_kwargs
+                            )
                         else:
                             quant_config = QuantConfig()
                         model = build_model(

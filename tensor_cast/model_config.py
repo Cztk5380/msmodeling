@@ -10,6 +10,7 @@ class LinearQuantType(Enum):
     W8A8 = auto()  # Weight in int8, activation in int8
     W4A8 = auto()  # Weight in int4, activation in int8
     FP8 = auto()  # Weight in float8, activation in float8
+    MXFP4 = auto()  # both weight and activation in MXFP4
 
 
 class QuantGranularity(Enum):
@@ -17,6 +18,7 @@ class QuantGranularity(Enum):
     PER_SAMPLE = (
         auto()
     )  # use quant param per sample in the batch (e.g. per-token for LLM)
+    PER_GROUP = auto()  # use quant param per channel group
 
 
 class QuantScheme(Enum):
@@ -38,7 +40,9 @@ class LinearQuantConfig:
     """
 
     # weight config
-    weight_scale: torch.Tensor
+    # The scale and offset are computed according to `weight_quant_granularity`
+    # and `weight_quant_scheme` if they are not explicitly provided.
+    weight_scale: Optional[torch.Tensor] = None
     weight_offset: Optional[torch.Tensor] = None
     weight_transposed: bool = False
     """
@@ -47,12 +51,21 @@ class LinearQuantConfig:
     """
     weight_int4_pack_dim: int = 1
     """The dim to pack two int4 into an int8"""
+    weight_group_size: Optional[int] = None
+    """Group size for weight quantization along k-dim. For MXFP4, it also implies
+    the channel group size for activation quantization. The shape of weight_scale
+    should be aligned with this setting."""
+    weight_quant_granularity: Optional[QuantGranularity] = None
+    """Quantization granularity for weight. If None, it is inferred from the shape
+    of weight_scale and weight_offset."""
+    weight_quant_scheme: QuantScheme = QuantScheme.SYMMETRIC
+    """Quantization scheme for weight. If None, it is inferred from whether
+    weight_offset is None or not."""
 
     quant_type: LinearQuantType = LinearQuantType.W8A16
 
     # activation config
-    dynamic_quant_dtype: torch.dtype = torch.int8
-    dynamic_quant_granularity: QuantGranularity = QuantGranularity.PER_TENSOR
+    dynamic_quant_granularity: Optional[QuantGranularity] = None
     dynamic_quant_scheme: QuantScheme = QuantScheme.SYMMETRIC
     activation_scale: Optional[torch.Tensor] = None
     """Scale for static quantization, None for dynamic quantization"""
@@ -64,6 +77,65 @@ class LinearQuantConfig:
     """We deliberately not support output scales and only support out_dtype as
     high-precision dtype (fp16, bf16, fp32) for simplicity. Use-case for quantized
     output is not common."""
+
+    def __post_init__(self):
+        if (
+            self.weight_quant_granularity is not None
+            and self.dynamic_quant_granularity is None
+        ):
+            self.dynamic_quant_granularity = self.weight_quant_granularity
+        if self.weight_scale is None and self.weight_offset is not None:
+            raise ValueError(
+                "weight_offset is provided but weight_scale is None, which is invalid"
+            )
+        if self.weight_scale is None:
+            if self.weight_quant_granularity is None:
+                self.weight_quant_granularity = QuantGranularity.PER_TENSOR
+            if self.weight_quant_scheme is None:
+                self.weight_quant_scheme = QuantScheme.SYMMETRIC
+        if (
+            self.weight_scale is None
+            and self.weight_quant_granularity == QuantGranularity.PER_GROUP
+            and self.weight_group_size is None
+        ):
+            raise ValueError(
+                "weight_group_size must be provided when weight_quant_granularity is PER_GROUP and "
+                "weight_scale is not provided"
+            )
+        if self.activation_scale is None:
+            if self.dynamic_quant_granularity is None:
+                self.dynamic_quant_granularity = QuantGranularity.PER_TENSOR
+            if self.dynamic_quant_scheme is None:
+                self.dynamic_quant_scheme = QuantScheme.SYMMETRIC
+        # Validate FP8 configuration
+        if self.quant_type == LinearQuantType.FP8:
+            if (
+                self.dynamic_quant_scheme is not None
+                and self.dynamic_quant_scheme != QuantScheme.SYMMETRIC
+            ):
+                raise ValueError(
+                    "FP8 quantization only supports symmetric scheme for activations"
+                )
+            if self.activation_scale is not None or self.activation_offset is not None:
+                raise ValueError(
+                    "FP8 quantization does not support static activation quantization"
+                )
+
+        # Validate MXFP4 configuration
+        if self.quant_type == LinearQuantType.MXFP4:
+            if self.dynamic_quant_granularity != QuantGranularity.PER_GROUP:
+                raise ValueError(
+                    "MXFP4 quantization only supports PER_GROUP granularity"
+                )
+            if (
+                self.dynamic_quant_scheme is not None
+                and self.dynamic_quant_scheme != QuantScheme.SYMMETRIC
+            ):
+                raise ValueError("MXFP4 quantization only supports symmetric scheme")
+            if self.activation_scale is not None or self.activation_offset is not None:
+                raise ValueError(
+                    "MXFP4 quantization does not support static activation quantization"
+                )
 
 
 @dataclasses.dataclass

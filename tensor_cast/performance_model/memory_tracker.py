@@ -6,6 +6,8 @@ import torch
 from ..device import DeviceProfile
 from ..performance_model import OpInvokeInfo
 
+from .utils import bytes_of_tensor
+
 
 @dataclasses.dataclass
 class OpMemoryProfile:
@@ -162,7 +164,7 @@ class MemoryTracker:
                 # If a tensor is used before it's defined, it's a model input.
                 # We initialize its info here.
                 self.tensor_infos[tensor_id] = _TensorInfo(
-                    size_bytes=tensor.nelement() * tensor.element_size()
+                    size_bytes=bytes_of_tensor(tensor)
                 )
             self.tensor_infos[tensor_id].use_op_indices.append(op_idx)
             aliased_tensor_id = self.alias_info.get(tensor_id)
@@ -177,7 +179,7 @@ class MemoryTracker:
             tensor_id = id(tensor)
             if tensor_id not in self.tensor_infos:
                 self.tensor_infos[tensor_id] = _TensorInfo(
-                    size_bytes=tensor.nelement() * tensor.element_size()
+                    size_bytes=bytes_of_tensor(tensor)
                 )
                 # This op is the one that defines (creates) the tensor.
                 self.tensor_infos[tensor_id].def_op_idx = op_idx

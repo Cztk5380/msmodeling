@@ -1,6 +1,8 @@
 import unittest
 
 from ..device import DeviceProfile
+
+from ..model_config import QuantGranularity
 from ..scripts.benchmark import find_best_throughput, get_benchmark_query_and_seq_length
 from ..scripts.utils import (
     build_model,
@@ -17,6 +19,9 @@ class TestBenchmark(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.device_profile = DeviceProfile.all_device_profiles["TEST_DEVICE"]
+        self.device_profile_b30a = DeviceProfile.all_device_profiles[
+            "B30A"
+        ]  # For FP8/MXFP4 tests
         self.model_id = "Qwen/Qwen3-32B"
         self.input_length = 100
         self.output_length = 50
@@ -180,7 +185,7 @@ class TestBenchmark(unittest.TestCase):
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
-            device_profile=self.device_profile,
+            device_profile=self.device_profile_b30a,
             input_length=self.input_length,
             output_length=self.output_length,
             slo_limit=0.1,
@@ -206,7 +211,67 @@ class TestBenchmark(unittest.TestCase):
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
-            device_profile=self.device_profile,
+            device_profile=self.device_profile_b30a,
+            input_length=self.input_length,
+            output_length=self.output_length,
+            slo_limit=1.0,  # 1s TTFT limit
+            is_decode=False,
+            reserved_memory_size_gb=1,
+        )
+
+        self.assertGreater(latency, 0)
+        self.assertGreater(concurrency, 0)
+        self.assertIsInstance(breakdown, dict)
+
+    def test_find_best_throughput_with_mxfp4_quant(self):
+        """Test finding best throughput with MXFP4 quantization."""
+        quant_config = get_quant_config(
+            QuantLinearAction.MXFP4,
+            weight_group_size=32,
+            weight_quant_granularity=QuantGranularity.PER_GROUP,
+        )
+        model = build_model(
+            self.model_id,
+            self.parallel_config,
+            quant_config,
+            enable_lmhead=True,
+            num_mtp_tokens=0,
+            compile=False,
+        )
+
+        latency, concurrency, breakdown, error_msg = find_best_throughput(
+            model=model,
+            device_profile=self.device_profile_b30a,
+            input_length=self.input_length,
+            output_length=self.output_length,
+            slo_limit=0.1,
+            is_decode=True,
+            reserved_memory_size_gb=1,
+        )
+
+        self.assertGreater(latency, 0)
+        self.assertGreater(concurrency, 0)
+        self.assertIsInstance(breakdown, dict)
+
+    def test_find_best_throughput_mxfp4_prefill(self):
+        """Test finding best throughput with MXFP4 quantization in prefill mode."""
+        quant_config = get_quant_config(
+            QuantLinearAction.MXFP4,
+            weight_group_size=32,
+            weight_quant_granularity=QuantGranularity.PER_GROUP,
+        )
+        model = build_model(
+            self.model_id,
+            self.parallel_config,
+            quant_config,
+            enable_lmhead=True,
+            num_mtp_tokens=0,
+            compile=False,
+        )
+
+        latency, concurrency, breakdown, error_msg = find_best_throughput(
+            model=model,
+            device_profile=self.device_profile_b30a,
             input_length=self.input_length,
             output_length=self.output_length,
             slo_limit=1.0,  # 1s TTFT limit

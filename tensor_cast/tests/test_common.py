@@ -3,7 +3,9 @@ import random
 import torch
 
 from ..layers.attention import AttentionMetadataTensorCast
-from ..model_config import ModelConfig
+from ..model_config import LinearQuantConfig, LinearQuantType, ModelConfig, QuantConfig
+
+from ..transformers.utils import strip_module_name
 
 
 def assert_close(self, value1, value2, rtol=0.01):
@@ -103,3 +105,37 @@ def has_submodule_with_cls_name(module, cls_name):
         type(sub_module).__name__ == cls_name
         for _, sub_module in module.named_modules()
     )
+
+
+def get_linear_quant_config(quant_type, weight=None, **kwargs):
+    """Helper to create a default symmetric per-tensor weight quant config.
+    Can be customized via kwargs"""
+    config_args = {
+        "quant_type": quant_type,
+    }
+    if "weight_scale" not in kwargs and weight is not None:
+        w_scale = torch.max(torch.abs(weight)) / 127.0
+        config_args.update({"weight_scale": w_scale})
+    config_args.update(kwargs)
+    return LinearQuantConfig(**config_args)
+
+
+def get_quant_config(model=None, quant_type=LinearQuantType.W4A8, **kwargs):
+    quant_config = QuantConfig()
+    if model is None:
+        quant_config.linear_configs["*"] = get_linear_quant_config(
+            quant_type,
+            torch.randn(1) if "weight_group_size" not in kwargs else None,
+            **kwargs,
+        )
+        return quant_config
+    for name, module in model.named_modules():
+        if isinstance(module, torch.nn.Linear):
+            quant_config.linear_configs[strip_module_name(name)] = (
+                get_linear_quant_config(
+                    quant_type,
+                    module.weight.data,
+                    **kwargs,
+                )
+            )
+    return quant_config

@@ -20,6 +20,7 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
         torch.ops.tensor_cast.quantize.default,
         torch.ops.tensor_cast.dynamic_quantize_asymmetric.default,
         torch.ops.tensor_cast.dynamic_quantize_symmetric.default,
+        torch.ops.tensor_cast.dynamic_quantize_mxfp4.default,
     ]
 
     """
