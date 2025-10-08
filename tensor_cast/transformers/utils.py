@@ -100,6 +100,6 @@ def get_attention_quant_config(model, layer_idx) -> Optional[AttentionQuantConfi
                 and (attn_quant_config := module.quant_config) is not None
             ):
                 return attn_quant_config
-    if layer_idx in model.attention_by_layers:
+    if hasattr(model, "attention_by_layers") and layer_idx in model.attention_by_layers:
         return model.attention_by_layers[layer_idx].quant_config
     return None
