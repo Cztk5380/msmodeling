@@ -53,6 +53,7 @@ class StaticCost:
 @dataclass
 class DeviceProfile:
     name: str
+    vendor: str
     comm_grid: CommGrid
 
     all_device_profiles: ClassVar[Dict[str, "DeviceProfile"]] = {}
@@ -97,6 +98,7 @@ TEST_INTERCONNECT = CommGrid(
 
 TEST_DEVICE = DeviceProfile(
     name="TEST_DEVICE",
+    vendor="TEST_VENDOR",
     mma_ops={
         torch.float32: 99.5 * 1e12,
         torch.bfloat16: 353.9 * 1e12,
@@ -164,6 +166,7 @@ class ATLAS_800:
 
     A2_376T_64G = DeviceProfile(
         name="ATLAS_800_A2_376T_64G",
+        vendor="HUAWEI",
         mma_ops={
             torch.float32: 99.5 * 1e12,
             torch.bfloat16: 353.9 * 1e12,
@@ -186,6 +189,7 @@ class ATLAS_800:
 
     A2_313T_64G = DeviceProfile(
         name="ATLAS_800_A2_313T_64G",
+        vendor="HUAWEI",
         mma_ops={
             torch.float32: 83 * 1e12,
             torch.bfloat16: 294.9 * 1e12,
@@ -208,6 +212,7 @@ class ATLAS_800:
 
     A2_280T_64G = DeviceProfile(
         name="ATLAS_800_A2_280T_64G",
+        vendor="HUAWEI",
         mma_ops={
             torch.float32: 75 * 1e12,
             torch.bfloat16: 245.8 * 1e12,
@@ -230,6 +235,7 @@ class ATLAS_800:
 
     A2_280T_64G_PCIE = DeviceProfile(
         name="ATLAS_800_A2_280T_64G_PCIE",
+        vendor="HUAWEI",
         mma_ops={
             torch.float32: 75 * 1e12,
             torch.bfloat16: 245.8 * 1e12,
@@ -252,6 +258,7 @@ class ATLAS_800:
 
     A2_280T_32G_PCIE = DeviceProfile(
         name="ATLAS_800_A2_280T_32G_PCIE",
+        vendor="HUAWEI",
         mma_ops={
             torch.float32: 75 * 1e12,
             torch.bfloat16: 245.8 * 1e12,
@@ -274,6 +281,7 @@ class ATLAS_800:
 
     A3_752T_128G_DIE = DeviceProfile(  # one die of A3
         name="ATLAS_800_A3_752T_128G_DIE",
+        vendor="HUAWEI",
         mma_ops={
             torch.float32: 99.5 * 1e12,
             torch.bfloat16: 353.9 * 1e12,
@@ -296,6 +304,7 @@ class ATLAS_800:
 
     A3_560T_128G_DIE = DeviceProfile(  # one die of A3
         name="ATLAS_800_A3_560T_128G_DIE",
+        vendor="HUAWEI",
         mma_ops={
             torch.float32: 83 * 1e12,
             torch.bfloat16: 294.9 * 1e12,
@@ -370,6 +379,7 @@ class NVIDIA:
 
     B30A = DeviceProfile(  # based on rumours
         name="B30A",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 750 * 1e12,
             torch.bfloat16: 1500 * 1e12,
@@ -394,6 +404,7 @@ class NVIDIA:
 
     H20 = DeviceProfile(
         name="H20",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 74 * 1e12,
             torch.bfloat16: 148 * 1e12,
@@ -417,6 +428,7 @@ class NVIDIA:
 
     H100_SXM = DeviceProfile(
         name="H100_SXM",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
@@ -440,6 +452,7 @@ class NVIDIA:
 
     H200_SXM = DeviceProfile(
         name="H200_SXM",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
@@ -463,6 +476,7 @@ class NVIDIA:
 
     H800_SXM = DeviceProfile(
         name="H800_SXM",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 495 * 1e12,
             torch.bfloat16: 989.5 * 1e12,
@@ -486,6 +500,7 @@ class NVIDIA:
 
     L20 = DeviceProfile(
         name="L20",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 59.8 * 1e12,
             torch.bfloat16: 119.5 * 1e12,
@@ -509,6 +524,7 @@ class NVIDIA:
 
     RTX_PRO_6000D = DeviceProfile(
         name="RTX_PRO_6000D",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 74 * 1e12,
             torch.bfloat16: 148 * 1e12,
@@ -532,6 +548,7 @@ class NVIDIA:
 
     RTX_6000D = DeviceProfile(
         name="RTX_6000D",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 74 * 1e12,
             torch.bfloat16: 148 * 1e12,
@@ -555,6 +572,7 @@ class NVIDIA:
 
     RTX_5090D = DeviceProfile(
         name="RTX_5090D",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 104.8 * 1e12,
             torch.bfloat16: 297 * 1e12,
@@ -579,6 +597,7 @@ class NVIDIA:
 
     RTX_5090Dv2 = DeviceProfile(
         name="RTX_5090Dv2",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 104.8 * 1e12,
             torch.bfloat16: 297 * 1e12,
@@ -603,6 +622,7 @@ class NVIDIA:
 
     RTX_4090 = DeviceProfile(
         name="RTX_4090",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 115 * 1e12,
             torch.bfloat16: 330.3 * 1e12,
@@ -625,6 +645,7 @@ class NVIDIA:
 
     RTX_4090D = DeviceProfile(
         name="RTX_4090D",
+        vendor="NVIDIA",
         mma_ops={
             torch.float32: 73.5 * 1e12,
             torch.bfloat16: 220 * 1e12,
@@ -687,6 +708,7 @@ class CAMBRICON:
 
     MLU690 = DeviceProfile(
         name="MLU690",
+        vendor="CAMBRICON",
         mma_ops={
             torch.float32: 406 * 1e12,
             torch.bfloat16: 813 * 1e12,
@@ -711,6 +733,7 @@ class CAMBRICON:
 
     MLU590 = DeviceProfile(
         name="MLU590",
+        vendor="CAMBRICON",
         mma_ops={
             torch.float32: 157 * 1e12,
             torch.bfloat16: 314 * 1e12,
@@ -735,6 +758,7 @@ class CAMBRICON:
 
     MLU580 = DeviceProfile(
         name="MLU580",
+        vendor="CAMBRICON",
         mma_ops={
             torch.float32: 157 * 1e12,
             torch.bfloat16: 275 * 1e12,
@@ -776,6 +800,7 @@ class KUNLUNXIN:
 
     P800 = DeviceProfile(
         name="P800",
+        vendor="BAIDU",
         mma_ops={
             torch.float32: 175 * 1e12,
             torch.bfloat16: 350 * 1e12,
@@ -816,6 +841,7 @@ class ALIBABA:
 
     PPU = DeviceProfile(
         name="PPU",
+        vendor="ALIBABA",
         mma_ops={
             torch.float32: 61 * 1e12,
             torch.bfloat16: 123 * 1e12,
@@ -856,6 +882,7 @@ class METAX:
 
     C550 = DeviceProfile(
         name="C550",
+        vendor="METAX",
         mma_ops={
             torch.float32: 54 * 1e12,
             torch.bfloat16: 280 * 1e12,
