@@ -1,3 +1,15 @@
+from typing import Optional
+
+import torch
+
+
+class performance_model:
+    class empirical:
+        runtime_device_override: Optional[torch.device] = None
+        warmup_runs = 1
+        benchmark_runs = 10
+
+
 class compilation:
     class passes:
         enable_life_combine_quant = True

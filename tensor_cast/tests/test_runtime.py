@@ -11,6 +11,8 @@ from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
+
+from ..performance_model.empirical import EmpiricalPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
@@ -361,3 +363,57 @@ class PerfAnalysisTestCase(unittest.TestCase):
                 self.assertEqual(breakdown["compute_bound_gp"], 0)
                 self.assertEqual(breakdown["memory_bound"], 0)
                 self.assertGreater(breakdown["communication_bound"], 0)
+
+    def test_empirical_model_torch_op(self):
+        def func(x, y):
+            return torch.matmul(x, y)
+
+        x = torch.randn([100, 100], device="meta")
+        y = torch.randn([100, 100], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = EmpiricalPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x, y)
+        total_time_s = runtime.total_execution_time_s()[perf_model.name]
+        self.assertGreater(total_time_s, 0)
+        result = runtime.table_averages()
+        self.assertIn("aten.mm.default", result)
+
+    def test_empirical_model_torch_op_view(self):
+        def func(x):
+            return x.reshape(10, 10)
+
+        x = torch.randn([100], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = EmpiricalPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x)
+        total_time_s = runtime.total_execution_time_s()[perf_model.name]
+        self.assertEqual(total_time_s, 0)
+        result = runtime.table_averages()
+        self.assertIn("aten.view.default", result)
+
+    def test_empirical_model_tensorcast_op(self):
+        # test tensor_cast.quantize
+        def func(x, scale):
+            return torch.ops.tensor_cast.quantize(x, scale, None, torch.int8)
+
+        x = torch.randn([100, 100], device="meta")
+        scale = torch.tensor(0.1, device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = EmpiricalPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x, scale)
+        total_time_s = runtime.total_execution_time_s()[perf_model.name]
+        self.assertGreater(total_time_s, 0)
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.quantize.default", result)
