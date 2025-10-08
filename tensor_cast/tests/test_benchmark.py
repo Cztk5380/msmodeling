@@ -6,9 +6,10 @@ from ..model_config import QuantGranularity
 from ..scripts.benchmark import find_best_throughput, get_benchmark_query_and_seq_length
 from ..scripts.utils import (
     build_model,
+    create_quant_config,
     get_parallel_config,
-    get_quant_config,
-    QuantLinearAction,
+    QuantizeAttentionAction,
+    QuantizeLinearAction,
 )
 from ..transformers.utils import model_id_to_moe_config
 
@@ -26,7 +27,7 @@ class TestBenchmark(unittest.TestCase):
         self.input_length = 100
         self.output_length = 50
         self.parallel_config = get_parallel_config(world_size=1, tp_size=1, ep=False)
-        self.quant_config = get_quant_config(QuantLinearAction.DISABLED)
+        self.quant_config = create_quant_config(QuantizeLinearAction.DISABLED)
 
     def test_get_benchmark_query_and_seq_length_decode(self):
         """Test query and sequence length calculation for decode mode."""
@@ -123,7 +124,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_with_w8a8_quant(self):
         """Test finding best throughput with W8A8 quantization."""
-        quant_config = get_quant_config(QuantLinearAction.W8A8_DYNAMIC)
+        quant_config = create_quant_config(QuantizeLinearAction.W8A8_DYNAMIC)
         model = build_model(
             self.model_id,
             self.parallel_config,
@@ -148,7 +149,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_with_w4a8_quant(self):
         """Test finding best throughput with W4A8 quantization."""
-        quant_config = get_quant_config(QuantLinearAction.W4A8_DYNAMIC)
+        quant_config = create_quant_config(QuantizeLinearAction.W4A8_DYNAMIC)
         model = build_model(
             self.model_id,
             self.parallel_config,
@@ -173,7 +174,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_with_fp8_quant(self):
         """Test finding best throughput with FP8 quantization."""
-        quant_config = get_quant_config(QuantLinearAction.FP8)
+        quant_config = create_quant_config(QuantizeLinearAction.FP8)
         model = build_model(
             self.model_id,
             self.parallel_config,
@@ -199,7 +200,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_fp8_prefill(self):
         """Test finding best throughput with FP8 quantization in prefill mode."""
-        quant_config = get_quant_config(QuantLinearAction.FP8)
+        quant_config = create_quant_config(QuantizeLinearAction.FP8)
         model = build_model(
             self.model_id,
             self.parallel_config,
@@ -225,8 +226,8 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_with_mxfp4_quant(self):
         """Test finding best throughput with MXFP4 quantization."""
-        quant_config = get_quant_config(
-            QuantLinearAction.MXFP4,
+        quant_config = create_quant_config(
+            QuantizeLinearAction.MXFP4,
             weight_group_size=32,
             weight_quant_granularity=QuantGranularity.PER_GROUP,
         )
@@ -255,8 +256,8 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_mxfp4_prefill(self):
         """Test finding best throughput with MXFP4 quantization in prefill mode."""
-        quant_config = get_quant_config(
-            QuantLinearAction.MXFP4,
+        quant_config = create_quant_config(
+            QuantizeLinearAction.MXFP4,
             weight_group_size=32,
             weight_quant_granularity=QuantGranularity.PER_GROUP,
         )
@@ -272,6 +273,93 @@ class TestBenchmark(unittest.TestCase):
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
             device_profile=self.device_profile_b30a,
+            input_length=self.input_length,
+            output_length=self.output_length,
+            slo_limit=1.0,  # 1s TTFT limit
+            is_decode=False,
+            reserved_memory_size_gb=1,
+        )
+
+        self.assertGreater(latency, 0)
+        self.assertGreater(concurrency, 0)
+        self.assertIsInstance(breakdown, dict)
+
+    def test_find_best_throughput_with_kvcache_int8(self):
+        """Test finding best throughput with INT8 KV cache quantization."""
+        quant_config = create_quant_config(
+            QuantizeLinearAction.DISABLED,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+        )
+        model = build_model(
+            self.model_id,
+            self.parallel_config,
+            quant_config,
+            enable_lmhead=True,
+            num_mtp_tokens=0,
+            compile=False,
+        )
+
+        latency, concurrency, breakdown, error_msg = find_best_throughput(
+            model=model,
+            device_profile=self.device_profile,
+            input_length=self.input_length,
+            output_length=self.output_length,
+            slo_limit=0.1,
+            is_decode=True,
+            reserved_memory_size_gb=1,
+        )
+
+        self.assertGreater(latency, 0)
+        self.assertGreater(concurrency, 0)
+        self.assertIsInstance(breakdown, dict)
+
+    def test_find_best_throughput_kvcache_int8_with_linear_quant(self):
+        """Test finding best throughput with INT8 KV cache and linear quantization."""
+        quant_config = create_quant_config(
+            QuantizeLinearAction.W8A8_DYNAMIC,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+        )
+        model = build_model(
+            self.model_id,
+            self.parallel_config,
+            quant_config,
+            enable_lmhead=True,
+            num_mtp_tokens=0,
+            compile=False,
+        )
+
+        latency, concurrency, breakdown, error_msg = find_best_throughput(
+            model=model,
+            device_profile=self.device_profile,
+            input_length=self.input_length,
+            output_length=self.output_length,
+            slo_limit=0.1,
+            is_decode=True,
+            reserved_memory_size_gb=1,
+        )
+
+        self.assertGreater(latency, 0)
+        self.assertGreater(concurrency, 0)
+        self.assertIsInstance(breakdown, dict)
+
+    def test_find_best_throughput_kvcache_int8_prefill(self):
+        """Test finding best throughput with INT8 KV cache in prefill mode."""
+        quant_config = create_quant_config(
+            QuantizeLinearAction.W8A8_DYNAMIC,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+        )
+        model = build_model(
+            self.model_id,
+            self.parallel_config,
+            quant_config,
+            enable_lmhead=True,
+            num_mtp_tokens=0,
+            compile=False,
+        )
+
+        latency, concurrency, breakdown, error_msg = find_best_throughput(
+            model=model,
+            device_profile=self.device_profile,
             input_length=self.input_length,
             output_length=self.output_length,
             slo_limit=1.0,  # 1s TTFT limit
@@ -492,15 +580,15 @@ class TestBenchmark(unittest.TestCase):
     def test_quant_config_creation(self):
         """Test quantization configuration creation."""
         # Test W8A8 dynamic
-        config = get_quant_config(QuantLinearAction.W8A8_DYNAMIC)
+        config = create_quant_config(QuantizeLinearAction.W8A8_DYNAMIC)
         self.assertIsNotNone(config)
 
         # Test W4A8 dynamic
-        config = get_quant_config(QuantLinearAction.W4A8_DYNAMIC)
+        config = create_quant_config(QuantizeLinearAction.W4A8_DYNAMIC)
         self.assertIsNotNone(config)
 
         # Test disabled
-        config = get_quant_config(QuantLinearAction.DISABLED)
+        config = create_quant_config(QuantizeLinearAction.DISABLED)
         self.assertIsNotNone(config)
 
     def test_benchmark_with_different_devices(self):

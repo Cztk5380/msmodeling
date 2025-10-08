@@ -31,6 +31,10 @@ class AttentionMetadataBase:
 class AttentionBase(torch.nn.Module):
     attn_implmentation = None
 
+    def __init__(self):
+        super().__init__()
+        self.quant_config: Optional[AttentionQuantConfig] = None
+
     def forward(
         self,
         query: torch.Tensor,
@@ -113,8 +117,7 @@ class AttentionTensorCast(AttentionBase):
         query_start_loc = attention_meta.query_start_loc if attention_meta else None
         seq_lens = attention_meta.seq_lens if attention_meta else None
         if attention_meta is not None:
-            if hasattr(self, "quant_config"):
-                self.quant_config: AttentionQuantConfig
+            if self.quant_config is not None:
                 kv_scale = self.quant_config.kv_scale
                 kv_offset = self.quant_config.kv_offset
                 if kv_cache.dtype != torch.int8:
@@ -136,8 +139,8 @@ class AttentionTensorCast(AttentionBase):
             )
             key = kv_cache[0]
             value = kv_cache[1]
-        if hasattr(self, "quant_config") and attention_meta is not None:
-            self.quant_config: AttentionQuantConfig
+        if self.quant_config is not None and attention_meta is not None:
+            out_dtype = query.dtype
             query = torch.ops.tensor_cast.quantize(
                 query,
                 self.quant_config.query_scale,
@@ -160,6 +163,7 @@ class AttentionTensorCast(AttentionBase):
                 self.quant_config.kv_offset,
                 self.quant_config.attention_prob_scale,
                 self.quant_config.attention_prob_offset,
+                out_dtype,
             )
         else:
             return torch.ops.tensor_cast.attention(

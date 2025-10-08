@@ -433,25 +433,14 @@ def _reshape_and_cache_properties(
     return properties
 
 
-@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.attention.default)
-def _attention_properties(
+def _attention_properties_helper(
     op_invoke_info: OpInvokeInfo,
+    query,
+    key,
+    query_start_loc,
+    seq_lens,
+    softmax_dtype,
 ) -> OpInvokeInfo.PerformanceProperties:
-    assert len(op_invoke_info.args) == 7
-    query = op_invoke_info.args[0]
-    key = op_invoke_info.args[1]
-    query_start_loc = op_invoke_info.args[5]
-    seq_lens = op_invoke_info.args[6]
-
-    if query_start_loc is None:
-        assert seq_lens is None
-        seq_len = query.size(-2)
-        batch_size = query.size(0) if query.ndim == 3 else 1
-        seq_lens = torch.full((batch_size,), seq_len, dtype=torch.long)
-        query_start_loc = torch.arange(
-            0, batch_size * seq_len, seq_len, dtype=torch.long
-        )
-
     hidden_size = query.size(-1)
     head_size = key.size(-1)
 
@@ -495,9 +484,102 @@ def _attention_properties(
     properties.memory_read_bytes += torch.sum(
         seq_lens * 2 * bytes_of_elements(key.size(-1) * key.size(-2), key.dtype)
     ).item()
-    properties.compute_ops[query.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[query.dtype].mma_ops = bmm1_ops + bmm2_ops
-    properties.compute_ops[query.dtype].gp_ops = softmax_ops
+    compute_ops = properties.compute_ops.setdefault(
+        query.dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.mma_ops = bmm1_ops + bmm2_ops
+    compute_ops = properties.compute_ops.setdefault(
+        softmax_dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.gp_ops = softmax_ops
+
+    return properties
+
+
+def _default_query_loc_and_seq_lens(query) -> Tuple[torch.Tensor, torch.Tensor]:
+    seq_len = query.size(-2)
+    batch_size = query.size(0) if query.ndim == 3 else 1
+    seq_lens = torch.full((batch_size,), seq_len, dtype=torch.long)
+    query_start_loc = torch.arange(0, batch_size * seq_len, seq_len, dtype=torch.long)
+    return query_start_loc, seq_lens
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.attention.default)
+def _attention_properties(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 7
+    query = op_invoke_info.args[0]
+    key = op_invoke_info.args[1]
+    query_start_loc = op_invoke_info.args[5]
+    seq_lens = op_invoke_info.args[6]
+    if query_start_loc is None or seq_lens is None:
+        query_start_loc, seq_lens = _default_query_loc_and_seq_lens(query)
+    return _attention_properties_helper(
+        op_invoke_info, query, key, query_start_loc, seq_lens, query.dtype
+    )
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.attention_quant.default)
+def _attention_quant_properties(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 14
+    query = op_invoke_info.args[0]
+    key = op_invoke_info.args[1]
+    query_start_loc = op_invoke_info.args[5]
+    seq_lens = op_invoke_info.args[6]
+    out_dtype = op_invoke_info.args[13]
+    if query_start_loc is None or seq_lens is None:
+        query_start_loc, seq_lens = _default_query_loc_and_seq_lens(query)
+    if out_dtype is None or out_dtype == query.dtype:
+        # use half as default softmax dtype
+        softmax_dtype = torch.half
+    else:
+        softmax_dtype = out_dtype
+    properties = _attention_properties_helper(
+        op_invoke_info, query, key, query_start_loc, seq_lens, softmax_dtype
+    )
+
+    # According to
+    #   `out = dequant(quant(softmax(dequant(Q @ K^T)), attention_prob_scale/offset) @ V)`
+    # Calculate additional quantization and dequantization ops
+
+    # 0. Calculate dimensions for quantization ops
+    hidden_size = query.size(-1)
+    head_size = key.size(-1)
+    num_q_heads = hidden_size // head_size
+    num_tokens_per_seq = query_start_loc[1:] - query_start_loc[:-1]
+    context_len_product_sum = torch.sum(
+        num_tokens_per_seq.to(seq_lens.dtype) * seq_lens
+    ).item()
+
+    # 1. Dequantization of Q @ K^T (score matrix):
+    #    scale multiplication + optional offset subtraction
+    # Number of elements: context_len_product_sum * num_q_heads
+    # Assuming 2 ops per element (scale + offset) for worst case
+    dequant_qkt_ops = context_len_product_sum * num_q_heads * 2
+
+    # 2. Quantization of softmax output (attention probabilities):
+    #    scale multiplication + optional offset addition
+    # Same number of elements as above
+    quant_softmax_ops = context_len_product_sum * num_q_heads * 2
+
+    # 3. Dequantization of final output:
+    #    scale multiplication + optional offset subtraction
+    # Number of elements: total_tokens * num_q_heads * head_size
+    if out_dtype is None or out_dtype == query.dtype:
+        dequant_output_ops = 0
+    else:
+        total_tokens = torch.sum(num_tokens_per_seq).item()
+        dequant_output_ops = total_tokens * num_q_heads * head_size * 2
+
+    # Add quantization/dequantization ops to gp_ops
+    total_quant_dequant_ops = dequant_qkt_ops + quant_softmax_ops + dequant_output_ops
+    compute_ops = properties.compute_ops.setdefault(
+        softmax_dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.gp_ops += total_quant_dequant_ops
 
     return properties
 
@@ -518,14 +600,15 @@ def _concat_and_cache_mla_properties(
     return properties
 
 
-@OpInvokeInfo.register_op_properties(
-    torch.ops.tensor_cast.multihead_latent_attention.default
-)
-def _multihead_latent_attention_properties(
+_PREDICTIVE_DECODING_THRESHOLD = 5
+
+
+def _multihead_latent_attention_properties_helper(
     op_invoke_info: OpInvokeInfo,
+    softmax_dtype: torch.dtype,
 ) -> OpInvokeInfo.PerformanceProperties:
     # 1. Argument and Dimension Extraction
-    assert len(op_invoke_info.args) == 11
+    assert len(op_invoke_info.args) >= 11
     (
         q,
         kv_c_normed,
@@ -538,6 +621,7 @@ def _multihead_latent_attention_properties(
         W_UV,
         kv_b_proj,
         v_head_dim,
+        *_,
     ) = op_invoke_info.args
 
     # Extract dimensions from input tensors
@@ -551,8 +635,7 @@ def _multihead_latent_attention_properties(
     # A sequence is in "decode" if it's processing only one query token.
     # Otherwise, it's in "prefill".
     num_tokens_per_seq = query_start_loc[1:] - query_start_loc[:-1]
-    PREDICTIVE_DECODING_THRESHOLD = 5
-    is_decode = num_tokens_per_seq < PREDICTIVE_DECODING_THRESHOLD
+    is_decode = num_tokens_per_seq < _PREDICTIVE_DECODING_THRESHOLD
     is_prefill = ~is_decode
 
     total_fma_ops = 0
@@ -590,7 +673,7 @@ def _multihead_latent_attention_properties(
         total_gp_ops += prefill_op3_ops
 
     # 4. Calculate FLOPs for the Decode Phase
-    num_decode_tokens = torch.sum(is_decode).item()
+    num_decode_tokens = torch.sum(num_tokens_per_seq[is_decode]).item()
     if num_decode_tokens > 0:
         assert W_UK_T is not None and W_UV is not None
         exclude_input_ids = exclude_input_ids - {7, 8}
@@ -644,8 +727,154 @@ def _multihead_latent_attention_properties(
     ).item()
     properties.memory_read_bytes += context_len_product_sum * cache_entry_size
 
-    properties.compute_ops[q.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[q.dtype].mma_ops = total_fma_ops
-    properties.compute_ops[q.dtype].gp_ops = total_gp_ops
+    compute_ops = properties.compute_ops.setdefault(q.dtype, OpInvokeInfo.ComputeOps())
+    compute_ops.mma_ops = total_fma_ops
+    compute_ops = properties.compute_ops.setdefault(
+        softmax_dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.gp_ops = total_gp_ops
+
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.multihead_latent_attention.default
+)
+def _multihead_latent_attention_properties(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    q = op_invoke_info.args[0]
+    return _multihead_latent_attention_properties_helper(op_invoke_info, q.dtype)
+
+
+def _calculate_mla_quant_ops(
+    op_invoke_info: OpInvokeInfo,
+    num_heads: int,
+    q_head_dim: int,
+    kv_lora_rank: int,
+    qk_nope_head_dim: int,
+    v_head_dim: int,
+    query_start_loc: torch.Tensor,
+    seq_lens: torch.Tensor,
+    out_dtype: torch.dtype,
+    q_dtype: torch.dtype,
+) -> int:
+    """
+    Calculate quantization/dequantization ops for MLA quantization.
+    Check `torch.ops.tensor_cast.multihead_latent_attention_quant` docstring for details.
+    """
+    # Separate prefill and decode sequences
+    num_tokens_per_seq = query_start_loc[1:] - query_start_loc[:-1]
+    is_decode = num_tokens_per_seq < _PREDICTIVE_DECODING_THRESHOLD
+    is_prefill = ~is_decode
+
+    total_quant_dequant_ops = 0
+
+    # Calculate quant/dequant ops for prefill phase
+    num_prefill_tokens = torch.sum(num_tokens_per_seq[is_prefill]).item()
+    if num_prefill_tokens > 0:
+        prefill_seq_lens = seq_lens[is_prefill]
+        prefill_num_tokens_per_seq = num_tokens_per_seq[is_prefill]
+        prefill_context_sum = torch.sum(
+            prefill_num_tokens_per_seq.to(prefill_seq_lens.dtype) * prefill_seq_lens
+        ).item()
+
+        # 1. Quantization of kv_c_normed @ kv_b_proj output
+        # Number of elements: num_prefill_tokens * num_heads * (qk_nope_head_dim + v_head_dim)
+        # Each quantization: scale multiplication + optional offset addition (2 ops worst case)
+        kv_proj_out_dim = num_heads * (qk_nope_head_dim + v_head_dim)
+        quant_kv_proj_ops = num_prefill_tokens * kv_proj_out_dim * 2
+
+        # 2. Quantization of attention probabilities (softmax output)
+        # Number of elements: prefill_context_sum * num_heads
+        quant_attention_prob_ops = prefill_context_sum * num_heads * 2
+
+        total_quant_dequant_ops += quant_kv_proj_ops + quant_attention_prob_ops
+
+    # Calculate quant/dequant ops for decode phase
+    num_decode_tokens = torch.sum(num_tokens_per_seq[is_decode]).item()
+    if num_decode_tokens > 0:
+        decode_seq_lens = seq_lens[is_decode]
+        decode_num_tokens_per_seq = num_tokens_per_seq[is_decode]
+        decode_context_sum = torch.sum(
+            decode_num_tokens_per_seq.to(decode_seq_lens.dtype) * decode_seq_lens
+        ).item()
+
+        # 1. Quantization of q @ W_UK_T output
+        # Number of elements: num_decode_tokens * num_heads * kv_lora_rank
+        quant_qk_ops = num_decode_tokens * num_heads * kv_lora_rank * 2
+
+        # 2. Quantization of attention probabilities (softmax output)
+        # Number of elements: decode_context_sum * num_heads
+        quant_attention_prob_ops = decode_context_sum * num_heads * 2
+
+        # 3. Quantization of (Scores @ v_cache) output before @ W_UV
+        # Number of elements: num_decode_tokens * num_heads * kv_lora_rank
+        quant_v_ops = num_decode_tokens * num_heads * kv_lora_rank * 2
+
+        total_quant_dequant_ops += quant_qk_ops + quant_attention_prob_ops + quant_v_ops
+
+    # Optional final output quantization (both prefill and decode)
+    # This is only applied if out_dtype is same as q_dtype
+    if out_dtype is None or out_dtype == q_dtype:
+        total_tokens = torch.sum(num_tokens_per_seq).item()
+        # Number of elements: total_tokens * num_heads * v_head_dim
+        quant_output_ops = total_tokens * num_heads * v_head_dim * 2
+        total_quant_dequant_ops += quant_output_ops
+
+    return total_quant_dequant_ops
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.multihead_latent_attention_quant.default
+)
+def _multihead_latent_attention_quant_properties(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    q = op_invoke_info.args[0]
+    kv_c_normed = op_invoke_info.args[1]
+    k_rot = op_invoke_info.args[2]
+    query_start_loc = op_invoke_info.args[5]
+    seq_lens = op_invoke_info.args[6]
+    v_head_dim = op_invoke_info.args[10]
+    out_dtype = op_invoke_info.args[-1]
+
+    if out_dtype is None or out_dtype == q.dtype:
+        # use half as default softmax dtype
+        softmax_dtype = torch.half
+    else:
+        softmax_dtype = out_dtype
+
+    # Get base properties from helper
+    properties = _multihead_latent_attention_properties_helper(
+        op_invoke_info, softmax_dtype
+    )
+
+    # Extract dimensions (reuse logic instead of duplicating)
+    num_heads = q.size(1)
+    q_head_dim = q.size(2)
+    kv_lora_rank = kv_c_normed.size(1)
+    qk_rope_head_dim = k_rot.size(1)
+    qk_nope_head_dim = q_head_dim - qk_rope_head_dim
+
+    # Calculate additional quant/dequant ops
+    total_quant_dequant_ops = _calculate_mla_quant_ops(
+        op_invoke_info,
+        num_heads,
+        q_head_dim,
+        kv_lora_rank,
+        qk_nope_head_dim,
+        v_head_dim,
+        query_start_loc,
+        seq_lens,
+        out_dtype,
+        q.dtype,
+    )
+
+    # Add all quantization/dequantization ops to gp_ops
+    compute_ops = properties.compute_ops.setdefault(
+        softmax_dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.gp_ops += total_quant_dequant_ops
 
     return properties

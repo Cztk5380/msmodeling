@@ -268,7 +268,16 @@ class PerfAnalysisTestCase(unittest.TestCase):
 
     def test_model_cost_with_zero_shape_static_quant_linear(self):
         def func(x, w, w_scale):
-            return torch.ops.tensor_cast.static_quant_linear(x, w, w_scale)
+            return torch.ops.tensor_cast.static_quant_linear(
+                x,
+                w,
+                w_scale,
+                w_offset=None,
+                x_scale=None,
+                x_offset=None,
+                bias=None,
+                out_dtype=None,
+            )
 
         x = torch.randn([0, 10], device="meta")
         w = torch.randint(0, 255, [10, 10], dtype=torch.uint8, device="meta")

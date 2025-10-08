@@ -5,7 +5,7 @@ import torch
 from ..layers.attention import AttentionMetadataTensorCast
 from ..model_config import LinearQuantConfig, LinearQuantType, ModelConfig, QuantConfig
 
-from ..transformers.utils import strip_module_name
+from ..transformers.utils import get_attention_quant_config, strip_module_name
 
 
 def assert_close(self, value1, value2, rtol=0.01):
@@ -44,6 +44,9 @@ def create_attn_metadata_and_kv_cache(model, model_config: ModelConfig):
     num_tokens = query_len_1 + query_len_2
     kv_cache_by_layers = {}
     for i in range(model.num_hidden_layers):
+        kvcache_dtype = model_config.dtype
+        if (attention_config := get_attention_quant_config(model, i)) is not None:
+            kvcache_dtype = attention_config.get_quant_dtype()
         kv_cache_by_layers[i] = torch.empty(
             [
                 2,
@@ -52,7 +55,7 @@ def create_attn_metadata_and_kv_cache(model, model_config: ModelConfig):
                 model.text_config.num_key_value_heads,
                 model.text_config.head_dim,
             ],
-            dtype=model_config.dtype,
+            dtype=kvcache_dtype,
             device="meta",
         )
     return attn_meta, kv_cache_by_layers, num_tokens
@@ -88,13 +91,16 @@ def create_mla_metadata_and_kv_cache(
     num_tokens = query_len_1 + query_len_2
     kv_cache_by_layers = {}
     for i in range(model.num_hidden_layers):
+        kvcache_dtype = model_config.dtype
+        if (attention_config := get_attention_quant_config(model, i)) is not None:
+            kvcache_dtype = attention_config.get_quant_dtype()
         kv_cache_by_layers[i] = torch.empty(
             [
                 num_blocks,
                 block_size,
                 model.text_config.kv_lora_rank + model.text_config.qk_rope_head_dim,
             ],
-            dtype=model_config.dtype,
+            dtype=kvcache_dtype,
             device="meta",
         )
     return attn_meta, kv_cache_by_layers, num_tokens

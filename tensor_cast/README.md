@@ -36,27 +36,29 @@ Its general usage is shown below:
 ```text
 usage: text_generate.py [-h]
                         [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_PRO_6000D,RTX_6000D,RTX_5090D,RTX_5090Dv2,RTX_4090,RTX_4090D,MLU690,MLU590,MLU580,P800,PPU,C550}]
-                        --num-queries NUM_QUERIES --query-length QUERY_LENGTH [--context-length CONTEXT_LENGTH] [--compile] [--compile-allow-graph-break]
-                        [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
-                        [--quantize-linear-action {W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC}] [--quantize-lmhead]
+                        --num-queries NUM_QUERIES --query-length QUERY_LENGTH [--context-length CONTEXT_LENGTH] [--compile]
+                        [--compile-allow-graph-break] [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
+                        [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}]
+                        [--quantize-lmhead] [--mxfp4-group-size MXFP4_GROUP_SIZE] [--quantize-attention-action {DISABLED,INT8}]
                         [--graph-log-url GRAPH_LOG_URL] [--log-level LOG_LEVEL] [--decode] [--num-mtp-tokens NUM_MTP_TOKENS]
-                        [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--disable-repetition] [--reserved-memory-gb RESERVED_MEMORY_GB]
-                        [--world-size WORLD_SIZE] [--tp-size TP_SIZE] [--dp-size DP_SIZE] [--mlp-tp-size MLP_TP_SIZE] [--mlp-dp-size MLP_DP_SIZE]
-                        [--lmhead-tp-size LMHEAD_TP_SIZE] [--lmhead-dp-size LMHEAD_DP_SIZE] [--ep]
+                        [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--disable-repetition]
+                        [--reserved-memory-gb RESERVED_MEMORY_GB] [--world-size WORLD_SIZE] [--tp-size TP_SIZE] [--dp-size DP_SIZE]
+                        [--mlp-tp-size MLP_TP_SIZE] [--mlp-dp-size MLP_DP_SIZE] [--lmhead-tp-size LMHEAD_TP_SIZE]
+                        [--lmhead-dp-size LMHEAD_DP_SIZE] [--ep]
                         model_id
 
 Run a simulated LLM inference pass and dump the perf result.
 ```
-Run `python -m tensor_cast.text_generate --help` for details.
+Run `python -m tensor_cast.scripts.text_generate --help` for details.
 
 #### Run Prefill
 To run a prefill of Qwen3-32B with two requests with 3500-token input length each on A2. You can run the following command:
 ```bash
-python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 2 --query-length 3500 --device TEST_DEVICE
+python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 2 --query-length 3500 --device TEST_DEVICE
 ```
 You can also quantize the linear with various quantization schemes, such as W8A8 dynamic quantization and with 4500-token context as the prefix:
 ```bash
-python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 2 --query-length 3500 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_DYNAMIC
+python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 2 --query-length 3500 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_DYNAMIC
 ```
 
 #### Run Decode
@@ -68,9 +70,14 @@ python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 10 --query-leng
 ### Benchmark the optimal throughput under SLO constraints
 Use `scripts/benchmark.py` to search for optimal throughput given models and device lists.
 ```
-usage: benchmark.py [-h] --input-length INPUT_LENGTH --output-length OUTPUT_LENGTH
-                    [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_PRO_6000D,RTX_6000D,RTX_5090D,RTX_5090Dv2,RTX_4090,RTX_4090D,MLU690,MLU590,MLU580,P800,PPU,C550,ATLAS_850_DV100_425T_84G,ATLAS_850_DV100_425T_84G_PCIE,ATLAS_850_DV100_425T_128G_PCIE,ATLAS_850_DV120_486T_96G_POD,ATLAS_850_DV120_547T_144G_POD,ATLAS_850_DV120_486T_144G,ATLAS_850_DV120_425T_96G,ATLAS_850_DV120_425T_84G}]
-                    [--model-id MODEL_ID] [--num-devices NUM_DEVICES] [-c CONFIG] [--compile] [--num-mtp-tokens NUM_MTP_TOKENS] [--ttft-limits TTFT_LIMITS [TTFT_LIMITS ...]] [--tpot-limits TPOT_LIMITS [TPOT_LIMITS ...]] [--mode {decode,prefill,both}] [--quantize-linear {W8A8,W4A8}] [--log-level LOG_LEVEL]
+python -m tensor_cast.scripts.usage: benchmark.py [-h] --input-length INPUT_LENGTH --output-length OUTPUT_LENGTH
+                    [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_PRO_6000D,RTX_6000D,RTX_5090D,RTX_5090Dv2,RTX_4090,RTX_4090D,MLU690,MLU590,MLU580,P800,PPU,C550}]
+                    [--model-id MODEL_ID] [--num-devices NUM_DEVICES] [-c CONFIG] [--compile] [--compile-allow-graph-break]
+                    [--num-mtp-tokens NUM_MTP_TOKENS] [--ttft-limits TTFT_LIMITS [TTFT_LIMITS ...]]
+                    [--tpot-limits TPOT_LIMITS [TPOT_LIMITS ...]] [--mode {decode,prefill,both}]
+                    [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}]
+                    [--mxfp4-group-size MXFP4_GROUP_SIZE] [--quantize-attention-action {DISABLED,INT8}]
+                    [--log-level LOG_LEVEL]
 
 Benchmark LLM inference on given devices and models to search for best throughput under given input/output sequence length and SLO limitations
 ```

@@ -241,12 +241,12 @@ class Runtime(TorchDispatchMode):
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
+        super().__exit__(exc_type, exc_val, exc_tb)
         self.repeat_op_invoke_infos()
         self.replay_op_invoke_infos()
         if self.memory_tracker:
             self.memory_tracker.analyze()
         _current_runtime.value = None
-        super().__exit__(exc_type, exc_val, exc_tb)
 
     def table_averages(self, group_by_input_shapes=False) -> str:
         """

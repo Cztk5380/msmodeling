@@ -59,6 +59,7 @@ def _attention_quant(
     kv_offset: Optional[torch.Tensor],
     attention_prob_scale: torch.Tensor,
     attention_prob_offset: Optional[torch.Tensor],
+    out_dtype: Optional[torch.dtype],
 ) -> torch.Tensor:
     """
     Quantized version of normal attention: MHA/GQA/MQA
@@ -79,4 +80,6 @@ def _attention_quant(
         kv_scale/kv_offset: quant param for KV cache, per-tensor or per channel (along head_size)
         attention_prob_scale/attention_prob_offset: quant param for input of the second BMM
     """
-    return torch.empty_like(query).contiguous()
+    if out_dtype is None:
+        out_dtype = query.dtype
+    return torch.empty_like(query, dtype=out_dtype).contiguous()

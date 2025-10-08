@@ -13,6 +13,11 @@ class LinearQuantType(Enum):
     MXFP4 = auto()  # both weight and activation in MXFP4
 
 
+class AttentionQuantType(Enum):
+    INT8 = auto()
+    # TODO(jgong5): support FP8
+
+
 class QuantGranularity(Enum):
     PER_TENSOR = auto()  # use a single quant param for the entire tensor
     PER_SAMPLE = (
@@ -150,20 +155,48 @@ class AttentionQuantConfig:
     where Q and KV cache are quantized and quant dtype of Q and attention prob
     is aligned with that of KV:
 
-    `out = dequant(quant(softmax(dequant(quant(Q) @ K^T)), attention_prob_scale/offset) @ V)`
+    `out = dequant(quant(softmax(dequant(Q @ K^T)), attention_prob_scale/offset) @ V)`
 
     TODO: support dynamic quant of query, kv, attention_prob?
     TODO: support different quant dtype of Q and attention_prob from KV
     TODO: support int4 quant
     """
 
-    kv_scale: torch.Tensor
-    query_scale: torch.Tensor
-    attention_prob_scale: torch.Tensor
+    quant_type: AttentionQuantType = AttentionQuantType.INT8
+    kv_scale: Optional[torch.Tensor] = None
+    query_scale: Optional[torch.Tensor] = None
+    attention_prob_scale: Optional[torch.Tensor] = None
 
     query_offset: Optional[torch.Tensor] = None
     kv_offset: Optional[torch.Tensor] = None
     attention_prob_offset: Optional[torch.Tensor] = None
+
+    def get_quant_dtype(self) -> torch.dtype:
+        if self.quant_type == AttentionQuantType.INT8:
+            return torch.int8
+        else:
+            raise ValueError(f"Unsupported attention quant type {self.quant_type}")
+
+
+@dataclasses.dataclass
+class MultiheadLatentAttentionQuantConfig(AttentionQuantConfig):
+    """
+    Quantization configuration for multihead latent attention (MLA) layer.
+
+    Similar to `AttentionQuantConfig`, but with additional quant params
+    for the kv projection.
+
+    Check `tensor_cast.multihead_latent_attention_quant` op for more details.
+    """
+
+    kv_projected_scale: Optional[torch.Tensor] = None
+    kv_projected_offset: Optional[torch.Tensor] = None
+    qk_scale: Optional[torch.Tensor] = None
+    qk_offset: Optional[torch.Tensor] = None
+    v_scale: Optional[torch.Tensor] = None
+    v_offset: Optional[torch.Tensor] = None
+    out_scale: Optional[torch.Tensor] = None
+    out_offset: Optional[torch.Tensor] = None
 
 
 @dataclasses.dataclass

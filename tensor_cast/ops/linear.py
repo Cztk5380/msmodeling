@@ -11,11 +11,11 @@ def _static_quant_linear(
     x: torch.Tensor,
     w: torch.Tensor,
     w_scale: torch.Tensor,
-    w_offset: Optional[torch.Tensor] = None,
-    x_scale: Optional[torch.Tensor] = None,
-    x_offset: Optional[torch.Tensor] = None,
-    bias: Optional[torch.Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
+    w_offset: Optional[torch.Tensor],
+    x_scale: Optional[torch.Tensor],
+    x_offset: Optional[torch.Tensor],
+    bias: Optional[torch.Tensor],
+    out_dtype: Optional[torch.dtype],
 ) -> torch.Tensor:
     """
     Semantically equivalent to
@@ -42,8 +42,8 @@ def _fp8_linear(
     w: torch.Tensor,
     x_scale: torch.Tensor,
     w_scale: torch.Tensor,
-    bias: Optional[torch.Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
+    bias: Optional[torch.Tensor],
+    out_dtype: Optional[torch.dtype],
 ) -> torch.Tensor:
     """
     FP8 linear operation. Both x and w are in FP8 format.
@@ -69,8 +69,8 @@ def _mxfp4_linear(
     w: torch.Tensor,
     x_scale: torch.Tensor,
     w_scale: torch.Tensor,
-    bias: Optional[torch.Tensor] = None,
-    out_dtype: Optional[torch.dtype] = None,
+    bias: Optional[torch.Tensor],
+    out_dtype: Optional[torch.dtype],
 ) -> torch.Tensor:
     """
     MXFP4 linear operation. Both x and w are in MXFP4 format with logical
