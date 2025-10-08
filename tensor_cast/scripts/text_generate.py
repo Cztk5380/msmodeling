@@ -5,21 +5,22 @@ from typing import Optional
 
 import torch
 
-from . import config, device_profiles  # noqa: F401
-from .device import DeviceProfile
+from .. import config, device_profiles  # noqa: F401
+from ..device import DeviceProfile
 
-from .model_config import ParallelConfig, QuantConfig, QuantGranularity
-from .performance_model.analytic import AnalyticPerformanceModel
-from .performance_model.memory_tracker import MemoryTracker
+from ..model_config import ParallelConfig, QuantConfig, QuantGranularity
+from ..performance_model.analytic import AnalyticPerformanceModel
+from ..performance_model.memory_tracker import MemoryTracker
 
-from .performance_model.utils import bytes_of_tensor
-from .runtime import Runtime
+from ..performance_model.utils import bytes_of_tensor
+from ..runtime import Runtime
 
-from .scripts.utils import (
+from .utils import (
     build_model,
+    create_quant_config,
     generate_inputs,
-    get_quant_config,
-    QuantLinearAction,
+    QuantizeAttentionAction,
+    QuantizeLinearAction,
 )
 
 
@@ -33,9 +34,10 @@ def run_inference(
     allow_graph_break: bool,
     dump_input_shapes: bool = False,
     chrome_trace: Optional[str] = None,
-    quantize_linear_action: QuantLinearAction = QuantLinearAction.W8A8_DYNAMIC,
+    quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.W8A8_DYNAMIC,
     quantize_lmhead: bool = False,
     mxfp4_group_size: int = 32,
+    quantize_attention_action: QuantizeAttentionAction = QuantizeAttentionAction.DISABLED,
     num_mtp_tokens: int = 0,
     num_hidden_layers_override: int = 0,
     is_decode: bool = False,
@@ -80,14 +82,18 @@ def run_inference(
     print(f"Input Length (per query): {query_len}")
     print(f"Context Length (per query): {context_length}")
     print(f"Decode: {is_decode}")
-    if quantize_linear_action != QuantLinearAction.DISABLED:
+    if quantize_linear_action != QuantizeLinearAction.DISABLED:
         print(
-            f"Quantization: {quantize_linear_action}, quantize LM Head: {quantize_lmhead}"
+            f"Quantization Linear: {quantize_linear_action}, quantize LM Head: {quantize_lmhead}"
         )
-        if quantize_linear_action == QuantLinearAction.MXFP4:
+        if quantize_linear_action == QuantizeLinearAction.MXFP4:
             print(f"  MXFP4 group size: {mxfp4_group_size}")
     else:
-        print("Quantization: Disabled")
+        print("Quantization Linear: Disabled")
+    if quantize_attention_action != QuantizeAttentionAction.DISABLED:
+        print(f"Quantization Attention: {quantize_attention_action}")
+    else:
+        print("Quantization Attention: Disabled")
     print(f"Enable repetition: {not disable_repetition}")
     if num_mtp_tokens > 0:
         print(f"Number of MTP layers: {num_mtp_tokens}")
@@ -103,15 +109,21 @@ def run_inference(
     print("Initializing model on 'meta' device...")
     perf_model = AnalyticPerformanceModel(device_profile)
     quant_config = QuantConfig()
-    if quantize_linear_action != QuantLinearAction.DISABLED:
+    if (
+        quantize_linear_action != QuantizeLinearAction.DISABLED
+        or quantize_attention_action != QuantizeAttentionAction.DISABLED
+    ):
         extra_kwargs = {}
-        if quantize_linear_action == QuantLinearAction.MXFP4:
+        if quantize_linear_action == QuantizeLinearAction.MXFP4:
             extra_kwargs.update(
                 weight_group_size=mxfp4_group_size,
                 weight_quant_granularity=QuantGranularity.PER_GROUP,
             )
-        quant_config = get_quant_config(
-            quantize_linear_action, quant_lmhead=quantize_lmhead, **extra_kwargs
+        quant_config = create_quant_config(
+            quantize_linear_action,
+            quantize_lmhead=quantize_lmhead,
+            quantize_attention_action=quantize_attention_action,
+            **extra_kwargs,
         )
     model = build_model(
         model_id,
@@ -257,9 +269,9 @@ def main():
     )
     parser.add_argument(
         "--quantize-linear-action",
-        type=QuantLinearAction,
-        choices=list(QuantLinearAction),
-        default=QuantLinearAction.W8A8_DYNAMIC,
+        type=QuantizeLinearAction,
+        choices=list(QuantizeLinearAction),
+        default=QuantizeLinearAction.W8A8_DYNAMIC,
         help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
     )
     parser.add_argument(
@@ -272,6 +284,13 @@ def main():
         type=int,
         default=32,
         help="Group size for MXFP4 quantization",
+    )
+    parser.add_argument(
+        "--quantize-attention-action",
+        type=QuantizeAttentionAction,
+        choices=list(QuantizeAttentionAction),
+        default=QuantizeAttentionAction.DISABLED,
+        help="Quantize the KV cache with the given action",
     )
     parser.add_argument(
         "--graph-log-url",
@@ -383,6 +402,7 @@ def main():
         quantize_linear_action=args.quantize_linear_action,
         quantize_lmhead=args.quantize_lmhead,
         mxfp4_group_size=args.mxfp4_group_size,
+        quantize_attention_action=args.quantize_attention_action,
         num_mtp_tokens=args.num_mtp_tokens,
         num_hidden_layers_override=args.num_hidden_layers_override,
         is_decode=args.decode,

@@ -10,23 +10,26 @@ from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
 from ..model_config import (
+    AttentionQuantType,
     LinearQuantConfig,
     LinearQuantType,
     MlaConfig,
     ModelConfig,
     MtpConfig,
+    MultiheadLatentAttentionQuantConfig,
     ParallelConfig,
     QuantConfig,
 )
 from ..transformers.model import TransformerModel
 from ..transformers.utils import (
+    get_attention_quant_config,
     model_id_to_json,
     model_id_to_mla_module_name,
     model_id_to_mtp_block_module_name,
 )
 
 
-class QuantLinearAction(StrEnum):
+class QuantizeLinearAction(StrEnum):
     DISABLED = "DISABLED"
     W8A16_STATIC = "W8A16_STATIC"
     W8A8_STATIC = "W8A8_STATIC"
@@ -36,6 +39,12 @@ class QuantLinearAction(StrEnum):
     W4A8_DYNAMIC = "W4A8_DYNAMIC"
     FP8 = "FP8"
     MXFP4 = "MXFP4"
+
+
+class QuantizeAttentionAction(StrEnum):
+    # TODO(jgong5): support FP8 quantization
+    DISABLED = "DISABLED"
+    INT8 = "INT8"
 
 
 def get_available_memory_gb(device_profile, runtime, reserved_memory_size_gb=0):
@@ -62,26 +71,26 @@ def get_parallel_config(world_size: int, tp_size: int = 1, ep: bool = False):
     )
 
 
-def get_linear_quant_config(quant_action: QuantLinearAction, **kwargs):
+def create_linear_quant_config(quantize_linear_action: QuantizeLinearAction, **kwargs):
     # TODO: support per-channel/per-group setting
     # TODO: support asymmetric quant setting
 
-    if quant_action in ("W8A16_STATIC", "W8A16_DYNAMIC"):
+    if quantize_linear_action in ("W8A16_STATIC", "W8A16_DYNAMIC"):
         quant_type = LinearQuantType.W8A16
-    elif quant_action in ("W8A8_STATIC", "W8A8_DYNAMIC"):
+    elif quantize_linear_action in ("W8A8_STATIC", "W8A8_DYNAMIC"):
         quant_type = LinearQuantType.W8A8
-    elif quant_action == "FP8":
+    elif quantize_linear_action == "FP8":
         quant_type = LinearQuantType.FP8
-    elif quant_action == "MXFP4":
+    elif quantize_linear_action == "MXFP4":
         quant_type = LinearQuantType.MXFP4
         if "weight_group_size" not in kwargs:
             raise ValueError(
                 "weight_group_size must be provided for MXFP4 quantization"
             )
-    elif quant_action in ("W4A8_STATIC", "W4A8_DYNAMIC"):
+    elif quantize_linear_action in ("W4A8_STATIC", "W4A8_DYNAMIC"):
         quant_type = LinearQuantType.W4A8
     else:
-        raise ValueError(f"Unsupported quantization action {quant_action}")
+        raise ValueError(f"Unsupported quantization action {quantize_linear_action}")
 
     config_args = {
         "quant_type": quant_type,
@@ -91,31 +100,57 @@ def get_linear_quant_config(quant_action: QuantLinearAction, **kwargs):
         # For MXFP4, weight_scale is created from the weight tensor during model initialization
         config_args["weight_scale"] = torch.tensor(1.0)
 
-    if quant_action in ("W8A16_STATIC", "W8A8_STATIC", "W4A8_STATIC"):
+    if quantize_linear_action in ("W8A16_STATIC", "W8A8_STATIC", "W4A8_STATIC"):
         config_args["activation_scale"] = torch.tensor(1.0)
     config_args.update(kwargs)
     return LinearQuantConfig(**config_args)
 
 
-def get_quant_config(
-    quant_action: QuantLinearAction, quant_lmhead: bool = False, **kwargs
+def create_attention_quant_config(quantize_attention_action: QuantizeAttentionAction):
+    if quantize_attention_action == QuantizeAttentionAction.INT8:
+        # default to symmetric quant with dummy scales
+        # for simplicity, we use MLA quant config for both MLA and regular attention
+        return MultiheadLatentAttentionQuantConfig(
+            quant_type=AttentionQuantType.INT8,
+            query_scale=torch.tensor(1.0),
+            kv_scale=torch.tensor(1.0),
+            attention_prob_scale=torch.tensor(1.0),
+            kv_projected_scale=torch.tensor(1.0),
+            qk_scale=torch.tensor(1.0),
+            v_scale=torch.tensor(1.0),
+            out_scale=torch.tensor(1.0),
+        )
+    else:
+        raise ValueError(f"Unsupported quantization action {quantize_attention_action}")
+
+
+def create_quant_config(
+    quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.DISABLED,
+    quantize_lmhead: bool = False,
+    quantize_attention_action: QuantizeAttentionAction = QuantizeAttentionAction.DISABLED,
+    **kwargs,
 ):
     quant_config = QuantConfig()
-    if quant_action == QuantLinearAction.DISABLED:
-        return quant_config
-    quant_config.linear_configs["layers.*"] = get_linear_quant_config(
-        quant_action, **kwargs
-    )
-    quant_config.linear_configs["*.layers.*"] = get_linear_quant_config(
-        quant_action, **kwargs
-    )
-    if quant_lmhead:
-        quant_config.linear_configs["lm_head"] = get_linear_quant_config(
-            quant_action, **kwargs
+    if quantize_linear_action != QuantizeLinearAction.DISABLED:
+        quant_config.linear_configs["layers.*"] = create_linear_quant_config(
+            quantize_linear_action, **kwargs
         )
-        quant_config.linear_configs["*.lm_head"] = get_linear_quant_config(
-            quant_action, **kwargs
+        quant_config.linear_configs["*.layers.*"] = create_linear_quant_config(
+            quantize_linear_action, **kwargs
         )
+        if quantize_lmhead:
+            quant_config.linear_configs["lm_head"] = create_linear_quant_config(
+                quantize_linear_action, **kwargs
+            )
+            quant_config.linear_configs["*.lm_head"] = create_linear_quant_config(
+                quantize_linear_action, **kwargs
+            )
+    if quantize_attention_action != QuantizeAttentionAction.DISABLED:
+        # default to symmetric quant with dummy scales
+        quant_config.attention_configs[-1] = create_attention_quant_config(
+            quantize_attention_action
+        )
+
     return quant_config
 
 
@@ -233,6 +268,10 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     # Initialize the KV cache structure (also on 'meta' device).
     kv_cache_by_layers = {}
     for i in range(model.num_hidden_layers):
+        kvcache_dtype = model_config.dtype
+        if (attention_config := get_attention_quant_config(model, i)) is not None:
+            kvcache_dtype = attention_config.get_quant_dtype()
+
         if model_config.mla_config is not None:
             # Shape: [num_blocks, block_size, kv_lora_head_dim + qk_rope_head_dim]
             kv_cache_by_layers[i] = torch.empty(
@@ -241,7 +280,7 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
                     block_size,
                     model.text_config.kv_lora_rank + model.text_config.qk_rope_head_dim,
                 ],
-                dtype=model_config.dtype,
+                dtype=kvcache_dtype,
                 device="meta",
             )
         else:
@@ -260,7 +299,7 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
                     // parallel_config.tensor_parallel_size,
                     model.head_dim,
                 ],
-                dtype=model_config.dtype,
+                dtype=kvcache_dtype,
                 device="meta",
             )
     sampling_metadata = SamplingMetadata(

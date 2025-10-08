@@ -15,6 +15,8 @@ from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
 from ..layers.attention import flash_attention_forward
 from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
+
+from ..layers.mla import MultiheadLatentAttentionBase
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 
@@ -330,12 +332,8 @@ class TransformerModel(ModelWrapperBase):
         # replace attention with custom implementation if defined
         if self.model_config.attention_cls is not None:
             self.attention_by_layers = {}
-            for i in range(self.text_config.num_hidden_layers):
+            for i in range(self.num_hidden_layers):
                 self.attention_by_layers[i] = self.model_config.attention_cls()
-                if i in self.model_config.quant_config.attention_configs:
-                    self.attention_by_layers[
-                        i
-                    ].quant_config = self.model_config.quant_config.attention_configs[i]
 
         self.patch_mla()
 
@@ -498,7 +496,7 @@ class TransformerModel(ModelWrapperBase):
         self.shard_model_by_tp()
         self.shard_model_by_ep()
 
-    def quant_linear(self):
+    def quantize_linear(self):
         """
         Replaces all nn.Linear modules with QuantLinear modules based on the
         quantization configuration stored in self.model_config.
@@ -540,8 +538,30 @@ class TransformerModel(ModelWrapperBase):
                     )
                     self._replace_module(name, quantized_module)
 
+    def quantize_attention(self):
+        attention_configs = self.model_config.quant_config.attention_configs
+        default_attention_config = attention_configs.get(-1)
+        if self.model_config.mla_config:
+            for _, module in self._inner.named_modules():
+                if isinstance(module, MultiheadLatentAttentionBase):
+                    if (
+                        hasattr(module, "layer_idx")
+                        and module.layer_idx in attention_configs
+                    ):
+                        module.quant_config = attention_configs[module.layer_idx]
+                    else:
+                        module.quant_config = default_attention_config
+                    if module.quant_config is not None:
+                        module.quantize_params()
+        if hasattr(self, "attention_by_layers"):
+            for i in range(self.num_hidden_layers):
+                self.attention_by_layers[i].quant_config = attention_configs.get(
+                    i, default_attention_config
+                )
+
     def quantize_model(self):
-        self.quant_linear()
+        self.quantize_linear()
+        self.quantize_attention()
 
     def load_weights(self):
         """TODO: load real weights"""

@@ -19,11 +19,12 @@ from ..transformers.utils import model_id_to_moe_config
 
 from .utils import (
     build_model,
+    create_quant_config,
     generate_inputs,
     get_available_memory_gb,
     get_parallel_config,
-    get_quant_config,
-    QuantLinearAction,
+    QuantizeAttentionAction,
+    QuantizeLinearAction,
 )
 
 logger = logging.getLogger(__name__)
@@ -62,12 +63,12 @@ def find_best_throughput(
         mtp_acceptance_rate = [0.9, 0.6, 0.4, 0.2]
 
     model_config = model.model_config
-    num_mtp_layers = (
+    num_mtp_tokens = (
         model_config.mtp_config.num_mtp_layers
         if model_config.mtp_config is not None
         else 0
     )
-    assert num_mtp_layers <= len(mtp_acceptance_rate)
+    assert num_mtp_tokens <= len(mtp_acceptance_rate)
 
     def error(latency, available_memory_gb, *args, **kwargs):
         if latency <= 0:
@@ -84,7 +85,7 @@ def find_best_throughput(
                 input_length,
                 output_length,
                 is_decode=is_decode,
-                num_mtp_tokens=num_mtp_layers,
+                num_mtp_tokens=num_mtp_tokens,
             )
             inputs = generate_inputs(
                 model,
@@ -107,7 +108,7 @@ def find_best_throughput(
                 runtime.total_execution_time_s()[perf_model.name] + serving_overhead_s
             )
             if is_decode:
-                average_tokens = sum(mtp_acceptance_rate[:num_mtp_layers]) + 1
+                average_tokens = sum(mtp_acceptance_rate[:num_mtp_tokens]) + 1
                 latency /= average_tokens
             available_memory_gb = get_available_memory_gb(
                 device_profile, runtime, reserved_memory_size_gb
@@ -259,9 +260,9 @@ models:
     )
     parser.add_argument(
         "--quantize-linear-action",
-        type=QuantLinearAction,
-        choices=list(QuantLinearAction),
-        default=QuantLinearAction.W8A8_DYNAMIC,
+        type=QuantizeLinearAction,
+        choices=list(QuantizeLinearAction),
+        default=QuantizeLinearAction.W8A8_DYNAMIC,
         help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
     )
     parser.add_argument(
@@ -269,6 +270,13 @@ models:
         type=int,
         default=32,
         help="Group size for MXFP4 quantization",
+    )
+    parser.add_argument(
+        "--quantize-attention-action",
+        type=QuantizeAttentionAction,
+        choices=list(QuantizeAttentionAction),
+        default=QuantizeAttentionAction.DISABLED,
+        help="Quantize the KV cache with the given action",
     )
     parser.add_argument(
         "--log-level",
@@ -301,6 +309,7 @@ models:
 
     mtp = args.num_mtp_tokens
     quantize_linear_action = args.quantize_linear_action
+    quantize_attention_action = args.quantize_attention_action
     mxfp4_group_size = args.mxfp4_group_size
     input_length = args.input_length
     output_length = args.output_length
@@ -319,7 +328,8 @@ models:
         slo_limits = tpot_limits if is_decode else ttft_limits
         print(
             f"Device Type, Number of Devices, Input Length, Output Length, Model, "
-            f"Quant Type, TP Size, Use EP, Use MTP, {slo_name} Target(ms), Concurrency, {slo_name}(ms), "
+            f"Linear Quant Type, Attn Quant Type, TP Size, Use EP, MTP Tokens, "
+            f"{slo_name} Target(ms), Concurrency, {slo_name}(ms), "
             f"Total TPS, TPS/Device, Mem, Comm, Cube, Vec, Error Message"
         )
         for model_id, device_num_list in model_id_to_decode_device_num.items():
@@ -337,15 +347,21 @@ models:
                             tp_size=tp_size,
                             ep=ep,
                         )
-                        if quantize_linear_action != QuantLinearAction.DISABLED:
+                        if (
+                            quantize_linear_action != QuantizeLinearAction.DISABLED
+                            or quantize_attention_action
+                            != QuantizeAttentionAction.DISABLED
+                        ):
                             extra_kwargs = {}
-                            if quantize_linear_action == QuantLinearAction.MXFP4:
+                            if quantize_linear_action == QuantizeLinearAction.MXFP4:
                                 extra_kwargs.update(
                                     weight_group_size=mxfp4_group_size,
                                     weight_quant_granularity=QuantGranularity.PER_GROUP,
                                 )
-                            quant_config = get_quant_config(
-                                quantize_linear_action, **extra_kwargs
+                            quant_config = create_quant_config(
+                                quantize_linear_action,
+                                quantize_attention_action=quantize_attention_action,
+                                **extra_kwargs,
                             )
                         else:
                             quant_config = QuantConfig()
@@ -358,7 +374,7 @@ models:
                             compile=compile,
                             allow_graph_break=allow_graph_break,
                         )
-                        num_mtp_layers = (
+                        num_mtp_tokens = (
                             model.model_config.mtp_config.num_mtp_layers
                             if model.model_config.mtp_config is not None
                             else 0
@@ -391,9 +407,9 @@ models:
                             ]
                             print(
                                 f"{device_profile.name}, {num_devices}, {input_length}, {output_length}, {model_id}, "
-                                f"{quantize_linear_action}, {tp_size}, {ep}, {num_mtp_layers > 0}, "
-                                f"{slo_limit * 1000:.3f}, {concurrency}, {latency * 1000:.3f}, {TPS:.1f}, "
-                                f"{TPS / num_devices:.1f}, {','.join(percentage_breakdown)}, {err_msg}",
+                                f"{quantize_linear_action}, {quantize_attention_action}, {tp_size}, {ep}, "
+                                f"{num_mtp_tokens}, {slo_limit * 1000:.3f}, {concurrency}, {latency * 1000:.3f}, "
+                                f"{TPS:.1f}, {TPS / num_devices:.1f}, {','.join(percentage_breakdown)}, {err_msg}",
                                 flush=True,
                             )
 

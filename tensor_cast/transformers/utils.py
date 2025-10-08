@@ -1,6 +1,8 @@
 from typing import Dict, Optional
 
-from ..model_config import MoEConfig, MoEFieldNames
+from ..layers.mla import MultiheadLatentAttentionBase
+
+from ..model_config import AttentionQuantConfig, MoEConfig, MoEFieldNames
 
 # TODO: Allow users to extend these default configurations from config.py
 
@@ -86,3 +88,18 @@ def strip_module_name(name: str) -> str:
         stripped_before = stripped
         stripped = stripped_before.removesuffix("._inner")
     return stripped
+
+
+def get_attention_quant_config(model, layer_idx) -> Optional[AttentionQuantConfig]:
+    if model.model_config.mla_config is not None:
+        for _, module in model._inner.named_modules():
+            if (
+                isinstance(module, MultiheadLatentAttentionBase)
+                and hasattr(module, "layer_idx")
+                and module.layer_idx == layer_idx
+                and (attn_quant_config := module.quant_config) is not None
+            ):
+                return attn_quant_config
+    if layer_idx in model.attention_by_layers:
+        return model.attention_by_layers[layer_idx].quant_config
+    return None

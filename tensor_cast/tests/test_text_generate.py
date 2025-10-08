@@ -1,8 +1,10 @@
 import unittest
 
-from ..scripts.utils import QuantLinearAction
+from parameterized import parameterized
 
-from ..text_generate import run_inference
+from ..scripts.text_generate import run_inference
+
+from ..scripts.utils import QuantizeAttentionAction, QuantizeLinearAction
 
 
 class TestTextGenerate(unittest.TestCase):
@@ -115,7 +117,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=self.context_length,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
         self._validate_inference_result(result, "test_basic_prefill")
 
@@ -129,7 +131,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=200,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
         self._validate_inference_result(result, "test_prefill_with_context")
 
@@ -143,7 +145,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=100,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.W8A8_DYNAMIC,
+            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
         )
         self._validate_inference_result(result, "test_prefill_with_w8a8_dynamic_quant")
 
@@ -157,7 +159,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=100,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.W8A8_STATIC,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
             is_decode=True,
         )
         self._validate_inference_result(result, "test_decode_with_w8a8_static_quant")
@@ -172,7 +174,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=50,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             is_decode=True,
         )
         self._validate_inference_result(result, "test_decode_mode")
@@ -187,7 +189,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=True,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
         self._validate_inference_result(result, "test_with_compilation")
 
@@ -201,7 +203,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=True,
             allow_graph_break=True,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
         self._validate_inference_result(result, "test_with_compilation_and_graph_break")
 
@@ -215,7 +217,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.W4A8_DYNAMIC,
+            quantize_linear_action=QuantizeLinearAction.W4A8_DYNAMIC,
         )
         self._validate_inference_result(result, "test_w4a8_dynamic_quantization")
 
@@ -229,7 +231,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.W4A8_STATIC,
+            quantize_linear_action=QuantizeLinearAction.W4A8_STATIC,
         )
         self._validate_inference_result(result, "test_w4a8_static_quantization")
 
@@ -243,7 +245,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.FP8,
+            quantize_linear_action=QuantizeLinearAction.FP8,
         )
         self._validate_inference_result(result, "test_fp8_quantization")
 
@@ -257,7 +259,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=100,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.FP8,
+            quantize_linear_action=QuantizeLinearAction.FP8,
         )
         self._validate_inference_result(result, "test_fp8_with_context")
         # Should have KV cache due to context
@@ -273,7 +275,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=50,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.FP8,
+            quantize_linear_action=QuantizeLinearAction.FP8,
             is_decode=True,
         )
         self._validate_inference_result(result, "test_fp8_decode_mode")
@@ -288,7 +290,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.MXFP4,
+            quantize_linear_action=QuantizeLinearAction.MXFP4,
         )
         self._validate_inference_result(result, "test_mxfp4_quantization")
 
@@ -302,7 +304,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=100,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.MXFP4,
+            quantize_linear_action=QuantizeLinearAction.MXFP4,
         )
         self._validate_inference_result(result, "test_mxfp4_with_context")
         # Should have KV cache due to context
@@ -318,10 +320,112 @@ class TestTextGenerate(unittest.TestCase):
             context_length=50,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.MXFP4,
+            quantize_linear_action=QuantizeLinearAction.MXFP4,
             is_decode=True,
         )
         self._validate_inference_result(result, "test_mxfp4_decode_mode")
+
+    def test_kvcache_int8_quantization(self):
+        """Test with INT8 KV cache quantization."""
+        result = run_inference(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=20,
+            context_length=100,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+        )
+        self._validate_inference_result(result, "test_kvcache_int8_quantization")
+        # Should have KV cache due to context
+        self.assertGreater(result["kv_cache_size_gb"], 0)
+        self.assertIn("tensor_cast.attention_quant", result["table_result"])
+
+    def test_kvcache_int8_with_linear_quant(self):
+        """Test INT8 KV cache quantization combined with linear quantization."""
+        result = run_inference(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=50,
+            context_length=100,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+        )
+        self._validate_inference_result(result, "test_kvcache_int8_with_linear_quant")
+        # Should have KV cache due to context
+        self.assertGreater(result["kv_cache_size_gb"], 0)
+        self.assertIn("tensor_cast.attention_quant", result["table_result"])
+
+    def test_kvcache_int8_decode_mode(self):
+        """Test INT8 KV cache quantization in decode mode."""
+        result = run_inference(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=5,
+            query_len=1,
+            context_length=50,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+            is_decode=True,
+        )
+        self._validate_inference_result(result, "test_kvcache_int8_decode_mode")
+        self.assertIn("tensor_cast.attention_quant", result["table_result"])
+
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1"],
+        ]
+    )
+    def test_mla_int8_with_linear_quant(self, model_id):
+        """Test INT8 KV cache quantization combined with linear quantization."""
+        result = run_inference(
+            device=self.device,
+            model_id=model_id,
+            num_queries=2,
+            query_len=50,
+            context_length=100,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+        )
+        self._validate_inference_result(result, "test_kvcache_int8_with_linear_quant")
+        # Should have KV cache due to context
+        self.assertGreater(result["kv_cache_size_gb"], 0)
+        self.assertIn(
+            "tensor_cast.multihead_latent_attention_quant", result["table_result"]
+        )
+
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1"],
+        ]
+    )
+    def test_mla_int8_decode_mode(self, model_id):
+        """Test INT8 KV cache quantization in decode mode."""
+        result = run_inference(
+            device=self.device,
+            model_id=model_id,
+            num_queries=5,
+            query_len=1,
+            context_length=50,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+            is_decode=True,
+        )
+        self._validate_inference_result(result, "test_kvcache_int8_decode_mode")
+        self.assertIn(
+            "tensor_cast.multihead_latent_attention_quant", result["table_result"]
+        )
 
     def test_with_quantized_lmhead(self):
         """Test with LM head quantization enabled."""
@@ -333,7 +437,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.W8A8_DYNAMIC,
+            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
             quantize_lmhead=True,
         )
         self._validate_inference_result(result, "test_with_quantized_lmhead")
@@ -348,7 +452,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=2,
             tp_size=2,
         )
@@ -364,7 +468,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=2,
             tp_size=1,
             dp_size=2,
@@ -381,7 +485,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=4,
             tp_size=2,
             dp_size=2,
@@ -399,7 +503,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             num_mtp_tokens=2,
         )
         self._validate_inference_result(result, "test_with_mtp_tokens")
@@ -414,7 +518,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             disable_repetition=True,
         )
         self._validate_inference_result(result, "test_disable_repetition")
@@ -430,7 +534,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             reserved_memory_gb=reserved_gb,
         )
         self._validate_inference_result(result, "test_with_reserved_memory")
@@ -454,7 +558,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             num_hidden_layers_override=2,
         )
         self._validate_inference_result(result, "test_num_hidden_layers_override")
@@ -469,7 +573,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=4,
             tp_size=2,
             mlp_tp_size=2,
@@ -487,7 +591,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=4,
             tp_size=2,
             lmhead_tp_size=2,
@@ -506,7 +610,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=2,
             tp_size=1,
             ep=True,
@@ -524,7 +628,7 @@ class TestTextGenerate(unittest.TestCase):
                 context_length=self.context_length,
                 do_compile=False,
                 allow_graph_break=False,
-                quantize_linear_action=QuantLinearAction.DISABLED,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
             )
 
     def test_large_batch_size(self):
@@ -537,7 +641,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=0,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
         self._validate_inference_result(result, "test_large_batch_size")
 
@@ -551,7 +655,7 @@ class TestTextGenerate(unittest.TestCase):
             context_length=500,
             do_compile=False,
             allow_graph_break=False,
-            quantize_linear_action=QuantLinearAction.DISABLED,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
         self._validate_inference_result(result, "test_long_context")
 

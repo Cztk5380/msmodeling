@@ -407,7 +407,7 @@ class TestQuantLinear(unittest.TestCase):
         self.assertIn("tensor_cast.quantize.default", result)
         self.assertIn("tensor_cast.static_quant_linear.default", result)
 
-    def test_quant_lmhead(self):
+    def test_quantize_lmhead(self):
         model_id = "Qwen/Qwen3-32B"
         linear_quant_config = get_linear_quant_config(
             LinearQuantType.W8A8,
@@ -435,7 +435,7 @@ class TestQuantLinear(unittest.TestCase):
         self.assertIn("tensor_cast.dynamic_quantize_symmetric.default", result)
         self.assertIn("tensor_cast.static_quant_linear.default", result)
 
-    def test_quant_lmhead_mtp(self):
+    def test_quantize_lmhead_mtp(self):
         model_id = "deepseek-ai/DeepSeek-V3.1"
         hf_config_json = model_id_to_json(model_id)
         linear_quant_config = get_linear_quant_config(
