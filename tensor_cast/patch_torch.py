@@ -71,15 +71,6 @@ def support_autocast_for_meta():
 
 
 @contextlib.contextmanager
-def meta_nonzero_assume_all_nonzero():
-    """This allows the torch.nonzero call in the MoE models traceable with meta device"""
-    old_flag = torch.fx.experimental._config.meta_nonzero_assume_all_nonzero
-    torch.fx.experimental._config.meta_nonzero_assume_all_nonzero = True
-    yield
-    torch.fx.experimental._config.meta_nonzero_assume_all_nonzero = old_flag
-
-
-@contextlib.contextmanager
 def specialize_float():
     """
     Patch torch._dynamo.config.specialize_float to True, so that the float dtype
@@ -140,7 +131,6 @@ def patch_torch():
     """
     with (
         support_autocast_for_meta(),
-        meta_nonzero_assume_all_nonzero(),
         specialize_float(),
         patch_fallback_node_due_to_unsupported_type(),
         patch_dtype_abbrs(),
