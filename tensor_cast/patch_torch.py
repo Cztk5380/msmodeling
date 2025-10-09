@@ -111,7 +111,11 @@ def patch_dtype_abbrs():
     Patch torch.utils._dtype_abbrs in order to support FX graph dump with int4 dtype used
     by MXFP4.
     """
-    from torch.utils._dtype_abbrs import dtype_abbrs
+    try:
+        from torch.utils._dtype_abbrs import dtype_abbrs
+    except ModuleNotFoundError:
+        yield
+        return
 
     original_dtype_abbrs = dict(dtype_abbrs)
     dtype_abbrs.update(

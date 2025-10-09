@@ -64,7 +64,7 @@ python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 2 --que
 #### Run Decode
 Running decode is similar by tweaking the input length and context length. Usually, the input length is 1.
 ```bash
-python -m tensor_cast.text_generate Qwen/Qwen3-32B --num-queries 10 --query-length 1 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_STATIC
+python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 10 --query-length 1 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_STATIC
 ```
 
 ### Benchmark the optimal throughput under SLO constraints
