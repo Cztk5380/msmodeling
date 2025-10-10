@@ -3,26 +3,30 @@ import itertools
 from enum import auto, Enum
 from typing import Optional
 
-from blinker import signal
 import stime
+
+from blinker import signal
 
 
 class RequestState(Enum):
-    INITIAL = auto()         # Initial state after the request is created from the client side
-    LEAVES_CLIENT = auto()   # The request leaves the client
-    ARRIVES_SERVER = auto()  # The request arrives at the server side and ready to be served
-    PREFILLING = auto()      # The prefill stage is in progress
-    PREFILL_DONE = auto()    # Prefill completed
-    RECOMPUTATION = auto()   # The request be preempted due to insufficiency of kv cache
-    KVS_TRANSFERRING = auto() # The request's kv cache is trasnferring from prefill node to decode node
-    DECODING = auto()        # The decode stage is in progress
-    DECODE_DONE = auto()     # Decode completed
+    INITIAL = auto()  # Initial state after the request is created from the client side
+    LEAVES_CLIENT = auto()  # The request leaves the client
+    ARRIVES_SERVER = (
+        auto()
+    )  # The request arrives at the server side and ready to be served
+    PREFILLING = auto()  # The prefill stage is in progress
+    PREFILL_DONE = auto()  # Prefill completed
+    RECOMPUTATION = auto()  # The request be preempted due to insufficiency of kv cache
+    KVS_TRANSFERRING = (
+        auto()
+    )  # The request's kv cache is trasnferring from prefill node to decode node
+    DECODING = auto()  # The decode stage is in progress
+    DECODE_DONE = auto()  # Decode completed
     COMPLETED = DECODE_DONE
 
 
 class Request:
     id_counter = itertools.count()
-    _copied_id = {} # request id -> copied times
 
     def __init__(self, **kwargs):
         super().__init__()
@@ -53,7 +57,7 @@ class Request:
         self.prefill_done_signal = signal(f"prefill_done_{self.id}")
         self.decode_done_signal = signal(f"decode_done_{self.id}")
         self.num_decoded_tokens: int = 0
-        # max num of tokens that need to computed in current loop of schedule  
+        # max num of tokens that need to computed in current loop of schedule
         self.num_current_max_new_tokens = self.num_input_tokens
         self.seq_len = 0
         self.query_len = 0
@@ -65,7 +69,6 @@ class Request:
         self.decode_done_time = 0
         self.prefill_done_time_already_recorded = False
         self.decode_done_time_already_recorded = False
-        
 
         self.need_kv_transfer = False
         self.kv_transfer_done = False

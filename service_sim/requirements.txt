@@ -2,3 +2,5 @@ salabim
 blinker
 pandas
 numpy
+pyyaml
+greenlet

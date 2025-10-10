@@ -2,12 +2,12 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import List
 
 import stime
+from service_sim.config import Config
 from service_sim.instance import Instance, InstanceLoadBalancer
 from service_sim.request import Request, RequestState
-from service_sim.config import Config
 
 
 logger = stime.get_logger(__name__)
@@ -22,8 +22,11 @@ class Serving(ABC):
     Serving is responsible for picking the right server instances to dispatch to according
     to a pre-defined policy.
     """
+
     def __init__(self):
-        self.max_concurrency = Config.get_instance().common_config.serving_config.max_concurrency
+        self.max_concurrency = (
+            Config.get_instance().common_config.serving_config.max_concurrency
+        )
 
     @abstractmethod
     def serve(self, args, **kwargs) -> None:
@@ -69,9 +72,7 @@ class PdDisaggregationServing(Serving):
     """
 
     def __init__(
-        self,
-        prefill_instances: List[Instance],
-        decode_instances: List[Instance]
+        self, prefill_instances: List[Instance], decode_instances: List[Instance]
     ):
         # TOBEDONEL use InstanceGroup to group these prefill and decode instances, pass InstanceGroup to Serving
         super().__init__()
@@ -93,8 +94,9 @@ class PdDisaggregationServing(Serving):
         prefill_instance.handle(request)
 
     def get_work_load(self):
-        work_load = sum(instance.get_work_load() for instance in self.prefill_instances) + \
-            sum(instance.get_work_load() for instance in self.decode_instances)
+        work_load = sum(
+            instance.get_work_load() for instance in self.prefill_instances
+        ) + sum(instance.get_work_load() for instance in self.decode_instances)
 
         return work_load
 
@@ -117,10 +119,10 @@ class PdAggregationServing(Serving):
 
     The overall request serving flow looks like below:
     Requests are firstly dispatched to a server instance, then the instance dispatches the requests to
-    an Engine which corresponds to a Data-Parallel partition. 
+    an Engine which corresponds to a Data-Parallel partition.
     Then the Engine schedule the incoming requests to waiting queue or running queue.
     After the requests are scheduled to running queue, the ModelRunner will start to execute the requests.
-    
+
     """
 
     def __init__(self, prefill_decode_instances: List[Instance]):
@@ -138,4 +140,6 @@ class PdAggregationServing(Serving):
 
     def get_work_load(self):
         """Get the work load of the instance group"""
-        return sum(instance.get_work_load() for instance in self.prefill_decode_instances)
+        return sum(
+            instance.get_work_load() for instance in self.prefill_decode_instances
+        )

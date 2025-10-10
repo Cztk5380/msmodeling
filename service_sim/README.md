@@ -1,17 +1,17 @@
-# how to use
+# How to use
 
-1. install requirements
+## Install requirements
 
 ```bash
 pip install -r requirements.txt
 ```
 
-2. set environment variable
+## Set environment variable
 ```bash
 export PYTHONPATH=/path/to/msit/liuren_modeling:$PYTHONPATH
 ```
 
-3. run simulation
+## Run simulation
 
 Its general usage is shown below:
 ```text
@@ -30,14 +30,29 @@ required arguments:
 
 optional arguments:
   -h, --help            show this help message and exit
+  --enable_profiling    Enable profiling during simulation (default: False)​
+  --profiling_output_path PROFILING_OUTPUT_PATH​
+                        Path to directory where profiling results will be saved (default: ./profiling_results)
 ```
 
 example:
+
+- basic usage
 ```bash
 python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml 
 ```
 
-4. result
+- enable performance analysis
+```bash
+python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml --enable_profiling​ 
+```
+
+- enable performance analysis with custom output path
+```bash
+python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml --enable_profiling --profiling_output_path=/path/to/custom/profiling_dir
+```
+
+## Result
 
 After the simulation finishes, a performance summary is printed to the console like following:
 
@@ -67,3 +82,25 @@ Metric descriptions:
 - OUTPUT_TOKEN_THROUGHPUT: Per-request output-token rate
 - request_throughput: System-wide request rate
 - input_token_throughput / output_token_throughput: Aggregate token throughput
+
+## Profiling
+
+Profiling is supported in the simulation. You can get more specific information about the performance of the system by viewing the profiling result.
+
+Use the following command to enable profiling:
+
+- enable performance analysis
+```bash
+python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml --enable_profiling​ 
+```
+
+- enable performance analysis with custom output path
+```bash
+python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml --enable_profiling --profiling_output_path=/path/to/custom/profiling_dir
+```
+
+
+The original collected profiling result is stored in the directory ```profiling_output_path/{$time_stamp}```.
+The parsed profiling result is stored in the directory ```profiling_output_path/{$time_stamp}_parsed_result```.
+
+A ```chrome_tracing.json``` and a ```profiler.db``` will be generated in parsed_result directory, you can view it by ```chrome://tracing``` or MindStudio Insight

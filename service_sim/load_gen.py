@@ -4,6 +4,7 @@ from typing import Dict
 
 import stime
 from service_sim.request import Request, RequestState
+
 logger = stime.get_logger(__name__)
 
 
@@ -49,7 +50,9 @@ class FixedLengthLoadGen(LoadGen):
         self.requests: Dict[int, Request] = {}
         self.num_requests = num_requests
         for _ in range(num_requests):
-            request = Request(num_input_tokens=num_input_tokens, num_output_tokens=num_output_tokens)
+            request = Request(
+                num_input_tokens=num_input_tokens, num_output_tokens=num_output_tokens
+            )
             self.requests[request.id] = request
         self.finished_requests = {}
 
