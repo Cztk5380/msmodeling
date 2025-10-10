@@ -1,6 +1,9 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
+from unittest.mock import Mock, patch
+
 from service_sim.kv_cache_manager import KVCacheManager  # Implementation file above
+from service_sim.config import Config
 
 
 class TestKVCacheManager(unittest.TestCase):
@@ -9,7 +12,19 @@ class TestKVCacheManager(unittest.TestCase):
 
     def setUp(self) -> None:
         # Create a new manager with 10 blocks before each test case
-        self.mgr = KVCacheManager(num_blocks=self.NUM_BLOCKS, block_size=self.BLOCK_SIZE)
+        self.mgr = KVCacheManager(
+            num_blocks=self.NUM_BLOCKS, block_size=self.BLOCK_SIZE
+        )
+        self.mock_cfg = Mock()
+        self.mock_cfg.enable_profiling = False
+
+
+        self.patch_get = patch.object(Config, "get_instance")
+        mock_get = self.patch_get.start()
+        mock_get.return_value = self.mock_cfg
+
+    def tearDown(self):
+        self.patch_get.stop()
 
     # ---------- Basic functionality ----------
     def test_allocate_once(self):
@@ -19,7 +34,9 @@ class TestKVCacheManager(unittest.TestCase):
         self.assertEqual(self.mgr.stats()["used_blocks"], 1)
 
     def test_allocate_exact_block(self):
-        new_blocks = self.mgr.allocate_slots(request_id=2, num_new_tokens=self.BLOCK_SIZE)
+        new_blocks = self.mgr.allocate_slots(
+            request_id=2, num_new_tokens=self.BLOCK_SIZE
+        )
         self.assertEqual(new_blocks, [9])
         self.assertEqual(self.mgr.used_slots_in_request(2), self.BLOCK_SIZE)
         self.assertEqual(self.mgr.stats()["used_blocks"], 1)
@@ -88,11 +105,11 @@ class TestKVCacheManager(unittest.TestCase):
 
         # Second time: request_id=2 applies for 192 slots
         new2 = self.mgr.allocate_slots(request_id=2, num_new_tokens=192)
-        self.assertEqual(new2, [8, 7])          # Need 2 whole blocks
+        self.assertEqual(new2, [8, 7])  # Need 2 whole blocks
         self.assertEqual(self.mgr.used_slots_in_request(2), 192)
 
         # Overall statistics
-        self.assertEqual(self.mgr.stats()["used_blocks"], 3)   # 0,1,2
+        self.assertEqual(self.mgr.stats()["used_blocks"], 3)  # 0,1,2
         self.assertEqual(self.mgr.stats()["free_blocks"], 7)
 
     def test_same_request_fist_success_second_failed(self):

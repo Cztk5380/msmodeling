@@ -1,15 +1,19 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-from typing import List, Optional, Dict, Tuple
+from typing import Dict, List, Optional
 
 import stime
+from service_sim.profiler import profiler_interface
+from service_sim.config import Config
+
 
 logger = stime.get_logger(__name__)
 
-BLOCK_SIZE = 128          # Each block contains 128 tokens of k/v
+BLOCK_SIZE = 128  # Each block contains 128 tokens of k/v
 
 
 class _KVCacheBlock:
     """Minimal granularity block, internally only records id and remaining available slots"""
+
     __slots__ = ("block_id", "free_slots")
 
     def __init__(self, block_id: int, block_size: int):
@@ -32,9 +36,9 @@ class KVCacheManager:
         self.req_blocks: Dict[int, List[int]] = {}
 
     # ------------- Public Interface -------------
-    def allocate_slots(self,
-                       request_id: int,
-                       num_new_tokens: int) -> Optional[List[int]]:
+    def allocate_slots(
+        self, request_id: int, num_new_tokens: int
+    ) -> Optional[List[int]]:
         """
         Allocate num_new_tokens slots for request.
         Returns **the list of newly acquired block_ids in this call** (excluding previously occupied blocks).
@@ -69,7 +73,9 @@ class KVCacheManager:
         # 2. Need more slots, apply for new blocks
         need_new_blocks = (remaining + self.block_size - 1) // self.block_size
         if need_new_blocks > len(self.free_block_ids):
-            raise ValueError("KVCacheManager.allocate_slots internal failed, not enough free blocks")
+            raise ValueError(
+                "KVCacheManager.allocate_slots internal failed, not enough free blocks"
+            )
 
         for _ in range(need_new_blocks):
             bid = self.free_block_ids.pop()
@@ -79,7 +85,12 @@ class KVCacheManager:
             remaining -= take
             blocks.append(bid)
             new_blocks.append(bid)
-
+        if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
+            profiler_interface.record_kv_cache_free_blocks(
+                "Allocate",
+                request_id,
+                self.stats().get("free_blocks"),
+            )
         return new_blocks
 
     def free(self, request_id: int) -> None:
@@ -91,6 +102,12 @@ class KVCacheManager:
             blk.free_slots = self.block_size
             self.free_block_ids.append(bid)
         logger.debug("free request %s done", request_id)
+        if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
+            profiler_interface.record_kv_cache_free_blocks(
+                "Free",
+                request_id,
+                self.stats().get("free_blocks"),
+            )
 
     # ------------- Debugging -------------
     def stats(self) -> Dict[str, int]:
@@ -104,5 +121,7 @@ class KVCacheManager:
         """Debugging: Count actual used slots for a request"""
         if request_id not in self.req_blocks:
             return 0
-        return sum(self.block_size - self.blocks[bid].free_slots
-                   for bid in self.req_blocks[request_id])
+        return sum(
+            self.block_size - self.blocks[bid].free_slots
+            for bid in self.req_blocks[request_id]
+        )

@@ -1,8 +1,7 @@
 # instance.py
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import itertools
-from abc import ABC
-from typing import Dict, List
+from typing import List
 
 import stime
 from service_sim.device import MachineConfig, MachineManager
@@ -43,12 +42,16 @@ class Instance:
         ]
         self.load_balancer = EngineLoadBalancer(self.engines)
 
-
     def handle(self, request: Request):
         logger.debug("Instance %d handling %s", self.id, request)
-        if request.state not in [RequestState.ARRIVES_SERVER, RequestState.KVS_TRANSFERRING]:
-            raise ValueError("Instance.handle failed, request.state should be ARRIVES_SERVER " \
-                "or KVS_TRANSFERRING, but get %s" % request.state)
+        if request.state not in [
+            RequestState.ARRIVES_SERVER,
+            RequestState.KVS_TRANSFERRING,
+        ]:
+            raise ValueError(
+                "Instance.handle failed, request.state should be ARRIVES_SERVER "
+                "or KVS_TRANSFERRING, but get %s" % request.state
+            )
 
         if request.state == RequestState.ARRIVES_SERVER:
             request.state = RequestState.PREFILLING

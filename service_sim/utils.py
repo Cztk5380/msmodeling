@@ -1,12 +1,16 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+import json
+import os
 from dataclasses import fields, is_dataclass
-from typing import Any, Dict, List, Union
+from datetime import datetime, timezone
+from typing import Any, Dict
 
-import pandas as pd
 import numpy as np
 
+import pandas as pd
+
 import stime
-from stime import get_logger, Task
+from stime import get_logger
 
 logger = get_logger(__name__)
 
@@ -20,8 +24,10 @@ def main_processing(serving, load_gen):
         stime.elapse(interval)
     while not load_gen.is_finished():
         stime.elapse(10)
-            
-    logger.debug(f"time {stime.now():.1f}: all of the requests are finished, stop simulation")
+
+    logger.debug(
+        f"time {stime.now():.1f}: all of the requests are finished, stop simulation"
+    )
     stime.stop_simulation()
     return
 
@@ -60,17 +66,29 @@ def summarize(requests_list):
     - All throughput figures are computed against the *wall-clock* span from
       the first request leaving the client to the last response finishing decode.
     """
+
     # 1. Compute per-sample metrics
     def calc_metrics(req) -> pd.Series:
         e2e = req.decode_done_time - req.leaves_client_time
         ttft = req.prefill_done_time - req.arrives_server_time
         # TPOT = pure decode time / number of output tokens
-        tpot = (req.decode_done_time - req.prefill_done_time) / max(1, req.num_output_tokens)
-        out_tps = req.num_output_tokens / max(0.001, (req.decode_done_time - req.prefill_done_time))
-        return pd.Series([e2e, ttft, tpot,
-                        req.num_input_tokens, req.num_output_tokens, out_tps],
-                        index=["E2E_TIME(s)", "TTFT(s)", "TPOT(s)",
-                                "INPUT_TOKENS", "OUTPUT_TOKENS", "OUTPUT_TOKEN_THROUGHPUT(tok/s)"])
+        tpot = (req.decode_done_time - req.prefill_done_time) / max(
+            1, req.num_output_tokens
+        )
+        out_tps = req.num_output_tokens / max(
+            0.001, (req.decode_done_time - req.prefill_done_time)
+        )
+        return pd.Series(
+            [e2e, ttft, tpot, req.num_input_tokens, req.num_output_tokens, out_tps],
+            index=[
+                "E2E_TIME(s)",
+                "TTFT(s)",
+                "TPOT(s)",
+                "INPUT_TOKENS",
+                "OUTPUT_TOKENS",
+                "OUTPUT_TOKEN_THROUGHPUT(tok/s)",
+            ],
+        )
 
     # 2. Build DataFrame
     df = pd.DataFrame([calc_metrics(r) for r in requests_list])
@@ -87,18 +105,18 @@ def summarize(requests_list):
     }
 
     # 4. Summary table
-    summary = pd.DataFrame({col: [fn(df[col]) for fn in aggs.values()]
-                            for col in df.columns},
-                        index=list(aggs.keys()))
+    summary = pd.DataFrame(
+        {col: [fn(df[col]) for fn in aggs.values()] for col in df.columns},
+        index=list(aggs.keys()),
+    )
 
     output_str = "\n" + summary.round(3).to_string()
 
     # ------------------------------------------------------------------
     # 5. Overall performance summary
     # Use timestamp boundaries (units consistent, usually seconds)
-    benchmark_duration = (
-        max(r.decode_done_time for r in requests_list) -
-        min(r.leaves_client_time for r in requests_list)
+    benchmark_duration = max(r.decode_done_time for r in requests_list) - min(
+        r.leaves_client_time for r in requests_list
     )
 
     total_requests = len(requests_list)
@@ -149,7 +167,9 @@ def dataclass2dict(obj: Any, *, skip_none: bool = False) -> Dict[str, Any]:
         Plain Python dict ready for json.dump
     """
     if not is_dataclass(obj):
-        raise TypeError(f"dataclass2dict() expects a dataclass instance, got {type(obj)}")
+        raise TypeError(
+            f"dataclass2dict() expects a dataclass instance, got {type(obj)}"
+        )
 
     result: Dict[str, Any] = {}
     for field in fields(obj):
@@ -158,3 +178,25 @@ def dataclass2dict(obj: Any, *, skip_none: bool = False) -> Dict[str, Any]:
             continue
         result[field.name] = _convert_value(value, skip_none=skip_none)
     return result
+
+
+def get_basic_timestamp() -> str:
+    """
+    Generate a basic timestamp string with date and time (no special characters).
+
+    Format: YYYY-MM-DD_HH-MM-SS (e.g., 2024-05-20_14-30-45)
+    """
+    # Get current local time
+    current_time = datetime.now(tz=timezone.utc)
+    # Format is Year-Month-Day_Hour-Minute-Second
+    timestamp = current_time.strftime("%Y-%m-%d_%H-%M-%S")
+    return timestamp
+
+
+def gen_profiling_config_set_env_variable(prof_dir):
+    config = {"enable": 1, "prof_dir": prof_dir, "profiler_level": "INFO"}
+    json_path = os.path.join(prof_dir, "profiling_config.json")
+    with open(json_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, ensure_ascii=False, indent=2)
+
+    os.environ["SERVICE_PROF_CONFIG_PATH"] = json_path

@@ -45,6 +45,14 @@ def stop_simulation():
     SimulationEnv().main().activate()
 
 
+def current_task_name():
+    return SimulationEnv().current_component().name()
+
+
+def current_task():
+    return SimulationEnv().current_component()
+
+
 # 2. time related functions/classes
 def now() -> float:
     """
@@ -177,7 +185,3 @@ def get_logger(logger_name: str):
     customed_logger.addHandler(handler)
     customed_logger.propagate = False
     return customed_logger
-
-
-
-        

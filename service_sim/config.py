@@ -69,30 +69,32 @@ class Config:
             self.instance_config_list = self._parse_instance_config(
                 parsed_args.instance_config_path
             )
-            # 2. common 也改为 YAML
             self.common_config = self._parse_common_config(
                 parsed_args.common_config_path
             )
+            self.enable_profiling = parsed_args.enable_profiling
             self._initialized = True
 
     @staticmethod
     def _parse_common_config(path: str) -> CommonConfig:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             d = yaml.safe_load(f)
         model = ModelConfig(**d.pop("model_config", {}))
         load_gen = LoadGenConfig(**d.pop("load_gen", {}))
         serving = ServingConfig(**d.pop("serving_config", {}))
-        return CommonConfig(model_config=model, load_gen=load_gen, serving_config=serving)
+        return CommonConfig(
+            model_config=model, load_gen=load_gen, serving_config=serving
+        )
 
     @staticmethod
     def _parse_instance_config(path: str) -> List[InstanceConfig]:
-        with open(path, "r", encoding="utf-8") as f:
+        with open(path, encoding="utf-8") as f:
             raw = yaml.safe_load(f)
         instances = raw.get("instance_groups", [])
         return [
             InstanceConfig(
                 parallel_config=ParallelConfig(**item.pop("parallel_config", {})),
-                **item
+                **item,
             )
             for item in instances
         ]
