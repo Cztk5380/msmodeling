@@ -168,10 +168,10 @@ class ATLAS_800:
         name="ATLAS_800_A2_376T_64G",
         vendor="HUAWEI",
         mma_ops={
-            torch.float32: 99.5 * 1e12,
-            torch.bfloat16: 353.9 * 1e12,
-            torch.half: 353.9 * 1e12,
-            torch.int8: 353.9 * 2 * 1e12,
+            torch.float32: 188 * 1e12,
+            torch.bfloat16: 376 * 1e12,
+            torch.half: 376 * 1e12,
+            torch.int8: 752 * 1e12,
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
@@ -191,10 +191,10 @@ class ATLAS_800:
         name="ATLAS_800_A2_313T_64G",
         vendor="HUAWEI",
         mma_ops={
-            torch.float32: 83 * 1e12,
-            torch.bfloat16: 294.9 * 1e12,
-            torch.half: 294.9 * 1e12,
-            torch.int8: 294.9 * 2 * 1e12,
+            torch.float32: 156 * 1e12,
+            torch.bfloat16: 313 * 1e12,
+            torch.half: 313 * 1e12,
+            torch.int8: 626 * 1e12,
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
@@ -214,10 +214,10 @@ class ATLAS_800:
         name="ATLAS_800_A2_280T_64G",
         vendor="HUAWEI",
         mma_ops={
-            torch.float32: 75 * 1e12,
-            torch.bfloat16: 245.8 * 1e12,
+            torch.float32: 140 * 1e12,
+            torch.bfloat16: 280 * 1e12,
             torch.half: 280 * 1e12,
-            torch.int8: 280 * 2 * 1e12,
+            torch.int8: 560 * 1e12,
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
@@ -237,10 +237,10 @@ class ATLAS_800:
         name="ATLAS_800_A2_280T_64G_PCIE",
         vendor="HUAWEI",
         mma_ops={
-            torch.float32: 75 * 1e12,
-            torch.bfloat16: 245.8 * 1e12,
+            torch.float32: 140 * 1e12,
+            torch.bfloat16: 280 * 1e12,
             torch.half: 280 * 1e12,
-            torch.int8: 280 * 2 * 1e12,
+            torch.int8: 560 * 1e12,
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
@@ -260,10 +260,10 @@ class ATLAS_800:
         name="ATLAS_800_A2_280T_32G_PCIE",
         vendor="HUAWEI",
         mma_ops={
-            torch.float32: 75 * 1e12,
-            torch.bfloat16: 245.8 * 1e12,
+            torch.float32: 140 * 1e12,
+            torch.bfloat16: 280 * 1e12,
             torch.half: 280 * 1e12,
-            torch.int8: 280 * 2 * 1e12,
+            torch.int8: 560 * 1e12,
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
@@ -283,10 +283,10 @@ class ATLAS_800:
         name="ATLAS_800_A3_752T_128G_DIE",
         vendor="HUAWEI",
         mma_ops={
-            torch.float32: 99.5 * 1e12,
-            torch.bfloat16: 353.9 * 1e12,
-            torch.half: 353.9 * 1e12,
-            torch.int8: 353.9 * 2 * 1e12,
+            torch.float32: 188 * 1e12,
+            torch.bfloat16: 376 * 1e12,
+            torch.half: 376 * 1e12,
+            torch.int8: 752 * 1e12,
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
@@ -306,10 +306,10 @@ class ATLAS_800:
         name="ATLAS_800_A3_560T_128G_DIE",
         vendor="HUAWEI",
         mma_ops={
-            torch.float32: 83 * 1e12,
-            torch.bfloat16: 294.9 * 1e12,
-            torch.half: 294.9 * 1e12,
-            torch.int8: 294.9 * 2 * 1e12,
+            torch.float32: 140 * 1e12,
+            torch.bfloat16: 280 * 1e12,
+            torch.half: 280 * 1e12,
+            torch.int8: 560 * 1e12,
         },
         gp_ops={
             torch.float32: 11 / 2 * 1e12,
@@ -884,7 +884,7 @@ class METAX:
         name="C550",
         vendor="METAX",
         mma_ops={
-            torch.float32: 54 * 1e12,
+            torch.float32: 140 * 1e12,
             torch.bfloat16: 280 * 1e12,
             torch.half: 280 * 1e12,
             torch.int8: 560 * 1e12,
