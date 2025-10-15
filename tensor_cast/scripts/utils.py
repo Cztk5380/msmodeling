@@ -229,7 +229,7 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     # Paged attention parameters (can be adjusted)
     block_size = 128
     num_blocks = (
-        max_context_length * batch_size + block_size
+        max_context_length * batch_size + block_size - 1
     ) // block_size  # Total number of blocks available in the KV cache
 
     # Prepare Attention Metadata for Paged Attention

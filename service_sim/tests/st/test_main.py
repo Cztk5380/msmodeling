@@ -127,7 +127,9 @@ class TestCLI:
             self._run_command(args)
 
         # Verify error code
-        assert exc_info.value.returncode != 0, "Command should not succeed when required arguments are missing"
+        assert exc_info.value.returncode != 0, (
+            "Command should not succeed when required arguments are missing"
+        )
         assert "error: the following arguments are required" in exc_info.value.stderr
 
     def test_invalid_file_path(self):
