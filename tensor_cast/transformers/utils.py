@@ -47,6 +47,15 @@ _model_id_to_moe_config: Dict[str, MoEConfig] = {
     "deepseek-ai/DeepSeek-V3.1": MoEConfig(
         module_name="DeepseekV3MoE",
     ),
+    "baidu/ERNIE-4.5-300B-A47B-PT": MoEConfig(
+        # This is not a strict mapping to ERNIE MoE which has bias correction
+        # and minimal routing weights normalization factor introducing additional
+        # computation (div and mul) on the intermediate tensors. But we simply map
+        # this to the standard MoE implementation since the additional computation
+        # is minor and ignorable compared to other primary ones.
+        module_name="Ernie4_5_MoeSparseMoeBlock",
+        gate_returns_raw_logits=True,
+    ),
 }
 
 
