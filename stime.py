@@ -167,7 +167,10 @@ def get_logger(logger_name: str):
             super().__init__("sim_time")
 
         def filter(self, record):
-            record.sim_time = SimulationEnv().now()
+            try:
+                record.sim_time = SimulationEnv().now()
+            except Exception as e:
+                record.sim_time = 0.0
             try:
                 record.task_name = SimulationEnv().current_component().name()
             except Exception as e:

@@ -9,8 +9,14 @@ import yaml
 # TOBEDONE: fit tensorcast module
 @dataclass
 class ParallelConfig:
+    world_size: int = 1
     tp_size: int = 1
-    num_dp_partitions: int = 1
+    dp_size: int = 1
+    mlp_tp_size: Optional[int] = None
+    mlp_dp_size: Optional[int] = None
+    lmhead_tp_size: Optional[int] = None
+    lmhead_dp_size: Optional[int] = None
+    ep: bool = False
 
 
 @dataclass
@@ -19,21 +25,10 @@ class InstanceConfig:
     num_devices_per_instance: int
     pd_role: str  # "prefill" / "decode" / "both"
     parallel_config: ParallelConfig
+    device_type: str = "TEST_DEVICE"
 
 
 # ------------------ dataclass for common configuration ------------------
-# TOBEDONE: fit tensorcast module
-@dataclass
-class ModelConfig:
-    name: str
-    head_dim: int
-    num_heads: int
-    precision_bytes: int
-    num_layers: int
-    unit_time: Optional[float] = None
-    duration: Optional[float] = None
-
-
 @dataclass
 class LoadGenConfig:
     load_gen_type: str
@@ -46,6 +41,22 @@ class LoadGenConfig:
 @dataclass
 class ServingConfig:
     max_concurrency: int = 100
+    block_size: int = 128
+    max_tokens_budget: int = 8192
+
+
+@dataclass
+class ModelConfig:
+    name: str
+    num_mtp_tokens: int = 0
+    do_compile: bool = False
+    allow_graph_break: bool = False
+    dump_input_shapes: bool = False
+    chrome_trace: Optional[str] = None
+    quantize_linear_action: str = "W8A8_DYNAMIC"
+    quantize_lmhead: bool = False
+    mxfp4_group_size: int = 32
+    quantize_attention_action: str = "DISABLED"
 
 
 @dataclass
@@ -83,7 +94,9 @@ class Config:
         load_gen = LoadGenConfig(**d.pop("load_gen", {}))
         serving = ServingConfig(**d.pop("serving_config", {}))
         return CommonConfig(
-            model_config=model, load_gen=load_gen, serving_config=serving
+            model_config=model,
+            load_gen=load_gen,
+            serving_config=serving
         )
 
     @staticmethod

@@ -6,7 +6,6 @@ from typing import List
 import stime
 from service_sim.device import MachineConfig, MachineManager
 from service_sim.engine import Engine, EngineLoadBalancer
-from service_sim.model_runner import ModelConfig
 from service_sim.request import Request, RequestState
 
 
@@ -16,29 +15,26 @@ logger = stime.get_logger(__name__)
 class Instance:
     id_counter = itertools.count()
 
-    def __init__(self, machine_config: MachineConfig, model_config: ModelConfig):
+    def __init__(self, instance_config):
         self.id = next(self.id_counter)
-        self.machine_manager = MachineManager(machine_config)
-        self.machine_config = machine_config
-        self.model_config = model_config
-        if self.machine_config.num_devices % self.model_config.num_dp_partitions != 0:
+        num_devices = instance_config.num_devices_per_instance
+        dp_size = instance_config.parallel_config.dp_size
+        device_type = instance_config.device_type
+        if num_devices % dp_size != 0:
             raise ValueError(
-                "In instance __init__, num_devices must be divisible by num_dp_partitions,"
-                "but got num_devices = %d, num_dp_partitions = %d"
-                % (self.machine_config.num_devices, self.model_config.num_dp_partitions)
+                "In instance __init__, num_devices must be divisible by dp_size,"
+                "but got num_devices = %d, dp_size = %d"
+                % (num_devices, dp_size)
             )
-        num_devices_per_dp = (
-            self.machine_config.num_devices // self.model_config.num_dp_partitions
-        )
+
         self.engines: List[Engine] = [
             Engine(
-                self.machine_manager.get_devices()[
-                    i * num_devices_per_dp: (i + 1) * num_devices_per_dp
-                ],
-                dp_rank=i,
-                model_config=model_config,
-            )
-            for i in range(model_config.num_dp_partitions)
+                parallel_config=instance_config.parallel_config,
+                world_size=num_devices,
+                device_type=device_type,
+                dp_rank=i
+                )
+                for i in range(dp_size)
         ]
         self.load_balancer = EngineLoadBalancer(self.engines)
 

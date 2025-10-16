@@ -8,7 +8,6 @@ from service_sim.config import Config
 from service_sim.device import DummyDeviceConfig, MachineConfig
 from service_sim.instance import Instance
 from service_sim.load_gen import FixedLengthLoadGen
-from service_sim.model_runner import ModelConfig
 from service_sim.profiler import profiler_interface
 from service_sim.serving import PdAggregationServing, PdDisaggregationServing
 from service_sim.utils import (
@@ -96,12 +95,7 @@ def get_instance_group(instance_config_list, common_config):
     for instance_config in instance_config_list:
         parallel_config = dataclass2dict(instance_config.parallel_config)
         for _ in range(instance_config.num_instances):
-            instance = Instance(
-                MachineConfig(
-                    DummyDeviceConfig(), instance_config.num_devices_per_instance
-                ),
-                ModelConfig(**model_config, **parallel_config),
-            )
+            instance = Instance(instance_config)
             if instance_config.pd_role not in instance_group:
                 raise ValueError(f"{instance_config.pd_role} is not supported")
             else:

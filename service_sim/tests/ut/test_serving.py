@@ -3,12 +3,12 @@ import unittest
 from unittest.mock import Mock, patch
 
 import stime
-from service_sim.config import Config
+from service_sim.config import Config, InstanceConfig, ParallelConfig
 from service_sim.device import DummyDeviceConfig, MachineConfig
 
 from service_sim.instance import Instance
 from service_sim.load_gen import FixedLengthLoadGen
-from service_sim.model_runner import ModelConfig
+from service_sim.model_runner import ModelRunner
 from service_sim.request import Request
 from service_sim.serving import PdAggregationServing, PdDisaggregationServing
 from service_sim.utils import main_processing
@@ -19,43 +19,75 @@ class ServingTestCase(unittest.TestCase):
         stime.init_simulation()
         self.mock_cfg = Mock()
         self.mock_cfg.common_config.serving_config.max_concurrency = 100
+        self.mock_cfg.common_config.serving_config.block_size = 128
+        self.mock_cfg.common_config.serving_config.max_tokens_budget = 8192
         self.mock_cfg.enable_profiling = False
 
 
-        self.patch_get = patch.object(Config, "get_instance")
-        mock_get = self.patch_get.start()
-        mock_get.return_value = self.mock_cfg
+        self.patch_get_instance = patch.object(Config, "get_instance")
+        mock_get_instance = self.patch_get_instance.start()
+        mock_get_instance.return_value = self.mock_cfg
+
+        self.dummy_duration = 0.3
+        self.fake_ret = Mock()
+        self.fake_ret.execution_time_s = self.dummy_duration
+        self.fake_ret.device_memory_available_gb = 40.0
+        self.fake_ret.kv_cache_size_gb = 0
+        self.fake_ret.kv_cache_per_token_gb = 0.001
+
+        self.patch_model_runner = patch(
+            'service_sim.model_runner.TensorCastModelRunner',
+        )
+        mock_model_runner = self.patch_model_runner.start()
+        self.mock_engine = mock_model_runner.return_value
+        self.mock_engine.run_inference.return_value = self.fake_ret
 
     def tearDown(self):
-        self.patch_get.stop()
+        self.patch_get_instance.stop()
+        self.patch_model_runner.stop()
 
     def test_pd_disaggregation_dummy_model(self):
-        dummy_duration = 0.3
-        num_prefill_instances = 8
-        num_decode_instances = 8
+        prefill_instance_config = \
+            InstanceConfig(
+                num_instances=8,
+                num_devices_per_instance=4,
+                device_type="TEST_DEVICE",
+                pd_role="prefill",
+                parallel_config=ParallelConfig(
+                    tp_size=2,
+                    dp_size=2,
+                    mlp_tp_size=None,
+                    mlp_dp_size=None,
+                    lmhead_tp_size=None,
+                    lmhead_dp_size=None,
+                    ep=False,
+                )
+            )
+
+        decode_instance_config = \
+            InstanceConfig(
+                num_instances=8,
+                num_devices_per_instance=8,
+                device_type="TEST_DEVICE",
+                pd_role="decode",
+                parallel_config=ParallelConfig(
+                    tp_size=4,
+                    dp_size=2,
+                    mlp_tp_size=None,
+                    mlp_dp_size=None,
+                    lmhead_tp_size=None,
+                    lmhead_dp_size=None,
+                    ep=False,
+                )
+            )
+            
         prefill_instances = []
         decode_instances = []
-        model_config_kwargs = {
-            "head_dim": 64,
-            "num_heads": 64,
-            "precision_bytes": 2,
-            "num_layers": 8,
-        }
-        for _ in range(num_prefill_instances):
-            prefill = Instance(
-                MachineConfig(DummyDeviceConfig(), 4),
-                ModelConfig(
-                    num_dp_partitions=2, duration=dummy_duration, **model_config_kwargs
-                ),
-            )
+        for _ in range(prefill_instance_config.num_instances):
+            prefill = Instance(prefill_instance_config)
             prefill_instances.append(prefill)
-        for _ in range(num_decode_instances):
-            decode = Instance(
-                MachineConfig(DummyDeviceConfig(), 8),
-                ModelConfig(
-                    num_dp_partitions=2, duration=dummy_duration, **model_config_kwargs
-                ),
-            )
+        for _ in range(decode_instance_config.num_instances):
+            decode = Instance(decode_instance_config)
             decode_instances.append(decode)
 
         num_requests = 10
@@ -78,29 +110,29 @@ class ServingTestCase(unittest.TestCase):
         self.assertEqual(len(requests), num_requests)
 
         for request in requests.values():
-            self.assertAlmostEqual(request.time_to_first_token(), dummy_duration)
+            self.assertAlmostEqual(request.time_to_first_token(), self.dummy_duration)
             self.assertEqual(request.num_decoded_tokens, num_output_tokens)
-            self.assertGreater(request.time_per_output_token(), dummy_duration - 0.1)
-            self.assertLess(request.time_per_output_token(), dummy_duration + 0.1)
+            self.assertGreater(request.time_per_output_token(), self.dummy_duration - 0.1)
+            self.assertLess(request.time_per_output_token(), self.dummy_duration + 0.1)
 
     def test_pd_aggregation_dummy_model(self):
-        dummy_duration = 0.3
-        num_prefill_decode_instances = 8
-        prefill_decode_instances = []
-        model_config_kwargs = {
-            "head_dim": 128,
-            "num_heads": 64,
-            "precision_bytes": 2,
-            "num_layers": 64,
-        }
-        for _ in range(num_prefill_decode_instances):
-            instance = Instance(
-                MachineConfig(DummyDeviceConfig(), 4),
-                ModelConfig(
-                    num_dp_partitions=2, duration=dummy_duration, **model_config_kwargs
-                ),
+        instance_config = InstanceConfig(
+            num_instances=8,
+            num_devices_per_instance=4,
+            device_type="TEST_DEVICE",
+            pd_role="prefill_decode",
+            parallel_config=ParallelConfig(
+                tp_size=2,
+                dp_size=2,
+                mlp_tp_size=None,
+                mlp_dp_size=None,
+                lmhead_tp_size=None,
+                lmhead_dp_size=None,
+                ep=False,
             )
-            prefill_decode_instances.append(instance)
+        )
+
+        prefill_decode_instances = [Instance(instance_config) for _ in range(instance_config.num_instances)]
 
         num_requests = 10
         num_input_tokens = 2048
@@ -114,39 +146,34 @@ class ServingTestCase(unittest.TestCase):
             request_rate=1.0,
         )
 
-        def count_completed(request: Request):
-            nonlocal requests
-            requests[request.id] = request
-
         main_task = stime.CallableTask(main_processing, serving, load_runner)
 
         stime.start_simulation()
         requests = load_runner.get_finished_requests()
-        # all requests have been served
         self.assertEqual(len(requests), num_requests)
         for request in requests.values():
             self.assertEqual(request.num_decoded_tokens, num_output_tokens)
-            self.assertAlmostEqual(request.time_to_first_token(), dummy_duration)
-            self.assertAlmostEqual(request.time_per_output_token(), dummy_duration)
+            self.assertAlmostEqual(request.time_to_first_token(), self.dummy_duration)
+            self.assertAlmostEqual(request.time_per_output_token(), self.dummy_duration)
 
     def test_pd_aggregation_dummy_model_single_scheduler(self):
-        dummy_duration = 0.3
-        num_prefill_decode_instances = 1
-        prefill_decode_instances = []
-        model_config_kwargs = {
-            "head_dim": 64,
-            "num_heads": 64,
-            "precision_bytes": 2,
-            "num_layers": 8,
-        }  # smaller model
-        for _ in range(num_prefill_decode_instances):
-            instance = Instance(
-                MachineConfig(DummyDeviceConfig(), 4),
-                ModelConfig(
-                    num_dp_partitions=1, duration=dummy_duration, **model_config_kwargs
-                ),
+        instance_config = InstanceConfig(
+            num_instances=1,
+            num_devices_per_instance=4,
+            device_type="TEST_DEVICE",
+            pd_role="prefill_decode",
+            parallel_config=ParallelConfig(
+                tp_size=4,
+                dp_size=1,
+                mlp_tp_size=None,
+                mlp_dp_size=None,
+                lmhead_tp_size=None,
+                lmhead_dp_size=None,
+                ep=False,
             )
-            prefill_decode_instances.append(instance)
+        )
+
+        prefill_decode_instances = [Instance(instance_config)]
 
         num_requests = 100
         num_input_tokens = 2048
@@ -160,38 +187,33 @@ class ServingTestCase(unittest.TestCase):
             request_rate=1.0,
         )
 
-        def count_completed(request: Request):
-            nonlocal requests
-            requests[request.id] = request
-
         main_task = stime.CallableTask(main_processing, serving, load_runner)
 
         stime.start_simulation()
         requests = load_runner.get_finished_requests()
-        # all requests have been served
         self.assertEqual(len(requests), num_requests)
         for request in requests.values():
             self.assertEqual(request.num_decoded_tokens, num_output_tokens)
-            self.assertAlmostEqual(request.time_per_output_token(), dummy_duration)
+            self.assertAlmostEqual(request.time_per_output_token(), self.dummy_duration)
 
     def test_pd_aggregation_dummy_model_single_scheduler_trigger_preempt(self):
-        dummy_duration = 0.3
-        num_prefill_decode_instances = 1
-        prefill_decode_instances = []
-        model_config_kwargs = {
-            "head_dim": 64,
-            "num_heads": 64,
-            "precision_bytes": 2,
-            "num_layers": 8,
-        }  # smaller model
-        for _ in range(num_prefill_decode_instances):
-            instance = Instance(
-                MachineConfig(DummyDeviceConfig(), 4),
-                ModelConfig(
-                    num_dp_partitions=1, duration=dummy_duration, **model_config_kwargs
-                ),
+        instance_config = InstanceConfig(
+            num_instances=1,
+            num_devices_per_instance=4,
+            device_type="TEST_DEVICE",
+            pd_role="prefill_decode",
+            parallel_config=ParallelConfig(
+                tp_size=1,
+                dp_size=4,
+                mlp_tp_size=None,
+                mlp_dp_size=None,
+                lmhead_tp_size=None,
+                lmhead_dp_size=None,
+                ep=False,
             )
-            prefill_decode_instances.append(instance)
+        )
+
+        prefill_decode_instances = [Instance(instance_config)]
 
         num_requests = 100
         num_input_tokens = 2048
@@ -204,17 +226,11 @@ class ServingTestCase(unittest.TestCase):
             num_output_tokens=num_output_tokens,
             request_rate=5.0,  # increase sending rate to trigger preempt
         )
-        requests = {}
-
-        def count_completed(request: Request):
-            nonlocal requests
-            requests[request.id] = request
 
         main_task = stime.CallableTask(main_processing, serving, load_runner)
 
         stime.start_simulation()
         requests = load_runner.get_finished_requests()
-        # all requests have been served
         self.assertEqual(len(requests), num_requests)
         for request in requests.values():
             self.assertEqual(request.num_decoded_tokens, num_output_tokens)

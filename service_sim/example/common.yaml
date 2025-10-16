@@ -1,17 +1,23 @@
 model_config:
-  name: llama-7b
-  head_dim: 64
-  num_heads: 64
-  precision_bytes: 2
-  num_layers: 8
-  duration: 0.3
+  name: Qwen/Qwen3-32B
+  num_mtp_tokens: 0
+  quantize_linear_action: W8A8_DYNAMIC
+  quantize_lmhead: False
+  mxfp4_group_size: 32
+  quantize_attention_action: DISABLED
+  do_compile: False 
+  allow_graph_break: False
+  dump_input_shapes: False
+  chrome_trace: null
 
 load_gen:
   load_gen_type: fixed_length
-  num_requests: 100
-  num_input_tokens: 1500
-  num_output_tokens: 3500
+  num_requests: 40
+  num_input_tokens: 15
+  num_output_tokens: 35
   request_rate: 2.0
 
 serving_config:
   max_concurrency: 100
+  block_size: 128
+  max_tokens_budget: 8192
