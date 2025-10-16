@@ -35,12 +35,16 @@ class ModelLoadTestCase(unittest.TestCase):
             ["Qwen/Qwen3-235B-A22B", True],
             ["zai-org/GLM-4.5", False],
             ["zai-org/GLM-4.5", True],
+            ["baidu/ERNIE-4.5-300B-A47B-PT", False],
+            ["baidu/ERNIE-4.5-300B-A47B-PT", True],
         ]
     )
     def test_vanilla_transformer_model(self, model_id, do_compile):
         num_tokens = 100
         model_config = ModelConfig(
-            ParallelConfig(), QuantConfig(), num_hidden_layers_override=2
+            ParallelConfig(),
+            QuantConfig(),
+            enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
         if do_compile:
