@@ -4,16 +4,13 @@ from typing import Dict, List
 import stime
 from service_sim.device import Device
 from service_sim.kv_cache_manager import KVCacheManager
-from service_sim.model_runner import ModelConfig, ModelRunner
+from service_sim.model_runner import ModelRunner
 from service_sim.request import Request, RequestState
 from service_sim.profiler import profiler_interface
 from service_sim.config import Config
 
 
 logger = stime.get_logger(__name__)
-
-MEM_LEFT_FOR_KV_CACHE = 40 * 1024 * 1024  # 40GB
-MAX_TOKENS_BUDGET = 16384
 
 
 class BatchScheduler(stime.Task):
@@ -24,7 +21,7 @@ class BatchScheduler(stime.Task):
         self.waiting_queue = []
         self.running_queue = []
         self.requests: Dict[int, Request] = {}
-        self.max_tokens_budget = MAX_TOKENS_BUDGET
+        self.max_tokens_budget = Config.get_instance().common_config.serving_config.max_tokens_budget
 
     def add(self, request: Request):
         logger.debug(f"BatchScheduler adding {request}")
@@ -284,24 +281,15 @@ class Engine:
     Process request, PREFILLING --> PREFILL_DONE or DECODING --> DECODE_DONE
     """
 
-    def __init__(self, devices: List[Device], dp_rank: int, model_config: ModelConfig):
-        self.model_runner = ModelRunner(devices, dp_rank, model_config)
-        self.kv_manager = self.create_kv_manager(model_config, devices)
+    def __init__(self, parallel_config, world_size, device_type, dp_rank: int):
+        self.model_runner = ModelRunner(parallel_config, world_size, device_type, dp_rank)
+        self.kv_manager = self.create_kv_manager()
         self.batch_scheduler = BatchScheduler(self.model_runner, self.kv_manager)
 
-    @staticmethod
-    def create_kv_manager(model_config, devices):
-        head_dim = model_config.kwargs.get("head_dim")
-        num_heads = model_config.kwargs.get("num_heads")
-        precision_bytes = model_config.kwargs.get("precision_bytes")
-        num_layers = model_config.kwargs.get("num_layers")
-        if None in [head_dim, num_heads, precision_bytes, num_layers]:
-            raise ValueError(
-                "head_dim, num_heads, precision_bytes and num_layers must be set"
-            )
-        kv_cache_per_layer = MEM_LEFT_FOR_KV_CACHE * len(devices) // num_layers
-        block_nums = kv_cache_per_layer // (2 * head_dim * num_heads * precision_bytes)
-        kv_manager = KVCacheManager(block_nums)
+
+    def create_kv_manager(self):
+        block_nums, block_size = self.model_runner.warmup()
+        kv_manager = KVCacheManager(block_nums, block_size)
         return kv_manager
 
     def handle(self, request: Request):

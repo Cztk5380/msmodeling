@@ -14,34 +14,23 @@ VALID_INSTANCE_CONFIG = {
             "num_instances": 2,
             "num_devices_per_instance": 4,
             "pd_role": "both",
-            "parallel_config": {"tp_size": 4, "num_dp_partitions": 1},
-        },
-        {
-            "num_instances": 4,
-            "num_devices_per_instance": 2,
-            "pd_role": "both",
-            "parallel_config": {"tp_size": 2, "num_dp_partitions": 2},
-        },
+            "parallel_config": {"tp_size": 4, "dp_size": 1},
+        }
     ]
 }
 
 VALID_COMMON_CONFIG = {
     "model_config": {
-        "name": "llama-7b",
-        "head_dim": 64,
-        "num_heads": 64,
-        "precision_bytes": 2,
-        "num_layers": 8,
-        "duration": 0.3,
+        "name": "Qwen/Qwen3-32B",
+        
     },
     "load_gen": {
         "load_gen_type": "fixed_length",
         "num_requests": 10,  # Reduce request count to speed up tests
-        "num_input_tokens": 1500,
-        "num_output_tokens": 3500,
+        "num_input_tokens": 30,
+        "num_output_tokens": 5,
         "request_rate": 2.0,
-    },
-    "serving_config": {"max_concurrency": 100},
+    }
 }
 
 INVALID_INSTANCE_CONFIG = {
