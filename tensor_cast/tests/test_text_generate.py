@@ -659,6 +659,23 @@ class TestTextGenerate(unittest.TestCase):
         )
         self._validate_inference_result(result, "test_long_context")
 
+    def test_qwen3_32b_4_a3die_decode_result(self):
+        """Make sure the result of qwen3-32b model on 4 A3 dies is as expected in some range"""
+        result = run_inference(
+            device="ATLAS_800_A3_560T_128G_DIE",
+            model_id="Qwen/Qwen3-32B",
+            num_queries=60,
+            query_len=1,
+            context_length=4250,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            world_size=4,
+            tp_size=4,
+        )
+        self._validate_inference_result(result, "qwen3_32b_4_a3die_decode")
+        self.assertLess(result["execution_time_s"], 0.0328)
+
 
 if __name__ == "__main__":
     unittest.main()

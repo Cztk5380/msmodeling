@@ -148,6 +148,7 @@ def run_inference(
     ):
         _ = model.forward(**input_kwargs)
     run_end = time.perf_counter()
+    execution_time_s = runtime.total_execution_time_s()[perf_model.name]
     print()
     print(f"Model compilation and execution time: {run_end - run_start}s")
     result = runtime.table_averages(group_by_input_shapes=dump_input_shapes)
@@ -200,7 +201,7 @@ def run_inference(
         "kv_cache_size_gb": total_kv_cache_size_gb,
         "model_activation_size_gb": model_activation_size_gb,
         "device_memory_available_gb": device_memory_available_gb,
-        "execution_time_s": run_end - run_start,
+        "execution_time_s": execution_time_s,
         "table_result": result,
         "breakdowns": runtime.get_breakdowns(),
     }
