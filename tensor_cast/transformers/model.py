@@ -106,11 +106,14 @@ def init_on_device_without_buffers(device: torch.device):
 
 
 class CausalLmWrapper(ModelWrapperBase):
-    def __init__(self, hf_config, model: torch.nn.Module):
+    def __init__(self, model_config, hf_config, model: torch.nn.Module):
         super().__init__(model)
         self.hf_config = hf_config
         self.lm_head = torch.nn.Linear(
-            self.hf_config.hidden_size, self.hf_config.vocab_size, bias=False
+            self.hf_config.hidden_size,
+            self.hf_config.vocab_size,
+            bias=False,
+            dtype=model_config.dtype,
         )
 
     def forward(
@@ -260,7 +263,11 @@ class TransformerModel(ModelWrapperBase):
             assert self.model_config.enable_lmhead is None, "MTP on but lmhead is off"
             self.enable_lmhead = True
         if self.enable_lmhead:
-            self._inner = CausalLmWrapper(hf_config=self.hf_config, model=self._inner)
+            self._inner = CausalLmWrapper(
+                model_config=self.model_config,
+                hf_config=self.hf_config,
+                model=self._inner,
+            )
         else:
             self._inner = ModelWrapper(self._inner)
 
