@@ -7,7 +7,7 @@ By running a model on this "virtual" hardware, TensorCast provides detailed perf
 
 - Out-of-the-box support for Huggingface transformer models.
 
-- Support various hardware accelerator devices with simple configurations. We have built-in support for Ascend ATLAS-family accelerators and also provide more device examples under `device_profile_examples` that can be copied into `device_profiles` folder for experiments. Note that these are examples for reference only - we do not guarantee their correctness.
+- Support various hardware accelerator devices with simple configurations.
 
 - Operator-level execution time: Estimated using extensible models like analytic roofline model, empirical data, or ML-based predictors.
 
@@ -20,7 +20,7 @@ By running a model on this "virtual" hardware, TensorCast provides detailed perf
 The final output includes both comprehensive summary tables and detailed Chrome Trace files, allowing for deep visualization and identification of performance bottlenecks.
 
 ## Supported Accelerators
-We support most of the AI accelerator devices from HW vendors: Huawei, NVidia, Alibaba, Baidu, Cambricon, Metax etc. Check `device.py` for details.
+We support most of the AI accelerator devices with simple configurations. We have built-in support for Ascend ATLAS-family accelerators in `device.py` and also provide more device examples under `device_profile_examples` that can be copied into `device_profiles` folder for experiments. Note that these are examples for reference only - we do not guarantee their correctness.
 
 ### Custom device types
 You may also define your own device types in a Python file and drop it under `device_profiles` folder. TensorCast will load them automatically. Refer to `device.py` for examples how to define a new device.
