@@ -4,7 +4,7 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..device import NVIDIA, TEST_DEVICE
+from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
@@ -650,7 +650,7 @@ class TestQuantLinear(unittest.TestCase):
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
 
-        machine_config = NVIDIA.B30A  # make sure we have fp4 support in the HW
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
 
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():

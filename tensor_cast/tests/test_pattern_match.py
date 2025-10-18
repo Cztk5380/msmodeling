@@ -4,7 +4,7 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..device import NVIDIA, TEST_DEVICE
+from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
 
@@ -179,7 +179,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         model = torch.compile(
             model, backend=self.compile_backend, fullgraph=True, dynamic=True
         )
-        machine_config = NVIDIA.B30A  # make sure we have fp4 support in the HW
+        machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)

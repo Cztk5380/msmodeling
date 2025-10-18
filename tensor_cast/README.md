@@ -7,7 +7,7 @@ By running a model on this "virtual" hardware, TensorCast provides detailed perf
 
 - Out-of-the-box support for Huggingface transformer models.
 
-- Support hardware accelerators like Ascend NPU and NVidia GPU.
+- Support various hardware accelerator devices with simple configurations. We have built-in support for Ascend ATLAS-family accelerators and also provide more device examples under `device_profile_examples` that can be copied into `device_profiles` folder for experiments. Note that these are examples for reference only - we do not guarantee their correctness.
 
 - Operator-level execution time: Estimated using extensible models like analytic roofline model, empirical data, or ML-based predictors.
 
@@ -26,6 +26,9 @@ We support most of the AI accelerator devices from HW vendors: Huawei, NVidia, A
 You may also define your own device types in a Python file and drop it under `device_profiles` folder. TensorCast will load them automatically. Refer to `device.py` for examples how to define a new device.
 
 ## How to use
+### Supported python versions
+3.10+
+
 ### Install required packages
 `pip install -r requirements.txt`
 
@@ -35,16 +38,14 @@ We provide a `text_generate.py` command line interface to simulate the text gene
 Its general usage is shown below:
 ```text
 usage: text_generate.py [-h]
-                        [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_PRO_6000D,RTX_6000D,RTX_5090D,RTX_5090Dv2,RTX_4090,RTX_4090D,MLU690,MLU590,MLU580,P800,PPU,C550}]
-                        --num-queries NUM_QUERIES --query-length QUERY_LENGTH [--context-length CONTEXT_LENGTH] [--compile]
-                        [--compile-allow-graph-break] [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
-                        [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}]
-                        [--quantize-lmhead] [--mxfp4-group-size MXFP4_GROUP_SIZE] [--quantize-attention-action {DISABLED,INT8}]
-                        [--graph-log-url GRAPH_LOG_URL] [--log-level LOG_LEVEL] [--decode] [--num-mtp-tokens NUM_MTP_TOKENS]
-                        [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--disable-repetition]
-                        [--reserved-memory-gb RESERVED_MEMORY_GB] [--world-size WORLD_SIZE] [--tp-size TP_SIZE] [--dp-size DP_SIZE]
-                        [--mlp-tp-size MLP_TP_SIZE] [--mlp-dp-size MLP_DP_SIZE] [--lmhead-tp-size LMHEAD_TP_SIZE]
-                        [--lmhead-dp-size LMHEAD_DP_SIZE] [--ep]
+                        [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}]
+                        --num-queries NUM_QUERIES --query-length QUERY_LENGTH [--context-length CONTEXT_LENGTH] [--compile] [--compile-allow-graph-break]
+                        [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
+                        [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}] [--quantize-lmhead]        
+                        [--mxfp4-group-size MXFP4_GROUP_SIZE] [--quantize-attention-action {DISABLED,INT8}] [--graph-log-url GRAPH_LOG_URL] [--log-level LOG_LEVEL] [--decode]  
+                        [--num-mtp-tokens NUM_MTP_TOKENS] [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--disable-repetition]
+                        [--reserved-memory-gb RESERVED_MEMORY_GB] [--world-size WORLD_SIZE] [--tp-size TP_SIZE] [--dp-size DP_SIZE] [--mlp-tp-size MLP_TP_SIZE]
+                        [--mlp-dp-size MLP_DP_SIZE] [--lmhead-tp-size LMHEAD_TP_SIZE] [--lmhead-dp-size LMHEAD_DP_SIZE] [--ep]
                         model_id
 
 Run a simulated LLM inference pass and dump the perf result.
@@ -70,14 +71,12 @@ python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 10 --qu
 ### Benchmark the optimal throughput under SLO constraints
 Use `scripts/benchmark.py` to search for optimal throughput given models and device lists.
 ```
-python -m tensor_cast.scripts.usage: benchmark.py [-h] --input-length INPUT_LENGTH --output-length OUTPUT_LENGTH
-                    [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE,B30A,H20,H100_SXM,H200_SXM,H800_SXM,L20,RTX_PRO_6000D,RTX_6000D,RTX_5090D,RTX_5090Dv2,RTX_4090,RTX_4090D,MLU690,MLU590,MLU580,P800,PPU,C550}]
-                    [--model-id MODEL_ID] [--num-devices NUM_DEVICES] [-c CONFIG] [--compile] [--compile-allow-graph-break]
-                    [--num-mtp-tokens NUM_MTP_TOKENS] [--ttft-limits TTFT_LIMITS [TTFT_LIMITS ...]]
-                    [--tpot-limits TPOT_LIMITS [TPOT_LIMITS ...]] [--mode {decode,prefill,both}]
+usage: benchmark.py [-h] --input-length INPUT_LENGTH --output-length OUTPUT_LENGTH
+                    [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}]
+                    [--model-id MODEL_ID] [--num-devices NUM_DEVICES] [-c CONFIG] [--compile] [--compile-allow-graph-break] [--num-mtp-tokens NUM_MTP_TOKENS]
+                    [--ttft-limits TTFT_LIMITS [TTFT_LIMITS ...]] [--tpot-limits TPOT_LIMITS [TPOT_LIMITS ...]] [--mode {decode,prefill,both}]
                     [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}]
-                    [--mxfp4-group-size MXFP4_GROUP_SIZE] [--quantize-attention-action {DISABLED,INT8}]
-                    [--log-level LOG_LEVEL]
+                    [--mxfp4-group-size MXFP4_GROUP_SIZE] [--quantize-attention-action {DISABLED,INT8}] [--log-level LOG_LEVEL]
 
 Benchmark LLM inference on given devices and models to search for best throughput under given input/output sequence length and SLO limitations
 ```

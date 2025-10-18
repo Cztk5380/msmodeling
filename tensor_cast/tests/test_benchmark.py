@@ -20,9 +20,6 @@ class TestBenchmark(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.device_profile = DeviceProfile.all_device_profiles["TEST_DEVICE"]
-        self.device_profile_b30a = DeviceProfile.all_device_profiles[
-            "B30A"
-        ]  # For FP8/MXFP4 tests
         self.model_id = "Qwen/Qwen3-32B"
         self.input_length = 100
         self.output_length = 50
@@ -186,7 +183,7 @@ class TestBenchmark(unittest.TestCase):
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
-            device_profile=self.device_profile_b30a,
+            device_profile=self.device_profile,
             input_length=self.input_length,
             output_length=self.output_length,
             slo_limit=0.1,
@@ -212,7 +209,7 @@ class TestBenchmark(unittest.TestCase):
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
-            device_profile=self.device_profile_b30a,
+            device_profile=self.device_profile,
             input_length=self.input_length,
             output_length=self.output_length,
             slo_limit=1.0,  # 1s TTFT limit
@@ -242,7 +239,7 @@ class TestBenchmark(unittest.TestCase):
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
-            device_profile=self.device_profile_b30a,
+            device_profile=self.device_profile,
             input_length=self.input_length,
             output_length=self.output_length,
             slo_limit=0.1,
@@ -272,7 +269,7 @@ class TestBenchmark(unittest.TestCase):
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
-            device_profile=self.device_profile_b30a,
+            device_profile=self.device_profile,
             input_length=self.input_length,
             output_length=self.output_length,
             slo_limit=1.0,  # 1s TTFT limit

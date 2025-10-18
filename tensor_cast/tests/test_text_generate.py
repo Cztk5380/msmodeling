@@ -13,7 +13,6 @@ class TestTextGenerate(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures."""
         self.device = "TEST_DEVICE"
-        self.device_b30a = "B30A"  # Device for FP8 and MXFP4 tests
         self.model_id = "Qwen/Qwen3-32B"
         self.num_queries = 2
         self.query_len = 10
@@ -238,7 +237,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_fp8_quantization(self):
         """Test with FP8 quantization."""
         result = run_inference(
-            device=self.device_b30a,
+            device=self.device,
             model_id=self.model_id,
             num_queries=2,
             query_len=20,
@@ -252,7 +251,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_fp8_with_context(self):
         """Test FP8 quantization with context length."""
         result = run_inference(
-            device=self.device_b30a,
+            device=self.device,
             model_id=self.model_id,
             num_queries=2,
             query_len=50,
@@ -268,7 +267,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_fp8_decode_mode(self):
         """Test FP8 quantization in decode mode."""
         result = run_inference(
-            device=self.device_b30a,
+            device=self.device,
             model_id=self.model_id,
             num_queries=5,
             query_len=1,
@@ -283,7 +282,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_mxfp4_quantization(self):
         """Test with MXFP4 quantization."""
         result = run_inference(
-            device=self.device_b30a,
+            device=self.device,
             model_id=self.model_id,
             num_queries=2,
             query_len=20,
@@ -297,7 +296,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_mxfp4_with_context(self):
         """Test MXFP4 quantization with context length."""
         result = run_inference(
-            device=self.device_b30a,
+            device=self.device,
             model_id=self.model_id,
             num_queries=2,
             query_len=50,
@@ -313,7 +312,7 @@ class TestTextGenerate(unittest.TestCase):
     def test_mxfp4_decode_mode(self):
         """Test MXFP4 quantization in decode mode."""
         result = run_inference(
-            device=self.device_b30a,
+            device=self.device,
             model_id=self.model_id,
             num_queries=5,
             query_len=1,

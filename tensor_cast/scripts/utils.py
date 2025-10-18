@@ -1,5 +1,10 @@
-from enum import StrEnum
-from typing import Dict, List, Any
+try:
+    # Native in Python 3.11+
+    from enum import StrEnum
+except ImportError:
+    # Fallback for Python 3.10
+    from strenum import StrEnum
+from typing import Any, Dict, List
 
 import torch
 
@@ -10,7 +15,6 @@ from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
-from ..performance_model.utils import bytes_of_tensor
 from ..model_config import (
     AttentionQuantType,
     LinearQuantConfig,
@@ -22,6 +26,7 @@ from ..model_config import (
     ParallelConfig,
     QuantConfig,
 )
+from ..performance_model.utils import bytes_of_tensor
 from ..transformers.model import TransformerModel
 from ..transformers.utils import (
     get_attention_quant_config,
@@ -326,14 +331,13 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
 
 
 def generate_inputs_varlen(model, requests: List[Dict[str, Any]], block_size):
-    '''
+    """
     requests: List[Dict[str, Any]], each dict represents a request, containing keys: query_len, seq_len, is_decode
-    '''
+    """
     model_config = model.model_config
     mtp = getattr(model_config, "mtp_config", None)
     num_mtp_tokens = mtp.num_mtp_layers if mtp else 0
     parallel_cfg = model_config.parallel_config
-    dp_size = parallel_cfg.data_parallel_size
     tp_size = parallel_cfg.tensor_parallel_size
 
     batch_size = len(requests)
@@ -343,7 +347,6 @@ def generate_inputs_varlen(model, requests: List[Dict[str, Any]], block_size):
     query_lens = [r["query_len"] for r in requests]
     seq_lens = [r["seq_len"] for r in requests]
     is_decode_list = [r["is_decode"] for r in requests]
-    max_context_length = max(seq_lens) + num_mtp_tokens + 1
     num_tokens = sum(query_lens)
 
     query_start_loc = [0]
@@ -353,10 +356,13 @@ def generate_inputs_varlen(model, requests: List[Dict[str, Any]], block_size):
 
     seq_lens_t = torch.tensor(seq_lens, dtype=torch.long)
 
-    num_blocks = (sum(seq_lens) + batch_size * (num_mtp_tokens + 1) + block_size - 1) // block_size
+    num_blocks = (
+        sum(seq_lens) + batch_size * (num_mtp_tokens + 1) + block_size - 1
+    ) // block_size
     max_num_blocks_per_seq = (max(seq_lens) + block_size - 1) // block_size
-    block_table_tensor = torch.empty((batch_size, max_num_blocks_per_seq),
-                            dtype=torch.long, device="meta")
+    block_table_tensor = torch.empty(
+        (batch_size, max_num_blocks_per_seq), dtype=torch.long, device="meta"
+    )
     slot_mapping = torch.empty((num_tokens,), dtype=torch.long, device="meta")
 
     attn_meta = AttentionMetadataTensorCast(
@@ -379,17 +385,30 @@ def generate_inputs_varlen(model, requests: List[Dict[str, Any]], block_size):
 
         if model_config.mla_config is not None:
             kv_cache_by_layers[i] = torch.empty(
-                (num_blocks, block_size,
-                    model.text_config.kv_lora_rank + model.text_config.qk_rope_head_dim),
-                dtype=kvcache_dtype, device="meta")
+                (
+                    num_blocks,
+                    block_size,
+                    model.text_config.kv_lora_rank + model.text_config.qk_rope_head_dim,
+                ),
+                dtype=kvcache_dtype,
+                device="meta",
+            )
         else:
             assert model.text_config.num_key_value_heads % tp_size == 0
             kv_cache_by_layers[i] = torch.empty(
-                (2, num_blocks, block_size,
+                (
+                    2,
+                    num_blocks,
+                    block_size,
                     model.text_config.num_key_value_heads // tp_size,
-                    model.head_dim),
-                dtype=kvcache_dtype, device="meta")
-        kv_cache_per_token += bytes_of_tensor(kv_cache_by_layers[i]) / (num_blocks * block_size)
+                    model.head_dim,
+                ),
+                dtype=kvcache_dtype,
+                device="meta",
+            )
+        kv_cache_per_token += bytes_of_tensor(kv_cache_by_layers[i]) / (
+            num_blocks * block_size
+        )
 
     sampling_meta = SamplingMetadata(query_start_loc=query_start_loc)
     selected_token_indices = []
@@ -401,7 +420,9 @@ def generate_inputs_varlen(model, requests: List[Dict[str, Any]], block_size):
         else:
             selected_token_indices.append(pos + ql - 1)
         pos += ql
-    sampling_meta.selected_token_indices = torch.tensor(selected_token_indices, dtype=torch.long, device="meta")
+    sampling_meta.selected_token_indices = torch.tensor(
+        selected_token_indices, dtype=torch.long, device="meta"
+    )
 
     kwargs = {
         "input_ids": input_ids,
@@ -413,6 +434,8 @@ def generate_inputs_varlen(model, requests: List[Dict[str, Any]], block_size):
     }
 
     if model.model_id.startswith("Qwen/Qwen3-Next"):
-        kwargs["cache_position"] = torch.arange(num_tokens, dtype=torch.long, device="cpu")
+        kwargs["cache_position"] = torch.arange(
+            num_tokens, dtype=torch.long, device="cpu"
+        )
 
     return kwargs
