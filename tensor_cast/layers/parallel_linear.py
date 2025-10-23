@@ -4,39 +4,7 @@ import torch
 from torch import nn
 
 from ..parallel_group import ParallelGroup
-from .utils import ModelWrapperBase
-
-
-def get_sharded_shape(shape: torch.Tensor, dim: int, block_size: int):
-    sharded_shape = list(shape)
-    sharded_shape[dim] = block_size
-    return sharded_shape
-
-
-def get_partial_sharded(tensor: torch.Tensor, world_size: int, rank: int, dim: int = 0):
-    assert dim in [0, -1, tensor.dim() - 1]
-
-    size = tensor.shape[dim]
-    block_size = math.ceil(size / world_size)
-
-    start = rank * block_size
-    stop = (rank + 1) * block_size
-
-    if dim == 0:
-        tensor = tensor[start:stop]
-    else:
-        tensor = tensor[..., start:stop]
-
-    sharded_shape = get_sharded_shape(tensor.shape, dim, block_size)
-    tensor_zeros = torch.zeros(
-        size=sharded_shape, dtype=tensor.dtype, device=tensor.device
-    )
-    if dim == 0:
-        tensor_zeros[: tensor.shape[0]] = tensor
-    else:
-        tensor_zeros[..., : tensor.shape[-1]] = tensor
-
-    return tensor_zeros
+from .utils import get_partial_sharded, ModelWrapperBase
 
 
 class ParallelLinearBase(ModelWrapperBase):

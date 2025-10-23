@@ -20,6 +20,7 @@ from ..layers.mla import MultiheadLatentAttentionBase
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 
+from ..layers.parallel_embedding import ParallelEmbedding
 from ..layers.parallel_linear import COLWISE_LINEAR, PARALLEL_MODULE_CLS, ROWWISE_LINEAR
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
@@ -422,6 +423,10 @@ class TransformerModel(ModelWrapperBase):
             # 1. the name of modules should be configured;
             # 2. we can define a class to represent the data with clearer semantics
             tp_plan = {}
+
+            if self.model_config.parallel_config.embedding_parallel:
+                groups = {"tp_group": tp_group}
+                tp_plan.update({"embed_tokens": (ParallelEmbedding, groups)})
 
             groups = {
                 "tp_group": tp_group,

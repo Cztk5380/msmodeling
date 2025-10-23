@@ -25,6 +25,8 @@ def get_parallel_config(parallel_configuration: tuple):
         lmhead_tensor_parallel_size=parallel_configuration[5],
         lmhead_data_parallel_size=parallel_configuration[6],
     )
+    if len(parallel_configuration) > 7:
+        parallel_config.embedding_parallel = parallel_configuration[7]
     return parallel_config
 
 
@@ -62,6 +64,7 @@ class ParallelLinearTestCase(unittest.TestCase):
             ["Qwen/Qwen3-32B", (16, 1, 16, 1, 16, 1, 16)],
             ["Qwen/Qwen3-32B", (16, 8, 2, 8, 2, 8, 2)],
             ["Qwen/Qwen3-32B", (16, 4, 4, 8, 2, 16, 1)],
+            ["Qwen/Qwen3-32B", (16, 4, 4, 8, 2, 16, 1, True)],
             ["zai-org/GLM-4.5", (16, 4, 4, 8, 2, 16, 1)],
         ]
     )
@@ -104,6 +107,7 @@ class ParallelLinearTestCase(unittest.TestCase):
             ["Qwen/Qwen3-32B", (16, 1, 16, 1, 16, 1, 16)],
             ["Qwen/Qwen3-32B", (16, 8, 2, 8, 2, 8, 2)],
             ["Qwen/Qwen3-32B", (16, 4, 4, 8, 2, 16, 1)],
+            ["Qwen/Qwen3-32B", (16, 4, 4, 8, 2, 16, 1, True)],
             ["zai-org/GLM-4.5", (16, 4, 4, 8, 2, 16, 1)],
         ]
     )
