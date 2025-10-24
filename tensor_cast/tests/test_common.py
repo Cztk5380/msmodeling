@@ -27,6 +27,7 @@ def create_attn_metadata_and_kv_cache(model, model_config: ModelConfig):
         [0, query_len_1, query_len_1 + query_len_2], dtype=torch.long
     )
     seq_lens = torch.tensor([seq_len_1, seq_len_2], dtype=torch.long)
+    query_lens = torch.tensor([query_len_1, query_len_2], dtype=torch.long)
     max_num_blocks_per_seq = (max_seq_len + block_size - 1) // block_size
     block_tables = []
     for _ in range(batch_size):
@@ -38,6 +39,7 @@ def create_attn_metadata_and_kv_cache(model, model_config: ModelConfig):
     attn_meta = AttentionMetadataTensorCast(
         query_start_loc=query_start_loc,
         seq_lens=seq_lens,
+        query_lens=query_lens,
         block_table_tensor=block_table_tensor,
     )
 
@@ -74,6 +76,7 @@ def create_mla_metadata_and_kv_cache(
         [0, query_len_1, query_len_1 + query_len_2], dtype=torch.long
     )
     seq_lens = torch.tensor([seq_len_1, seq_len_2], dtype=torch.long)
+    query_lens = torch.tensor([query_len_1, query_len_2], dtype=torch.long)
     max_num_blocks_per_seq = (max_seq_len + block_size - 1) // block_size
     block_tables = []
     for _ in range(batch_size):
@@ -85,6 +88,7 @@ def create_mla_metadata_and_kv_cache(
     attn_meta = AttentionMetadataTensorCast(
         query_start_loc=query_start_loc,
         seq_lens=seq_lens,
+        query_lens=query_lens,
         block_table_tensor=block_table_tensor,
     )
 

@@ -437,8 +437,8 @@ def _attention_properties_helper(
     op_invoke_info: OpInvokeInfo,
     query,
     key,
-    query_start_loc,
     seq_lens,
+    query_lens,
     softmax_dtype,
 ) -> OpInvokeInfo.PerformanceProperties:
     hidden_size = query.size(-1)
@@ -449,7 +449,7 @@ def _attention_properties_helper(
     assert hidden_size % head_size == 0, "hidden_size must be divisible by head_size"
     num_q_heads = hidden_size // head_size
 
-    num_tokens_per_seq = query_start_loc[1:] - query_start_loc[:-1]
+    num_tokens_per_seq = query_lens
 
     # The core computation involves multiplying query tokens for a sequence with all
     # key tokens of that same sequence. We sum this product over all sequences.
@@ -496,27 +496,27 @@ def _attention_properties_helper(
     return properties
 
 
-def _default_query_loc_and_seq_lens(query) -> Tuple[torch.Tensor, torch.Tensor]:
+def _default_query_lens_and_seq_lens(query) -> Tuple[torch.Tensor, torch.Tensor]:
     seq_len = query.size(-2)
     batch_size = query.size(0) if query.ndim == 3 else 1
     seq_lens = torch.full((batch_size,), seq_len, dtype=torch.long)
-    query_start_loc = torch.arange(0, batch_size * seq_len, seq_len, dtype=torch.long)
-    return query_start_loc, seq_lens
+    query_lens = torch.full((batch_size,), seq_len, dtype=torch.long)
+    return query_lens, seq_lens
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.attention.default)
 def _attention_properties(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
-    assert len(op_invoke_info.args) == 7
+    assert len(op_invoke_info.args) == 8
     query = op_invoke_info.args[0]
     key = op_invoke_info.args[1]
-    query_start_loc = op_invoke_info.args[5]
     seq_lens = op_invoke_info.args[6]
-    if query_start_loc is None or seq_lens is None:
-        query_start_loc, seq_lens = _default_query_loc_and_seq_lens(query)
+    query_lens = op_invoke_info.args[7]
+    if query_lens is None or seq_lens is None:
+        query_lens, seq_lens = _default_query_lens_and_seq_lens(query)
     return _attention_properties_helper(
-        op_invoke_info, query, key, query_start_loc, seq_lens, query.dtype
+        op_invoke_info, query, key, seq_lens, query_lens, query.dtype
     )
 
 
@@ -524,21 +524,21 @@ def _attention_properties(
 def _attention_quant_properties(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
-    assert len(op_invoke_info.args) == 14
+    assert len(op_invoke_info.args) == 15
     query = op_invoke_info.args[0]
     key = op_invoke_info.args[1]
-    query_start_loc = op_invoke_info.args[5]
     seq_lens = op_invoke_info.args[6]
-    out_dtype = op_invoke_info.args[13]
-    if query_start_loc is None or seq_lens is None:
-        query_start_loc, seq_lens = _default_query_loc_and_seq_lens(query)
+    query_lens = op_invoke_info.args[7]
+    out_dtype = op_invoke_info.args[14]
+    if query_lens is None or seq_lens is None:
+        query_lens, seq_lens = _default_query_lens_and_seq_lens(query)
     if out_dtype is None or out_dtype == query.dtype:
         # use half as default softmax dtype
         softmax_dtype = torch.half
     else:
         softmax_dtype = out_dtype
     properties = _attention_properties_helper(
-        op_invoke_info, query, key, query_start_loc, seq_lens, softmax_dtype
+        op_invoke_info, query, key, seq_lens, query_lens, softmax_dtype
     )
 
     # According to
@@ -549,7 +549,7 @@ def _attention_quant_properties(
     hidden_size = query.size(-1)
     head_size = key.size(-1)
     num_q_heads = hidden_size // head_size
-    num_tokens_per_seq = query_start_loc[1:] - query_start_loc[:-1]
+    num_tokens_per_seq = query_lens
     context_len_product_sum = torch.sum(
         num_tokens_per_seq.to(seq_lens.dtype) * seq_lens
     ).item()
@@ -608,7 +608,7 @@ def _multihead_latent_attention_properties_helper(
     softmax_dtype: torch.dtype,
 ) -> OpInvokeInfo.PerformanceProperties:
     # 1. Argument and Dimension Extraction
-    assert len(op_invoke_info.args) >= 11
+    assert len(op_invoke_info.args) >= 12
     (
         q,
         kv_c_normed,
@@ -617,6 +617,7 @@ def _multihead_latent_attention_properties_helper(
         _,
         query_start_loc,
         seq_lens,
+        query_lens,
         W_UK_T,
         W_UV,
         kv_b_proj,
@@ -634,7 +635,7 @@ def _multihead_latent_attention_properties_helper(
     # 2. Separate Prefill and Decode Sequences
     # A sequence is in "decode" if it's processing only one query token.
     # Otherwise, it's in "prefill".
-    num_tokens_per_seq = query_start_loc[1:] - query_start_loc[:-1]
+    num_tokens_per_seq = query_lens
     is_decode = num_tokens_per_seq < _PREDICTIVE_DECODING_THRESHOLD
     is_prefill = ~is_decode
 
@@ -756,6 +757,7 @@ def _calculate_mla_quant_ops(
     v_head_dim: int,
     query_start_loc: torch.Tensor,
     seq_lens: torch.Tensor,
+    query_lens: torch.Tensor,
     out_dtype: torch.dtype,
     q_dtype: torch.dtype,
 ) -> int:
@@ -764,7 +766,7 @@ def _calculate_mla_quant_ops(
     Check `torch.ops.tensor_cast.multihead_latent_attention_quant` docstring for details.
     """
     # Separate prefill and decode sequences
-    num_tokens_per_seq = query_start_loc[1:] - query_start_loc[:-1]
+    num_tokens_per_seq = query_lens
     is_decode = num_tokens_per_seq < _PREDICTIVE_DECODING_THRESHOLD
     is_prefill = ~is_decode
 
@@ -836,7 +838,8 @@ def _multihead_latent_attention_quant_properties(
     k_rot = op_invoke_info.args[2]
     query_start_loc = op_invoke_info.args[5]
     seq_lens = op_invoke_info.args[6]
-    v_head_dim = op_invoke_info.args[10]
+    query_lens = op_invoke_info.args[7]
+    v_head_dim = op_invoke_info.args[11]
     out_dtype = op_invoke_info.args[-1]
 
     if out_dtype is None or out_dtype == q.dtype:
@@ -867,6 +870,7 @@ def _multihead_latent_attention_quant_properties(
         v_head_dim,
         query_start_loc,
         seq_lens,
+        query_lens,
         out_dtype,
         q.dtype,
     )
