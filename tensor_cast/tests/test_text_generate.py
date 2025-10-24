@@ -675,6 +675,23 @@ class TestTextGenerate(unittest.TestCase):
         self._validate_inference_result(result, "qwen3_32b_4_a3die_decode")
         self.assertLess(result["execution_time_s"], 0.0328)
 
+    def test_padding(self):
+        """Test with padding tokens."""
+        result = run_inference(
+            device=self.device,
+            model_id="Qwen/Qwen3-235B-A22B",
+            num_queries=1,
+            query_len=1,
+            context_length=500,
+            world_size=16,
+            ep=True,
+            tp_size=2,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+        )
+        self._validate_inference_result(result, "test_padding")
+
 
 if __name__ == "__main__":
     unittest.main()

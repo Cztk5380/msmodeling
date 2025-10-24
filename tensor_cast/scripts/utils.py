@@ -250,6 +250,9 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     seq_lens = torch.empty(batch_size, dtype=torch.long)
     seq_lens.fill_(seq_len)
 
+    query_lens = torch.empty(batch_size, dtype=torch.long)
+    query_lens.fill_(query_len)
+
     # `block_tables` map logical sequence blocks to physical blocks in the KV cache.
     max_num_blocks_per_seq = (seq_len + block_size - 1) // block_size
 
@@ -261,15 +264,27 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
         (batch_size * query_len,), dtype=torch.long, device="meta"
     )
 
+    # We use padding to ensure that the number of tokens in each DP domain is divisible by tp_size.
+    # This allows the data to be evenly distributed across each device if needed,
+    # thereby enabling arbitrary conversion of DP domains.
+    padding_tokens = 0
+    if batch_size * query_len % parallel_config.tensor_parallel_size != 0:
+        padding_tokens = parallel_config.tensor_parallel_size - (
+            batch_size * query_len % parallel_config.tensor_parallel_size
+        )
+
+    query_start_loc[-1] = query_start_loc[-1] + padding_tokens
+
     attn_meta = AttentionMetadataTensorCast(
         query_start_loc=query_start_loc,
         seq_lens=seq_lens,
+        query_lens=query_lens,
         block_table_tensor=block_table_tensor,
         slot_mapping=slot_mapping,
     )
 
     # The total number of new tokens to be processed in this batch, concatenated.
-    num_tokens = batch_size * query_len
+    num_tokens = batch_size * query_len + padding_tokens
     input_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
     position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
     # Initialize the KV cache structure (also on 'meta' device).

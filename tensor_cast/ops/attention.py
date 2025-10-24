@@ -24,6 +24,7 @@ def _attention(
     block_table: Optional[torch.Tensor],
     query_start_loc: Optional[torch.Tensor],
     seq_lens: Optional[torch.Tensor],
+    query_lens: Optional[torch.Tensor],
 ) -> torch.Tensor:
     """
     Normal attention: MHA/GQA/MQA
@@ -53,6 +54,7 @@ def _attention_quant(
     block_table: Optional[torch.Tensor],
     query_start_loc: Optional[torch.Tensor],
     seq_lens: Optional[torch.Tensor],
+    query_lens: Optional[torch.Tensor],
     query_scale: torch.Tensor,
     query_offset: Optional[torch.Tensor],
     kv_scale: torch.Tensor,

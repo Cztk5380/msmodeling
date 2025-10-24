@@ -154,6 +154,7 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
 
         query_start_loc = attention_meta.query_start_loc if attention_meta else None
         seq_lens = attention_meta.seq_lens if attention_meta else None
+        query_lens = attention_meta.query_lens if attention_meta else None
         if self.quant_config is not None:
             quant_config = self.quant_config
             out_dtype = self.quant_config.get_quant_dtype()
@@ -187,6 +188,7 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
                 else None,
                 query_start_loc,
                 seq_lens,
+                query_lens,
                 self.W_UK_T,
                 self.W_UV,
                 self.kv_b_proj_weight_t,
@@ -222,6 +224,7 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
                 else None,
                 query_start_loc,
                 seq_lens,
+                query_lens,
                 self.W_UK_T,
                 self.W_UV,
                 self.kv_b_proj_weight_t,

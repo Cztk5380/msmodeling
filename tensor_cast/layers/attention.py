@@ -21,6 +21,9 @@ class AttentionMetadataBase:
     """(batch_size,), the length of each request including both computed tokens
     and newly scheduled tokens"""
 
+    query_lens: torch.Tensor
+    """(batch_size,), the actual query length of each request"""
+
     block_table_tensor: Optional[torch.Tensor] = None
     """(batch_size, max_blocks_per_seq)"""
     slot_mapping: Optional[torch.Tensor] = None
@@ -116,6 +119,7 @@ class AttentionTensorCast(AttentionBase):
     ) -> torch.Tensor:
         query_start_loc = attention_meta.query_start_loc if attention_meta else None
         seq_lens = attention_meta.seq_lens if attention_meta else None
+        query_lens = attention_meta.query_lens if attention_meta else None
         if attention_meta is not None:
             if self.quant_config is not None:
                 kv_scale = self.quant_config.kv_scale
@@ -157,6 +161,7 @@ class AttentionTensorCast(AttentionBase):
                 else None,
                 query_start_loc,
                 seq_lens,
+                query_lens,
                 self.quant_config.query_scale,
                 self.quant_config.query_offset,
                 self.quant_config.kv_scale,
@@ -176,4 +181,5 @@ class AttentionTensorCast(AttentionBase):
                 else None,
                 query_start_loc,
                 seq_lens,
+                query_lens,
             )
