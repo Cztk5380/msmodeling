@@ -204,7 +204,7 @@ class PatternReplaceTestCase(unittest.TestCase):
             ),
             quant_linear_cls=TensorCastQuantLinear,
             attention_cls=AttentionTensorCast,
-            num_hidden_layers_override=1,
+            num_hidden_layers_override=2,
         )
         model = TransformerModel(model_id, model_config)
         model = torch.compile(

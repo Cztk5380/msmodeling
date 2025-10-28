@@ -14,6 +14,7 @@ logger = logging.getLogger(__name__)
 class LiftCombineQuantPass(TensorCastGraphModulePass):
     _SWAPPABLE_OPS = {
         torch.ops.aten.view.default,
+        torch.ops.aten.reshape.default,
     }
 
     _QUANTIZE_OPS = [

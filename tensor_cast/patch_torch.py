@@ -106,6 +106,18 @@ def patch_fallback_node_due_to_unsupported_type():
 
 
 @contextlib.contextmanager
+def prepare_freezing():
+    """
+    Prepare PyTorch Dynamo for graph freezing by enabling the relevant config.
+    We need this for the `freeze()` call from inductor to work properly.
+    """
+    old_flag = torch._dynamo.config.prepare_freezing
+    torch._dynamo.config.prepare_freezing = True
+    yield
+    torch._dynamo.config.prepare_freezing = old_flag
+
+
+@contextlib.contextmanager
 def patch_dtype_abbrs():
     """
     Patch torch.utils._dtype_abbrs in order to support FX graph dump with int4 dtype used
@@ -138,5 +150,6 @@ def patch_torch():
         specialize_float(),
         patch_fallback_node_due_to_unsupported_type(),
         patch_dtype_abbrs(),
+        prepare_freezing(),
     ):
         yield

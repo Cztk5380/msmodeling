@@ -1,17 +1,22 @@
 import functools
 import logging
-from typing import Any, Callable, Optional
+from typing import Any, Callable, Optional, Sequence
 
 import torch
 import torch.fx as fx
 from torch._dynamo.backends.common import aot_autograd
 from torch._inductor.decomposition import select_decomp_table
+from torch._inductor.freezing import freeze
 from torch._inductor.fx_passes.post_grad import decompose_auto_functionalized
 
 from .. import config
 
 from . import patterns
+
+from .constant_folding import fold_meta_constants
 from .passes.lift_quant_pass import LiftCombineQuantPass
+
+from .passes.merge_linear_pass import MergeLinearPass
 
 logger = logging.getLogger(__name__)
 
@@ -42,27 +47,57 @@ class CompilerBackend:
         example_inputs,
         **kwargs,
     ) -> tuple[Callable, Optional[Any]]:
-        def compile_inner(fx_graph, inputs):
+        def freezing_compile(compile_inner, aot_autograd_gm, example_inputs):
+            # Freeze the graph first before passing to AOT Autograd.
+            frozen_gm, preserved_arg_indices = freeze(
+                gm, aot_autograd_gm, example_inputs
+            )
+            example_inputs = [example_inputs[ind] for ind in preserved_arg_indices]
+            optimized_function = compile_inner(frozen_gm, example_inputs)
+
+            def wrapper(args: list[object]) -> Sequence[torch.Tensor]:
+                args_new = [args[i] for i in preserved_arg_indices]
+                args.clear()
+                return optimized_function(*args_new)
+
+            wrapper._boxed_call = True  # type: ignore[attr-defined]
+
+            return wrapper
+
+        def graph_rewrite_before_freezing(fx_graph, inputs):
             logger.debug("Graph before compiling:")
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(fx_graph.print_readable(print_output=False))
             self.apply_quantization_passes(fx_graph)
-            logger.debug("Graph before pattern matching:")
-            if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(fx_graph.print_readable(print_output=False))
             self.apply_pattern_match_passes(fx_graph)
+            return fx_graph
+
+        def graph_rewrite_after_freezing(fx_graph, inputs):
+            self.apply_merge_linear_pass(fx_graph)
+            fold_meta_constants(fx_graph)
             self.apply_decompose_auto_functionalized_pass(fx_graph)
             logger.debug("Graph after compiling:")
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(fx_graph.print_readable(print_output=False))
             return fx_graph
 
+        def compile_inner(fx_graph, inputs):
+            # we split the rewrite into two phases: before and after freezing
+            # since freezing would do CSE which might break some assumptions in
+            # the rewrite rules.
+            graph_rewrite_before_freezing(fx_graph, inputs)
+            if config.compilation.enable_freezing:
+                return freezing_compile(graph_rewrite_after_freezing, fx_graph, inputs)
+            else:
+                return graph_rewrite_after_freezing(fx_graph, inputs)
+
         # Use the default decomposition table to decompose operators.
         decompositions = select_decomp_table()
         # Use AOT Autograd to handle the forward compilation.
-        return aot_autograd(fw_compiler=compile_inner, decompositions=decompositions)(
-            gm, example_inputs
-        )
+        return aot_autograd(
+            fw_compiler=compile_inner,
+            decompositions=decompositions,
+        )(gm, example_inputs)
 
     def apply_quantization_passes(self, graph: fx.GraphModule):
         GraphTransformObserver = functools.partial(
@@ -74,6 +109,9 @@ class CompilerBackend:
             GraphTransformObserver(graph, "life_combine_quant_pass").apply_gm_pass(
                 LiftCombineQuantPass()
             )
+        logger.debug("Graph after quantization passes:")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(graph.print_readable(print_output=False))
 
     def apply_pattern_match_passes(self, graph: fx.GraphModule):
         patterns.lazy_init()
@@ -86,6 +124,9 @@ class CompilerBackend:
             GraphTransformObserver(graph, f"pattern_match_pass_{i}").apply_gm_pass(
                 pattern_match_pass
             )
+        logger.debug("Graph after pattern matching:")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(graph.print_readable(print_output=False))
 
     def apply_decompose_auto_functionalized_pass(self, graph: fx.GraphModule):
         GraphTransformObserver = functools.partial(
@@ -96,3 +137,17 @@ class CompilerBackend:
         GraphTransformObserver(graph, "decompose_auto_functionalized").apply_graph_pass(
             decompose_auto_functionalized
         )
+
+    def apply_merge_linear_pass(self, graph: fx.GraphModule):
+        GraphTransformObserver = functools.partial(
+            torch.fx.passes.graph_transform_observer.GraphTransformObserver,
+            subsystem="merge_linear_pass",
+            log_url=config.compilation.debug.graph_log_url,
+        )
+        if config.compilation.passes.enable_merge_linear:
+            GraphTransformObserver(graph, "merge_linear_pass").apply_gm_pass(
+                MergeLinearPass()
+            )
+            logger.debug("Graph after the merge linear pass:")
+            if logger.isEnabledFor(logging.DEBUG):
+                logger.debug(graph.print_readable(print_output=False))

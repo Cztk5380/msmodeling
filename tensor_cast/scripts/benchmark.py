@@ -373,7 +373,7 @@ models:
                             num_mtp_tokens=mtp,
                             compile=compile,
                             allow_graph_break=allow_graph_break,
-                        )
+                        ).eval()
                         num_mtp_tokens = (
                             model.model_config.mtp_config.num_mtp_layers
                             if model.model_config.mtp_config is not None

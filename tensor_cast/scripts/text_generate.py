@@ -135,7 +135,7 @@ def run_inference(
         allow_graph_break=allow_graph_break,
         enable_repetition=not disable_repetition,
         num_hidden_layers_override=num_hidden_layers_override,
-    )
+    ).eval()
     print("Preparing dummy input tensors...")
     input_kwargs = generate_inputs(model, query_len, seq_len, num_queries)
     print("Running simulated inference...")
