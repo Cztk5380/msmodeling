@@ -279,7 +279,6 @@ class FusedMoETensorCast(FusedMoEBase):
         topk_indices: torch.Tensor,  # [bsz, seq, topk]
         topk_weights: torch.Tensor,
     ) -> torch.Tensor:
-        # TODO: support quantization
         num_tokens = topk_indices.numel()
         split_sizes = self.get_split_sizes(num_tokens)
 

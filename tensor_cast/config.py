@@ -11,8 +11,11 @@ class performance_model:
 
 
 class compilation:
+    enable_freezing = True
+
     class passes:
         enable_life_combine_quant = True
+        enable_merge_linear = True
 
     class fusion_patterns:
         enable_rms_norm = True

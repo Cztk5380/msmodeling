@@ -14,6 +14,10 @@ def assert_close(self, value1, value2, rtol=0.01):
     )
 
 
+def count_events(runtime, op):
+    return sum(1 for event in runtime.event_list if event.op_invoke_info.func == op)
+
+
 def create_attn_metadata_and_kv_cache(model, model_config: ModelConfig):
     batch_size = 2
     query_len_1 = 55

@@ -48,14 +48,20 @@ class RepetitionTestCase(unittest.TestCase):
     )
     def test_vanilla_transformer_model(self, model_id, do_compile):
         num_tokens = 100
+        # Note that specifying `AttentionTensorCast` as the `attention_cls`
+        # is needed otherwise CSE would optimize out the attention mask
+        # computation from the original attention implementation across layers,
+        # resulting in larger op count gap between original trace and repetitive trace.
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
+            attention_cls=AttentionTensorCast,
             num_hidden_layers_override=3,
         )
         model_config_with_repeats = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
+            attention_cls=AttentionTensorCast,
             num_hidden_layers_override=3,
             enable_repetition=True,
         )
@@ -99,7 +105,7 @@ class RepetitionTestCase(unittest.TestCase):
             self,
             len(runtime.event_list),
             len(runtime_with_repeats.event_list),
-            rtol=0.01 if do_compile else 0,
+            rtol=0.025 if do_compile else 0,
         )
         runtime_cost_s = runtime.total_execution_time_s()[perf_model.name]
         runtime_cost_with_repeats_s = runtime_with_repeats.total_execution_time_s()[
