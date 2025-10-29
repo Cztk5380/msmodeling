@@ -54,6 +54,15 @@ class MergeLinearPass(TensorCastGraphModulePass):
             split_dim = 1
             return grouping_key_args, w_idx, bias_idx, split_dim
 
+        # aten.addmm.default(bias, x, w)
+        if node.target == torch.ops.aten.addmm.default:
+            # Group by: x
+            grouping_key_args = (1,)
+            # Concat: w (idx 2)
+            w_idx, bias_idx = 2, 0
+            split_dim = 1
+            return grouping_key_args, w_idx, bias_idx, split_dim
+
         return None
 
     def __call__(self, graph: torch.fx.GraphModule) -> None:
@@ -148,7 +157,7 @@ class MergeLinearPass(TensorCastGraphModulePass):
                     bias_cat_node = graph.graph.create_node(
                         "call_function",
                         torch.ops.aten.cat.default,
-                        args=(bias_nodes, split_dim),
+                        args=(bias_nodes, -1),
                     )
 
             # Create the new merged op
