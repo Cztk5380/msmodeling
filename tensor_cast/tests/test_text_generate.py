@@ -692,6 +692,26 @@ class TestTextGenerate(unittest.TestCase):
         )
         self._validate_inference_result(result, "test_padding")
 
+    @parameterized.expand(
+        [
+            [QuantizeLinearAction.W8A8_DYNAMIC],
+            [QuantizeLinearAction.W8A8_STATIC],
+            [QuantizeLinearAction.DISABLED],
+        ]
+    )
+    def test_qwen2_5_with_compile(self, quant_linear_action):
+        result = run_inference(
+            device=self.device,
+            model_id="Qwen/Qwen2.5-7B",
+            num_queries=2,
+            query_len=1,
+            context_length=500,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=quant_linear_action,
+        )
+        self._validate_inference_result(result, "test_qwen2_5_with_compile")
+
 
 if __name__ == "__main__":
     unittest.main()
