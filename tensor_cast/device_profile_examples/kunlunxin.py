@@ -1,8 +1,12 @@
 import torch
 
-from ..utils import DTYPE_FP4, DTYPE_FP8
-from ..device import CommGrid, DeviceProfile, InterconnectTopology, StaticCost
-
+from ..device import (
+    CommGrid,
+    DeviceProfile,
+    InterconnectTopology,
+    InterconnectType,
+    StaticCost,
+)
 
 
 class KUNLUNXIN:
@@ -17,7 +21,10 @@ class KUNLUNXIN:
                 bandwidth_bytes_ps=200 * 1e9, latency_s=20 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=200 * 1e9, latency_s=10 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=200 * 1e9,
+                latency_s=10 * 1e-6,
+                comm_efficiency=0.7,
+                type=InterconnectType.FULL_MESH,
             ),
         },
     )
@@ -44,5 +51,3 @@ class KUNLUNXIN:
         comm_grid=INTERCONNECT,
         static_cost=STATIC_COST,
     )
-
-

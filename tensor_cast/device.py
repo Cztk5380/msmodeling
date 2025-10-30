@@ -1,9 +1,15 @@
 from dataclasses import dataclass, field
+from enum import auto, Enum
 from typing import ClassVar, Dict, List
 
 import torch
 
 from .utils import DTYPE_FP4, DTYPE_FP8
+
+
+class InterconnectType(Enum):
+    CLOS = auto()
+    FULL_MESH = auto()
 
 
 @dataclass
@@ -12,6 +18,7 @@ class InterconnectTopology:
     bandwidth_bytes_ps: float  # unidirectional bandwidth (GB/s)
     latency_s: float
     comm_efficiency: float = 1.0
+    type: InterconnectType = InterconnectType.CLOS
 
 
 @dataclass
@@ -39,6 +46,16 @@ class CommGrid:
     mapped to "AllToAll" with a bit slower connection and then all the devices [16, 8, 2] are mapped
     to a slowest "FatTree" interconnect.
     """
+
+    def __post_init__(self):
+        if self.grid.ndim == 0:
+            raise ValueError("CommGrid grid must have at least one dimension")
+        if self.grid.ndim != len(self.topologies):
+            raise ValueError(
+                f"CommGrid grid ndim {self.grid.ndim} must match topologies length {len(self.topologies)}"
+            )
+        if any(dim < 2 for dim in self.grid.shape):
+            raise ValueError("CommGrid grid dimensions must be at least 2")
 
 
 @dataclass
@@ -91,7 +108,10 @@ TEST_INTERCONNECT = CommGrid(
             bandwidth_bytes_ps=50 * 1e9, latency_s=1e-5, comm_efficiency=0.7
         ),
         1: InterconnectTopology(
-            bandwidth_bytes_ps=196 * 1e9, latency_s=1.3e-6, comm_efficiency=0.7
+            bandwidth_bytes_ps=196 * 1e9,
+            latency_s=1.3e-6,
+            comm_efficiency=0.7,
+            type=InterconnectType.FULL_MESH,
         ),
     },
 )
@@ -133,11 +153,14 @@ class ATLAS_800:
     A2_INTERCONNECT = CommGrid(
         grid=torch.arange(128 * 8).reshape(128, 8),  # up to 1024 devices
         topologies={
-            0: InterconnectTopology(
+            0: InterconnectTopology(  # CLOS
                 bandwidth_bytes_ps=25 * 1e9, latency_s=1.5 * 1e-6, comm_efficiency=0.7
             ),
-            1: InterconnectTopology(  # Full mesh
-                bandwidth_bytes_ps=196 * 1e9, latency_s=0.5 * 1e-6, comm_efficiency=0.7
+            1: InterconnectTopology(
+                bandwidth_bytes_ps=196 * 1e9,
+                latency_s=0.5 * 1e-6,
+                comm_efficiency=0.7,
+                type=InterconnectType.FULL_MESH,
             ),
         },
     )
@@ -154,10 +177,10 @@ class ATLAS_800:
     A3_INTERCONNECT = CommGrid(  # For A3 die
         grid=torch.arange(48 * 8 * 2).reshape(48, 8, 2),  # up to 768 devices (dies)
         topologies={
-            0: InterconnectTopology(  # 2-level CLOS?
+            0: InterconnectTopology(  # 2-level CLOS
                 bandwidth_bytes_ps=196 * 1e9, latency_s=5.5 * 1e-6, comm_efficiency=0.7
             ),
-            1: InterconnectTopology(  # Full mesh
+            1: InterconnectTopology(  # 1-level CLOS
                 bandwidth_bytes_ps=196 * 1e9, latency_s=0.5 * 1e-6, comm_efficiency=0.7
             ),
             2: InterconnectTopology(  # SIO
