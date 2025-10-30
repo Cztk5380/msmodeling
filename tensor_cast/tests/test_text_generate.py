@@ -692,6 +692,66 @@ class TestTextGenerate(unittest.TestCase):
         )
         self._validate_inference_result(result, "test_padding")
 
+    def test_fullmesh_subgroup_bandwidth_result(self):
+        """Full Mesh with subgroup bandwidth is smaller than CLOS"""
+        result_a3 = run_inference(
+            device="ATLAS_800_A3_752T_128G_DIE",
+            model_id="Qwen/Qwen3-32B",
+            num_queries=60,
+            query_len=1,
+            context_length=4250,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            world_size=4,
+            tp_size=4,
+        )
+        self._validate_inference_result(result_a3)
+        result_a2 = run_inference(
+            device="ATLAS_800_A2_376T_64G",
+            model_id="Qwen/Qwen3-32B",
+            num_queries=60,
+            query_len=1,
+            context_length=4250,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            world_size=4,
+            tp_size=4,
+        )
+        self._validate_inference_result(result_a2)
+        self.assertLess(result_a3["execution_time_s"], result_a2["execution_time_s"])
+
+    def test_fullmesh_fullgroup_bandwidth_result(self):
+        """Full Mesh with full group bandwidth is smaller than CLOS"""
+        result_a3 = run_inference(
+            device="ATLAS_800_A3_752T_128G_DIE",
+            model_id="Qwen/Qwen3-32B",
+            num_queries=60,
+            query_len=1,
+            context_length=4250,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            world_size=8,
+            tp_size=8,
+        )
+        self._validate_inference_result(result_a3)
+        result_a2 = run_inference(
+            device="ATLAS_800_A2_376T_64G",
+            model_id="Qwen/Qwen3-32B",
+            num_queries=60,
+            query_len=1,
+            context_length=4250,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            world_size=8,
+            tp_size=8,
+        )
+        self._validate_inference_result(result_a2)
+        self.assertEqual(result_a3["execution_time_s"], result_a2["execution_time_s"])
+
     @parameterized.expand(
         [
             [QuantizeLinearAction.W8A8_DYNAMIC],

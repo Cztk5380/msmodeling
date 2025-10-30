@@ -1,11 +1,11 @@
 import math
-from typing import List
+from typing import List, Tuple
 
 import torch
 from overrides import override
 
 from .. import ops  # noqa: F401
-from ..device import DeviceProfile, InterconnectTopology
+from ..device import DeviceProfile, InterconnectType
 
 from . import OpInvokeInfo, PerformanceModel
 
@@ -33,7 +33,7 @@ class CommAnalyticModel(PerformanceModel):
             temp_rank //= dim_size
         return coord
 
-    def _get_topology_for_group(self, group: List[int]) -> InterconnectTopology:
+    def _get_topology_idx_for_group(self, group: List[int]) -> int:
         """
         Determines the interconnect topology for a communication group by finding
         the smallest (fastest) interconnect that spans all participating ranks.
@@ -73,7 +73,7 @@ class CommAnalyticModel(PerformanceModel):
             # All ranks are the same, which shouldn't happen for a group size > 1.
             # If it does, there's no communication. We can take the fastest link.
             fastest_dim = max(self.comm_grid.topologies.keys())
-            return self.comm_grid.topologies[fastest_dim]
+            return fastest_dim
 
         # Find the most specific (fastest) topology that covers the communication span.
         # We iterate from the most specific topologies (largest start_dim) to the most general.
@@ -81,11 +81,23 @@ class CommAnalyticModel(PerformanceModel):
 
         for start_dim in sorted_dims:
             if start_dim <= diff_dim:
-                return self.comm_grid.topologies[start_dim]
+                return start_dim
 
         raise ValueError(
             f"No suitable interconnect topology found for communication up to dimension {diff_dim}"
         )
+
+    def _get_bandwidth_and_latency(
+        self, rank: int, group: List[int]
+    ) -> Tuple[float, float]:
+        topology_idx = self._get_topology_idx_for_group(group)
+        topology = self.comm_grid.topologies[topology_idx]
+        effective_bandwidth = topology.bandwidth_bytes_ps * topology.comm_efficiency
+        if topology.type == InterconnectType.FULL_MESH:
+            group_size = len(group)
+            max_group_size = math.prod(self.comm_grid.grid.shape[topology_idx:])
+            effective_bandwidth *= (group_size - 1) / (max_group_size - 1)
+        return effective_bandwidth, topology.latency_s
 
     @override
     def process_op(self, op_invoke_info: OpInvokeInfo) -> PerformanceModel.Result:
@@ -113,9 +125,7 @@ class CommAnalyticModel(PerformanceModel):
         if num_ranks <= 1:
             return PerformanceModel.Result(execution_time_s=0.0)
 
-        topology = self._get_topology_for_group(group)
-        latency = topology.latency_s
-        bandwidth = topology.bandwidth_bytes_ps
+        bandwidth, latency = self._get_bandwidth_and_latency(rank, group)
 
         message_size_bytes = bytes_of_tensor(x)
 
@@ -166,9 +176,7 @@ class CommAnalyticModel(PerformanceModel):
         if num_ranks <= 1:
             return PerformanceModel.Result(execution_time_s=0.0)
 
-        topology = self._get_topology_for_group(group)
-        latency = topology.latency_s
-        bandwidth = topology.bandwidth_bytes_ps
+        bandwidth, latency = self._get_bandwidth_and_latency(rank, group)
 
         # M is the size of the tensor from a single rank
         message_size_bytes = bytes_of_tensor(x)
@@ -231,9 +239,7 @@ class CommAnalyticModel(PerformanceModel):
                 "input_split_sizes and output_split_sizes must be provided."
             )
 
-        topology = self._get_topology_for_group(group)
-        latency = topology.latency_s
-        bandwidth = topology.bandwidth_bytes_ps
+        bandwidth, latency = self._get_bandwidth_and_latency(rank, group)
 
         # Calculate the total data volume sent and received by this rank.
         total_elements_sent = x.numel()
@@ -288,9 +294,7 @@ class CommAnalyticModel(PerformanceModel):
         if num_ranks <= 1:
             return PerformanceModel.Result(execution_time_s=0.0)
 
-        topology = self._get_topology_for_group(group)
-        latency = topology.latency_s
-        bandwidth = topology.bandwidth_bytes_ps
+        bandwidth, latency = self._get_bandwidth_and_latency(rank, group)
 
         # M is the total size of the input tensor before scattering.
         message_size_bytes = bytes_of_tensor(x)

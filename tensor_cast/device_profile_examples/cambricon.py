@@ -1,8 +1,14 @@
 import torch
 
-from ..utils import DTYPE_FP4, DTYPE_FP8
-from ..device import CommGrid, DeviceProfile, InterconnectTopology, StaticCost
+from ..device import (
+    CommGrid,
+    DeviceProfile,
+    InterconnectTopology,
+    InterconnectType,
+    StaticCost,
+)
 
+from ..utils import DTYPE_FP4, DTYPE_FP8
 
 
 class CAMBRICON:
@@ -18,7 +24,10 @@ class CAMBRICON:
                 bandwidth_bytes_ps=25 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=200 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=200 * 1e9,
+                latency_s=1.0 * 1e-6,
+                comm_efficiency=0.7,
+                type=InterconnectType.FULL_MESH,
             ),
         },
     )
@@ -30,7 +39,10 @@ class CAMBRICON:
                 bandwidth_bytes_ps=25 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=400 * 1e9, latency_s=1.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=400 * 1e9,
+                latency_s=1.0 * 1e-6,
+                comm_efficiency=0.7,
+                type=InterconnectType.FULL_MESH,
             ),
         },
     )
@@ -117,5 +129,3 @@ class CAMBRICON:
         comm_grid=INTERCONNECT_PCIE,
         static_cost=STATIC_COST,
     )
-
-

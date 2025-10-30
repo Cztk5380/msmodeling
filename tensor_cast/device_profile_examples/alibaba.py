@@ -1,8 +1,12 @@
 import torch
 
-from ..utils import DTYPE_FP4, DTYPE_FP8
-from ..device import CommGrid, DeviceProfile, InterconnectTopology, StaticCost
-
+from ..device import (
+    CommGrid,
+    DeviceProfile,
+    InterconnectTopology,
+    InterconnectType,
+    StaticCost,
+)
 
 
 class ALIBABA:
@@ -11,13 +15,19 @@ class ALIBABA:
     # TODO(jgong5): double-confirm latency
     # TODO(jgong5): double-confirm communication efficiency
     INTERCONNECT = CommGrid(
-        grid=torch.arange(4 * 16).reshape(4, 16),
+        grid=torch.arange(4 * 4 * 4).reshape(4, 4, 4),
         topologies={
             0: InterconnectTopology(
                 bandwidth_bytes_ps=50 * 1e9, latency_s=10 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=150 * 1e9, latency_s=1 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=350 * 1e9, latency_s=1 * 1e-6, comm_efficiency=0.7
+            ),
+            2: InterconnectTopology(
+                bandwidth_bytes_ps=200 * 1e9,
+                latency_s=1 * 1e-6,
+                comm_efficiency=0.7,
+                type=InterconnectType.FULL_MESH,
             ),
         },
     )
