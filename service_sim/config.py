@@ -57,6 +57,9 @@ class ModelConfig:
     quantize_lmhead: bool = False
     mxfp4_group_size: int = 32
     quantize_attention_action: str = "DISABLED"
+    enable_multi_process: bool = True
+    num_processes: int = 10
+    predict_steps: int = 20
 
 
 @dataclass

@@ -30,7 +30,6 @@ class Instance:
         self.engines: List[Engine] = [
             Engine(
                 parallel_config=instance_config.parallel_config,
-                world_size=num_devices,
                 device_type=device_type,
                 dp_rank=i
                 )
@@ -59,6 +58,10 @@ class Instance:
 
     def get_work_load(self):
         return sum(engine.get_work_load() for engine in self.engines)
+
+    def shutdown(self):
+        for engine in self.engines:
+            engine.shutdown()
 
 
 class InstanceLoadBalancer:

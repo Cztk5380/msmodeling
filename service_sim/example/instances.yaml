@@ -1,5 +1,5 @@
 instance_groups:
-  - num_instances: 2
+  - num_instances: 1
     num_devices_per_instance: 1
     device_type: TEST_DEVICE
     pd_role: both

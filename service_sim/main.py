@@ -173,6 +173,10 @@ def main():
     if args.enable_profiling:
         parse_profiling_results(profiling_path_with_timestamp)
 
+    for pd_type in instance_group:
+        for instance in instance_group[pd_type]:
+            instance.shutdown()
+
 
 if __name__ == "__main__":
     main()

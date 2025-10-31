@@ -5,6 +5,7 @@ except ImportError:
     # Fallback for Python 3.10
     from strenum import StrEnum
 from typing import Any, Dict, List
+from dataclasses import dataclass
 
 import torch
 
@@ -345,9 +346,18 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     return kwargs
 
 
-def generate_inputs_varlen(model, requests: List[Dict[str, Any]], block_size):
+@dataclass
+class RequestInfo:
+    query_len: int
+    seq_len: int
+    is_decode: bool
+    num_input_tokens: int
+    num_output_tokens: int
+
+
+def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     """
-    requests: List[Dict[str, Any]], each dict represents a request, containing keys: query_len, seq_len, is_decode
+    requests: List[RequestInfo], each dict represents a request, containing keys: query_len, seq_len, is_decode
     """
     model_config = model.model_config
     mtp = getattr(model_config, "mtp_config", None)
@@ -359,9 +369,9 @@ def generate_inputs_varlen(model, requests: List[Dict[str, Any]], block_size):
     if batch_size == 0:
         return {}
 
-    query_lens = [r["query_len"] for r in requests]
-    seq_lens = [r["seq_len"] for r in requests]
-    is_decode_list = [r["is_decode"] for r in requests]
+    query_lens = [r.query_len for r in requests]
+    seq_lens = [r.seq_len for r in requests]
+    is_decode_list = [r.is_decode for r in requests]
     num_tokens = sum(query_lens)
 
     query_start_loc = [0]

@@ -9,6 +9,9 @@ model_config:
   allow_graph_break: False
   dump_input_shapes: False
   chrome_trace: null
+  enable_multi_process: True
+  num_processes: 10
+  predict_steps: 20
 
 load_gen:
   load_gen_type: fixed_length
