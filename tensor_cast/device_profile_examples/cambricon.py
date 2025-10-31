@@ -24,7 +24,7 @@ class CAMBRICON:
                 bandwidth_bytes_ps=25 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=200 * 1e9,
+                bandwidth_bytes_ps=186 * 1e9,
                 latency_s=1.0 * 1e-6,
                 comm_efficiency=0.7,
                 type=InterconnectType.FULL_MESH,
@@ -122,7 +122,7 @@ class CAMBRICON:
             torch.half: 17 * 1e12,
         },
         memory_size_bytes=48 * (1024**3),
-        memory_bandwidth_bytes_ps=1.2 * (1024**4),
+        memory_bandwidth_bytes_ps=0.768 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
         memory_efficiency=0.6,

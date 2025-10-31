@@ -44,7 +44,7 @@ class METAX:
             torch.half: 108 * 1e12,
         },
         memory_size_bytes=64 * (1024**3),
-        memory_bandwidth_bytes_ps=1.6 * (1024**4),
+        memory_bandwidth_bytes_ps=1.8 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
         memory_efficiency=0.6,
