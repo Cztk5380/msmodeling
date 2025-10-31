@@ -2,7 +2,7 @@
 from __future__ import annotations
 import time
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import torch
 
@@ -20,6 +20,7 @@ from tensor_cast.scripts.utils import (
     QuantizeAttentionAction,
     QuantizeLinearAction,
     generate_inputs_varlen,
+    RequestInfo
 )
 
 
@@ -145,7 +146,7 @@ class ModelRunner:
     # -----------------------------------------------------
     # public API
     # -----------------------------------------------------
-    def run_inference(self, requests) -> InferenceMetrics:
+    def run_inference(self, requests: List[RequestInfo]) -> InferenceMetrics:
         input_kwargs = generate_inputs_varlen(
             self.model,
             requests,
@@ -160,6 +161,7 @@ class ModelRunner:
         ) as runtime, torch.no_grad():
             _ = self.model.forward(**input_kwargs)
         run_end = time.perf_counter()
+        execution_time_s = runtime.total_execution_time_s()[self.perf_model.name]
 
         peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024 ** 3
         kv_cache_size_gb = (
@@ -192,7 +194,7 @@ class ModelRunner:
             model_activation_size_gb=model_activation_size_gb,
             reserved_memory_gb=self.reserved_memory_gb,
             device_memory_available_gb=device_memory_available_gb,
-            execution_time_s=run_end - run_start,
+            execution_time_s=execution_time_s,
             table_result=table_result,
             breakdowns=runtime.get_breakdowns(),
         )

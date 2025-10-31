@@ -281,8 +281,8 @@ class Engine:
     Process request, PREFILLING --> PREFILL_DONE or DECODING --> DECODE_DONE
     """
 
-    def __init__(self, parallel_config, world_size, device_type, dp_rank: int):
-        self.model_runner = ModelRunner(parallel_config, world_size, device_type, dp_rank)
+    def __init__(self, parallel_config, device_type, dp_rank: int):
+        self.model_runner = ModelRunner(parallel_config, device_type, dp_rank)
         self.kv_manager = self.create_kv_manager()
         self.batch_scheduler = BatchScheduler(self.model_runner, self.kv_manager)
 
@@ -310,6 +310,9 @@ class Engine:
         work_load is an abstract score using to measure the inference work of engine
         """
         return self.batch_scheduler.get_work_load()
+
+    def shutdown(self):
+        self.model_runner.shutdown()
 
 
 class EngineLoadBalancer:

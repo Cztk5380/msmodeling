@@ -14,7 +14,7 @@ VALID_INSTANCE_CONFIG = {
             "num_instances": 2,
             "num_devices_per_instance": 4,
             "pd_role": "both",
-            "parallel_config": {"tp_size": 4, "dp_size": 1},
+            "parallel_config": {"world_size": 4, "tp_size": 4, "dp_size": 1},
         }
     ]
 }
