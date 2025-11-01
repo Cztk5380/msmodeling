@@ -5,24 +5,23 @@ from parameterized import parameterized
 
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
+from ..layers.mla import MultiheadLatentAttentionTensorCast
 
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
+from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_json
+from .test_common import create_mla_metadata_and_kv_cache
 
 
 def get_parallel_config(parallel_configuration: tuple):
     parallel_config = ParallelConfig(
         world_size=parallel_configuration[0],
         tensor_parallel_size=parallel_configuration[1],
-        data_parallel_size=parallel_configuration[2],
-        mlp_tensor_parallel_size=parallel_configuration[3],
-        mlp_data_parallel_size=parallel_configuration[4],
-        lmhead_tensor_parallel_size=parallel_configuration[5],
-        lmhead_data_parallel_size=parallel_configuration[6],
-        expert_parallel=parallel_configuration[7],
+        mlp_tensor_parallel_size=parallel_configuration[2],
+        lmhead_tensor_parallel_size=parallel_configuration[3],
+        expert_parallel=parallel_configuration[4],
     )
     return parallel_config
 
@@ -50,23 +49,19 @@ class ParallelMoETestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["Qwen/Qwen3-235B-A22B", (16, 1, 16, 1, 16, 1, 16, False)],
-            ["Qwen/Qwen3-235B-A22B", (16, 2, 8, 4, 4, 1, 16, False)],
-            ["Qwen/Qwen3-235B-A22B", (16, 1, 16, 1, 16, 1, 16, True)],
-            ["Qwen/Qwen3-235B-A22B", (16, 2, 8, 4, 4, 1, 16, True)],
-            ["deepseek-ai/DeepSeek-V3.1", (16, 1, 16, 1, 16, 1, 16, True)],
-            ["moonshotai/Kimi-K2-Base", (16, 1, 16, 1, 16, 1, 16, True)],
+            ["Qwen/Qwen3-235B-A22B", (16, 1, 1, 1, False)],
+            ["Qwen/Qwen3-235B-A22B", (16, 2, 4, 1, False)],
+            ["Qwen/Qwen3-235B-A22B", (16, 1, 1, 1, True)],
+            ["Qwen/Qwen3-235B-A22B", (16, 2, 4, 1, True)],
         ]
     )
     def test_model_with_ep(self, model_id, parallel_configuration):
         parallel_config = get_parallel_config(parallel_configuration)
-        hf_config_json = model_id_to_json(model_id)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_lmhead=True,
-            num_hidden_layers_override=6,
+            enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
 
@@ -79,6 +74,55 @@ class ParallelMoETestCase(unittest.TestCase):
             self.assertEqual(
                 outputs.shape, (output_batch_size, num_tokens, model.vocab_size)
             )
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.permute_tokens.default", result)
+        self.assertIn("tensor_cast.unpermute_tokens.default", result)
+        if parallel_config.has_ep():
+            self.assertIn("tensor_cast.all_to_all.default", result)
+            self._check_comm_analytic(
+                runtime.get_trace_events(), "tensor_cast.all_to_all.default"
+            )
+
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1", (16, 2, 4, 1, True)],
+            ["moonshotai/Kimi-K2-Base", (16, 2, 4, 1, True)],
+        ]
+    )
+    def test_deepseek_with_ep(self, model_id, parallel_configuration):
+        parallel_config = get_parallel_config(parallel_configuration)
+        hf_config_json = model_id_to_json(model_id)
+        model_config = ModelConfig(
+            parallel_config,
+            QuantConfig(),
+            hf_config_json=hf_config_json,
+            enable_lmhead=True,
+            enable_repetition=True,
+        )
+        mla_config = MlaConfig(
+            module_name="DeepseekV3Attention",
+            mla_cls=MultiheadLatentAttentionTensorCast,
+        )
+        model_config.mla_config = mla_config
+        model = TransformerModel(model_id, model_config)
+
+        attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
+            model, model_config
+        )
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(
+                inputs,
+                position_ids,
+                attention_meta=attn_meta,
+                kv_cache_by_layers=kv_cache_by_layers,
+            )
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+
         result = runtime.table_averages()
         self.assertIn("tensor_cast.permute_tokens.default", result)
         self.assertIn("tensor_cast.unpermute_tokens.default", result)

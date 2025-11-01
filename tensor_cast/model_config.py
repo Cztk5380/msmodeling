@@ -220,6 +220,8 @@ class ParallelConfig:
     tensor_parallel_size: int = 1
     data_parallel_size: Optional[int] = None
     pipeline_parallel_size: int = 1
+    o_proj_tensor_parallel_size: Optional[int] = None
+    o_proj_data_parallel_size: Optional[int] = None
     mlp_tensor_parallel_size: Optional[int] = None
     mlp_data_parallel_size: Optional[int] = None
     lmhead_tensor_parallel_size: Optional[int] = None
@@ -230,6 +232,9 @@ class ParallelConfig:
 
     def has_attn_tp(self) -> bool:
         return self.tensor_parallel_size > 1
+
+    def has_o_proj_tp(self) -> bool:
+        return self.o_proj_tensor_parallel_size > 1
 
     def has_mlp_tp(self) -> bool:
         return self.mlp_tensor_parallel_size > 1
@@ -261,10 +266,35 @@ class ParallelConfig:
                 f"must equal world_size ({self.world_size})"
             )
 
+        if self.o_proj_tensor_parallel_size is None:
+            self.o_proj_tensor_parallel_size = self.tensor_parallel_size
+        if self.o_proj_data_parallel_size is None:
+            self.o_proj_data_parallel_size = (
+                self.world_size
+                // self.o_proj_tensor_parallel_size
+                // self.pipeline_parallel_size
+            )
+        if (
+            self.o_proj_tensor_parallel_size
+            * self.o_proj_data_parallel_size
+            * self.pipeline_parallel_size
+            != self.world_size
+        ):
+            raise ValueError(
+                f"o_proj_tensor_parallel_size ({self.o_proj_tensor_parallel_size}) * "
+                f"o_proj_data_parallel_size ({self.o_proj_data_parallel_size}) * "
+                f"pipeline_parallel_size ({self.pipeline_parallel_size}) "
+                f"must equal world_size ({self.world_size})"
+            )
+
         if self.mlp_tensor_parallel_size is None:
             self.mlp_tensor_parallel_size = self.tensor_parallel_size
         if self.mlp_data_parallel_size is None:
-            self.mlp_data_parallel_size = self.data_parallel_size
+            self.mlp_data_parallel_size = (
+                self.world_size
+                // self.mlp_tensor_parallel_size
+                // self.pipeline_parallel_size
+            )
         if (
             self.mlp_tensor_parallel_size
             * self.mlp_data_parallel_size
@@ -281,7 +311,11 @@ class ParallelConfig:
         if self.lmhead_tensor_parallel_size is None:
             self.lmhead_tensor_parallel_size = self.tensor_parallel_size
         if self.lmhead_data_parallel_size is None:
-            self.lmhead_data_parallel_size = self.data_parallel_size
+            self.lmhead_data_parallel_size = (
+                self.world_size
+                // self.lmhead_tensor_parallel_size
+                // self.pipeline_parallel_size
+            )
         if (
             self.lmhead_tensor_parallel_size
             * self.lmhead_data_parallel_size

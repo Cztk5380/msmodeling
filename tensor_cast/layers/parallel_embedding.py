@@ -12,7 +12,6 @@ class ParallelEmbedding(ModelWrapperBase):
 
     def __init__(self, embedding: torch.nn.Embedding, tp_group: ParallelGroup):
         super().__init__(embedding)
-        self.embedding_dim = embedding
         self.tp_group = tp_group
         self.tp_size = tp_group.world_size
         self.tp_rank = tp_group.rank_in_group

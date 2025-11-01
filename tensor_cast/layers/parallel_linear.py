@@ -1,10 +1,30 @@
 import math
+from typing import Union
 
 import torch
 from torch import nn
 
 from ..parallel_group import ParallelGroup
+from .quant_linear import QuantLinearBase
 from .utils import get_partial_sharded, ModelWrapperBase
+
+
+def replace_with_sharded_tensor(
+    module: nn.Module,
+    attr: str,
+    tp_size: int,
+    tp_rank: int,
+    is_quant: bool = False,
+    dim: int = 0,
+):
+    shard_attr = get_partial_sharded(
+        getattr(module, attr), tp_size, tp_rank, dim
+    ).contiguous()
+
+    if not is_quant:
+        shard_attr = nn.Parameter(shard_attr)
+
+    setattr(module, attr, shard_attr)
 
 
 class ParallelLinearBase(ModelWrapperBase):
@@ -13,10 +33,18 @@ class ParallelLinearBase(ModelWrapperBase):
     It handles different tensor parallel types.
     """
 
-    def __init__(self, linear_layer: torch.nn.Linear):
+    def __init__(self, linear_layer: Union[torch.nn.Linear, QuantLinearBase]):
         super().__init__(linear_layer)
         self.in_features = linear_layer.in_features
         self.out_features = linear_layer.out_features
+        if isinstance(linear_layer, QuantLinearBase):
+            self.inner_weight_name = "qweight"
+            self.is_quant = True
+        else:
+            self.inner_weight_name = "weight"
+            self.is_quant = False
+
+        self.inner_bias_name = "bias"
 
     def create_weights(self):
         raise NotImplementedError
@@ -28,7 +56,7 @@ class ParallelLinearBase(ModelWrapperBase):
 class RowParallelLinear(ParallelLinearBase):
     def __init__(
         self,
-        linear_layer: torch.nn.Linear,
+        linear_layer: Union[torch.nn.Linear, QuantLinearBase],
         tp_group: ParallelGroup,
         global_tp_group: ParallelGroup,
         slice_input_by_last_dim: bool = False,
@@ -50,23 +78,55 @@ class RowParallelLinear(ParallelLinearBase):
         self.reduce_output = reduce_output
 
     def create_weights(self):
-        shard_weight = get_partial_sharded(
-            self._inner.weight, self.tp_size, self.tp_rank, dim=1
+        replace_with_sharded_tensor(
+            self._inner,
+            self.inner_weight_name,
+            self.tp_size,
+            self.tp_rank,
+            self.is_quant,
+            dim=1,
         )
-        self._inner.weight = nn.Parameter(shard_weight.contiguous())
-        if self._inner.bias is not None:  # noqa: SIM102
+        if getattr(self._inner, self.inner_bias_name, None) is not None:  # noqa: SIM102
             # need to check
             if self.tp_rank != 0:
-                self._inner.bias = None
+                setattr(self._inner, self.inner_bias_name, None)
+
+        if (
+            self.is_quant
+            and self._inner.weight_scale.ndim > 0
+            and self._inner.weight_scale.shape[0] > 0
+        ):
+            replace_with_sharded_tensor(
+                self._inner,
+                "weight_scale",
+                self.tp_size,
+                self.tp_rank,
+                self.is_quant,
+            )
+            if self._inner.weight_offset is not None:
+                replace_with_sharded_tensor(
+                    self._inner,
+                    "weight_offset",
+                    self.tp_size,
+                    self.tp_rank,
+                    self.is_quant,
+                )
+
+        self._inner.in_features = self.in_features_per_partition
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        if self.gather_slice_data and x.shape[-1] != self.in_features:
+            x = self.global_tp_group.all_gather(x)
+            x = x[..., : self.in_features]
+
         if self.gather_slice_data:
             origin_shape = x.shape
-            x = x.view(-1, *origin_shape[2:])
+            if len(origin_shape) == 3:
+                x = x.view(-1, *origin_shape[2:])
             x = self.global_tp_group.slice(x, dim=0)
             x = self.tp_group.all_gather(x, dim=0)
 
-        if self.slice_input_by_last_dim:
+        if self.gather_slice_data or self.slice_input_by_last_dim:
             x = get_partial_sharded(x, self.tp_size, self.tp_rank, dim=-1)
 
         output = self._inner(x)
@@ -76,7 +136,8 @@ class RowParallelLinear(ParallelLinearBase):
         if self.gather_slice_data:
             output = self.tp_group.slice(output, dim=0)
             output = self.global_tp_group.all_gather(output, dim=0)
-            output = output.view(*origin_shape[:2], *output.shape[1:])
+            if len(origin_shape) == 3:
+                output = output.view(*origin_shape[:2], *output.shape[1:])
 
         return output
 
@@ -84,7 +145,7 @@ class RowParallelLinear(ParallelLinearBase):
 class ColumnParallelLinear(ParallelLinearBase):
     def __init__(
         self,
-        linear_layer: torch.nn.Linear,
+        linear_layer: Union[torch.nn.Linear, QuantLinearBase],
         tp_group: ParallelGroup,
         global_tp_group: ParallelGroup,
         gather_output: bool = False,
@@ -104,40 +165,42 @@ class ColumnParallelLinear(ParallelLinearBase):
         self.gather_output = gather_output
 
     def create_weights(self):
-        shard_weight = get_partial_sharded(
-            self._inner.weight, self.tp_size, self.tp_rank, dim=0
+        replace_with_sharded_tensor(
+            self._inner,
+            self.inner_weight_name,
+            self.tp_size,
+            self.tp_rank,
+            self.is_quant,
         )
-        self._inner.weight = nn.Parameter(shard_weight.contiguous())
-        if self._inner.bias is not None:
-            shard_bias = get_partial_sharded(
-                self._inner.bias, self.tp_size, self.tp_rank
+
+        if getattr(self._inner, self.inner_bias_name, None) is not None:
+            replace_with_sharded_tensor(
+                self._inner,
+                self.inner_bias_name,
+                self.tp_size,
+                self.tp_rank,
+                self.is_quant,
             )
-            self._inner.bias = nn.Parameter(shard_bias.contiguous())
+
+        self._inner.out_features = self.out_features_per_partition
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         if self.gather_slice_data:
             origin_shape = x.shape
-            x = x.view(-1, *origin_shape[2:])
+            if len(origin_shape) == 3:
+                x = x.view(-1, *origin_shape[2:])
             x = self.global_tp_group.slice(x, dim=0)
             x = self.tp_group.all_gather(x, dim=0)
 
         output = self._inner(x)
-        if self.gather_output:
+        if self.gather_slice_data or self.gather_output:
             output = self.tp_group.all_gather(output)
             output = output[..., : self.out_features]
 
         if self.gather_slice_data:
             output = self.tp_group.slice(output, dim=0)
             output = self.global_tp_group.all_gather(output, dim=0)
-            output = output.view(*origin_shape[:2], *output.shape[1:])
+            if len(origin_shape) == 3:
+                output = output.view(*origin_shape[:2], *output.shape[1:])
 
         return output
-
-
-COLWISE_LINEAR = "colwise"
-ROWWISE_LINEAR = "rowwise"
-
-PARALLEL_MODULE_CLS = {
-    COLWISE_LINEAR: ColumnParallelLinear,
-    ROWWISE_LINEAR: RowParallelLinear,
-}

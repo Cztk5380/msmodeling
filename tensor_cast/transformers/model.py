@@ -13,6 +13,13 @@ import torch
 from transformers import AutoConfig, AutoModel, PretrainedConfig
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
+from ..layers import (
+    COLWISE_LINEAR,
+    PARALLEL_EMBEDDING,
+    PARALLEL_MODULE_CLS,
+    ROWWISE_LINEAR,
+)
+
 from ..layers.attention import flash_attention_forward
 from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
 
@@ -20,8 +27,7 @@ from ..layers.mla import MultiheadLatentAttentionBase
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 
-from ..layers.parallel_embedding import ParallelEmbedding
-from ..layers.parallel_linear import COLWISE_LINEAR, PARALLEL_MODULE_CLS, ROWWISE_LINEAR
+from ..layers.quant_linear import QuantLinearBase
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
 from ..model_config import ModelConfig, MoEConfig
@@ -222,14 +228,16 @@ class TransformerModel(ModelWrapperBase):
                 dtype=self.model_config.dtype,
                 trust_remote_code=self.model_config.trust_remote_code,
             )
-
+            self.parallel_group_manager = ParallelGroupManager(
+                self.model_config.parallel_config
+            )
             # the order of these functions matters!
             self.wrap_model()
             self.maybe_enable_mtp()
             self.maybe_repeat_layers()
             self.patch_model()
-            self.shard_model()
             self.quantize_model()
+            self.shard_model()
         self.load_weights()
 
     def load_hf_config_from_json(self, hf_config_json: str) -> PretrainedConfig:
@@ -389,7 +397,9 @@ class TransformerModel(ModelWrapperBase):
                         module, mla_config.field_names
                     ):
                         continue
-                    mla = mla_config.mla_cls(mla_config, module)
+                    mla = mla_config.mla_cls(
+                        mla_config, module, self.parallel_group_manager.tp_group
+                    )
                     self._replace_module(name, mla)
 
     def get_moe_config(self):
@@ -415,8 +425,10 @@ class TransformerModel(ModelWrapperBase):
 
     def get_shard_plan(self):
         tp_group = self.parallel_group_manager.tp_group
+        o_proj_tp_group = self.parallel_group_manager.o_proj_tp_group
         mlp_tp_group = self.parallel_group_manager.mlp_tp_group
         lmhead_tp_group = self.parallel_group_manager.lmhead_tp_group
+        all_rank_group = self.parallel_group_manager.all_rank_group
 
         def get_tp_plan():
             # TODO:
@@ -425,72 +437,98 @@ class TransformerModel(ModelWrapperBase):
             tp_plan = {}
 
             if self.model_config.parallel_config.embedding_parallel:
-                groups = {"tp_group": tp_group}
-                tp_plan.update({"embed_tokens": (ParallelEmbedding, groups)})
+                params = {"tp_group": tp_group}
+                tp_plan.update({"embed_tokens": (PARALLEL_EMBEDDING, params)})
 
-            groups = {
+            params = {
                 "tp_group": tp_group,
                 "global_tp_group": tp_group,
             }
-            tp_plan.update(
-                {
-                    "layers.*.self_attn.q_proj": (COLWISE_LINEAR, groups),
-                    "layers.*.self_attn.k_proj": (COLWISE_LINEAR, groups),
-                    "layers.*.self_attn.v_proj": (COLWISE_LINEAR, groups),
-                    "layers.*.self_attn.o_proj": (ROWWISE_LINEAR, groups),
-                }
-            )
+            if self.model_config.mla_config:
+                tp_plan.update(
+                    {
+                        "layers.*.self_attn.q_proj": (COLWISE_LINEAR, params),
+                        "layers.*.self_attn.q_b_proj": (COLWISE_LINEAR, params),
+                        "layers.*.self_attn.kv_b_proj": (COLWISE_LINEAR, params),
+                    }
+                )
+            else:
+                tp_plan.update(
+                    {
+                        "layers.*.self_attn.q_proj": (COLWISE_LINEAR, params),
+                        "layers.*.self_attn.k_proj": (COLWISE_LINEAR, params),
+                        "layers.*.self_attn.v_proj": (COLWISE_LINEAR, params),
+                    }
+                )
 
-            groups = {
+            params = {
+                "tp_group": o_proj_tp_group,
+                "global_tp_group": tp_group,
+            }
+            tp_plan.update({"layers.*.self_attn.o_proj": (ROWWISE_LINEAR, params)})
+
+            params = {
                 "tp_group": mlp_tp_group,
                 "global_tp_group": tp_group,
             }
             tp_plan.update(
                 {
-                    "layers.*.mlp.gate_proj": (COLWISE_LINEAR, groups),
-                    "layers.*.mlp.up_proj": (COLWISE_LINEAR, groups),
-                    "layers.*.mlp.down_proj": (ROWWISE_LINEAR, groups),
+                    "layers.*.mlp.gate_proj": (COLWISE_LINEAR, params),
+                    "layers.*.mlp.up_proj": (COLWISE_LINEAR, params),
+                    "layers.*.mlp.down_proj": (ROWWISE_LINEAR, params),
                 }
             )
 
-            groups = {
+            if not self.model_config.parallel_config.has_ep():
+                params = {
+                    "tp_group": all_rank_group,
+                    "global_tp_group": all_rank_group,
+                }
+                tp_plan.update(
+                    {
+                        "layers.*.experts.*.gate_proj": (COLWISE_LINEAR, params),
+                        "layers.*.experts.*.up_proj": (COLWISE_LINEAR, params),
+                        "layers.*.experts.*.down_proj": (ROWWISE_LINEAR, params),
+                    }
+                )
+
+            params = {
                 "tp_group": lmhead_tp_group,
                 "global_tp_group": tp_group,
+                "gather_output": True,
             }
-            params = {"gather_output": True}
-            tp_plan.update({"lm_head": (COLWISE_LINEAR, {**groups, **params})})
+            tp_plan.update({"lm_head": (COLWISE_LINEAR, params)})
             return tp_plan
 
         return {"tp_plan": get_tp_plan()}
 
     def shard_model_by_tp(self):
         """
-        Replaces all nn.Linear modules with ParallelLinear modules based on the
+        Replaces all nn.Linear and nn.Embedding modules with Parallel modules based on the
         parallel configuration stored in self.model_config.
         """
         shard_plan = self.get_shard_plan()
         tp_plan = shard_plan["tp_plan"]
 
-        linear_modules = {}
-        linear_module_stripped_to_names = {}
+        modules = {}
+        module_stripped_to_names = {}
         for name, module in self._inner.named_modules():
-            if isinstance(module, torch.nn.Linear):
-                linear_modules[name] = module
-                linear_module_stripped_to_names[strip_module_name(name)] = name
+            if isinstance(
+                module, (torch.nn.Embedding, torch.nn.Linear, QuantLinearBase)
+            ):
+                modules[name] = module
+                module_stripped_to_names[strip_module_name(name)] = name
         for pattern, tp_config in tp_plan.items():
-            matches = fnmatch.filter(linear_module_stripped_to_names.keys(), pattern)
+            matches = fnmatch.filter(module_stripped_to_names.keys(), pattern)
             for stripped_name in matches:
-                name = linear_module_stripped_to_names[stripped_name]
-                module = linear_modules[name]
+                name = module_stripped_to_names[stripped_name]
+                module = modules[name]
                 parallel_module = PARALLEL_MODULE_CLS[tp_config[0]](
                     module, **tp_config[1]
                 )
                 self._replace_module(name, parallel_module)
 
     def shard_model_by_ep(self):
-        if not self.model_config.parallel_config.has_ep():
-            return
-
         dp_group = self.parallel_group_manager.dp_group
         tp_group = self.parallel_group_manager.tp_group
         ep_group = self.parallel_group_manager.ep_group
@@ -501,10 +539,6 @@ class TransformerModel(ModelWrapperBase):
                 )
 
     def shard_model(self):
-        self.parallel_group_manager = ParallelGroupManager(
-            self.model_config.parallel_config
-        )
-
         self.shard_model_by_tp()
         self.shard_model_by_ep()
 

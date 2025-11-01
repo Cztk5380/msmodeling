@@ -46,11 +46,14 @@ def run_inference(
     world_size: int = 1,
     tp_size: int = 1,
     dp_size: Optional[int] = None,
+    o_proj_tp_size: Optional[int] = None,
+    o_proj_dp_size: Optional[int] = None,
     mlp_tp_size: Optional[int] = None,
     mlp_dp_size: Optional[int] = None,
     lmhead_tp_size: Optional[int] = None,
     lmhead_dp_size: Optional[int] = None,
     ep: bool = False,
+    word_embedding_tp: bool = False,
 ):
     """
     Sets up and runs a simulated LLM inference pass.
@@ -63,11 +66,14 @@ def run_inference(
         world_size=world_size,
         tensor_parallel_size=tp_size,
         data_parallel_size=dp_size,
+        o_proj_tensor_parallel_size=o_proj_tp_size,
+        o_proj_data_parallel_size=o_proj_dp_size,
         mlp_tensor_parallel_size=mlp_tp_size,
         mlp_data_parallel_size=mlp_dp_size,
         lmhead_tensor_parallel_size=lmhead_tp_size,
         lmhead_data_parallel_size=lmhead_dp_size,
         expert_parallel=ep,
+        embedding_parallel=word_embedding_tp,
     )
     batch_size = (
         num_queries + parallel_config.data_parallel_size - 1
@@ -353,33 +359,50 @@ def main():
         help="The dp size for the whole model",
     )
     parser.add_argument(
+        "--o-proj-tp-size",
+        type=int,
+        default=1,
+        help="The tp size for attn o_proj layer",
+    )
+    parser.add_argument(
+        "--o-proj-dp-size",
+        type=int,
+        default=None,
+        help="The dp size for attn o_proj layer",
+    )
+    parser.add_argument(
         "--mlp-tp-size",
         type=int,
         default=None,
-        help="The tp size fo mlp layer, can override tp-size for mlp layer",
+        help="The tp size for mlp layer, can override tp-size for mlp layer",
     )
     parser.add_argument(
         "--mlp-dp-size",
         type=int,
         default=None,
-        help="The dp size fo mlp layer, can override dp-size for mlp layer",
+        help="The dp size for mlp layer, can override dp-size for mlp layer",
     )
     parser.add_argument(
         "--lmhead-tp-size",
         type=int,
         default=None,
-        help="The tp size fo lm head, can override tp-size for lm head",
+        help="The tp size for lm head, can override tp-size for lm head",
     )
     parser.add_argument(
         "--lmhead-dp-size",
         type=int,
         default=None,
-        help="The dp size fo lm head, can override dp-size for lm head",
+        help="The dp size for lm head, can override dp-size for lm head",
     )
     parser.add_argument(
         "--ep",
         action="store_true",
         help="Whether or not to implement expert parallel",
+    )
+    parser.add_argument(
+        "--word-embedding-tp",
+        action="store_true",
+        help="Whether or not to implement word embedding tensor parallel",
     )
 
     args = parser.parse_args()
@@ -412,11 +435,14 @@ def main():
         world_size=args.world_size,
         tp_size=args.tp_size,
         dp_size=args.dp_size,
+        o_proj_tp_size=args.o_proj_tp_size,
+        o_proj_dp_size=args.o_proj_dp_size,
         mlp_tp_size=args.mlp_tp_size,
         mlp_dp_size=args.mlp_dp_size,
         lmhead_tp_size=args.lmhead_tp_size,
         lmhead_dp_size=args.lmhead_dp_size,
         ep=args.ep,
+        word_embedding_tp=args.word_embedding_tp,
     )
 
 

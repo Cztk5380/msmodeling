@@ -122,31 +122,43 @@ class ParallelMoELayer(ModelWrapperBase):
         self.global_dp_group = global_dp_group
         self.global_tp_group = global_tp_group
         self.ep_group = ep_group
-        self.transform_dp_group = (
-            self.global_dp_group.world_size != self.ep_group.world_size
-        )
-        if (
-            self.transform_dp_group
-            and self.ep_group.world_size != self.ep_group.global_world_size
-        ):
-            raise ValueError(
-                f"The scenario where expert_parallel_size {self.ep_group.world_size}"
-                f"!= world_size {self.ep_group.global_world_size} is not supported."
+        self.has_ep = ep_group.world_size > 1
+        if self.has_ep:
+            self.transform_dp_group = (
+                self.global_dp_group.world_size != self.ep_group.world_size
             )
+            if (
+                self.transform_dp_group
+                and self.ep_group.world_size != self.ep_group.global_world_size
+            ):
+                raise ValueError(
+                    f"The scenario where expert_parallel_size {self.ep_group.world_size}"
+                    f"!= world_size {self.ep_group.global_world_size} is not supported."
+                )
+        else:
+            self.transform_dp_group = self.global_dp_group.world_size != 1
 
     def forward(self, hidden_states: torch.Tensor):
         if self.transform_dp_group:
             origin_shape = hidden_states.shape
-            hidden_states = hidden_states.view(-1, *origin_shape[2:])
-            hidden_states = self.global_tp_group.slice(hidden_states, dim=0)
+            if len(origin_shape) == 3:
+                hidden_states = hidden_states.view(-1, *origin_shape[2:])
+            if self.has_ep:
+                hidden_states = self.global_tp_group.slice(hidden_states, dim=0)
+            else:
+                hidden_states = self.global_dp_group.all_gather(hidden_states, dim=0)
 
         hidden_states = self._inner(hidden_states)
 
         if self.transform_dp_group:
-            hidden_states = self.global_tp_group.all_gather(hidden_states, dim=0)
-            hidden_states = hidden_states.view(
-                *origin_shape[:2], *hidden_states.shape[1:]
-            )
+            if self.has_ep:
+                hidden_states = self.global_tp_group.all_gather(hidden_states, dim=0)
+            else:
+                hidden_states = self.global_dp_group.slice(hidden_states, dim=0)
+            if len(origin_shape) == 3:
+                hidden_states = hidden_states.view(
+                    *origin_shape[:2], *hidden_states.shape[1:]
+                )
 
         return hidden_states
 
