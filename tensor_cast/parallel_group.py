@@ -152,6 +152,17 @@ class ParallelGroupManager:
             False, tensor_parallel_size, data_parallel_size
         )
 
+        self.o_proj_tp_group = initialize_parallel(
+            True,
+            self.parallel_config.o_proj_tensor_parallel_size,
+            self.parallel_config.o_proj_data_parallel_size,
+        )
+        self.o_proj_dp_group = initialize_parallel(
+            False,
+            self.parallel_config.o_proj_tensor_parallel_size,
+            self.parallel_config.o_proj_data_parallel_size,
+        )
+
         self.mlp_tp_group = initialize_parallel(
             True,
             self.parallel_config.mlp_tensor_parallel_size,
@@ -173,6 +184,8 @@ class ParallelGroupManager:
             self.parallel_config.lmhead_tensor_parallel_size,
             self.parallel_config.lmhead_data_parallel_size,
         )
+
+        self.all_rank_group = initialize_parallel(True, world_size, 1)
 
         if self.parallel_config.has_ep():
             self.ep_group = initialize_parallel(False, 1, world_size)

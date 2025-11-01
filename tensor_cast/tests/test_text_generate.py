@@ -772,6 +772,40 @@ class TestTextGenerate(unittest.TestCase):
         )
         self._validate_inference_result(result, "test_qwen2_5_with_compile")
 
+    def test_o_proj_specific_parallelism(self):
+        """Test with o_proj-specific tensor/data parallelism."""
+        result = run_inference(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=10,
+            context_length=0,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            world_size=4,
+            tp_size=2,
+            o_proj_tp_size=4,
+        )
+        self._validate_inference_result(result, "test_o_proj_specific_parallelism")
+
+    def test_word_embedding_parallel(self):
+        """Test with word embedding parallel."""
+        result = run_inference(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=10,
+            context_length=0,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            world_size=4,
+            tp_size=2,
+            word_embedding_tp=True,
+        )
+        self._validate_inference_result(result, "test_o_proj_specific_parallelism")
+
 
 if __name__ == "__main__":
     unittest.main()
