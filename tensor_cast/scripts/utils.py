@@ -380,6 +380,7 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     query_start_loc = torch.tensor(query_start_loc, dtype=torch.long)
 
     seq_lens_t = torch.tensor(seq_lens, dtype=torch.long)
+    query_len_t = torch.tensor(query_lens, dtype=torch.long)
 
     num_blocks = (
         sum(seq_lens) + batch_size * (num_mtp_tokens + 1) + block_size - 1
@@ -392,6 +393,7 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
 
     attn_meta = AttentionMetadataTensorCast(
         query_start_loc=query_start_loc,
+        query_lens=query_len_t,
         seq_lens=seq_lens_t,
         block_table_tensor=block_table_tensor,
         slot_mapping=slot_mapping,
