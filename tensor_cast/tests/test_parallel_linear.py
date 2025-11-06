@@ -5,6 +5,7 @@ from parameterized import parameterized
 
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
+from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 
 from ..layers.quant_linear import TensorCastQuantLinear
@@ -93,6 +94,7 @@ class ParallelLinearTestCase(unittest.TestCase):
         [
             ["Qwen/Qwen3-32B", (16, 1, 1, 1, 1)],
             ["Qwen/Qwen3-32B", (16, 8, 8, 8, 8)],
+            ["Qwen/Qwen3-32B", (16, 16, 16, 16, 16)],
             ["Qwen/Qwen3-32B", (16, 4, 2, 8, 16)],
             ["Qwen/Qwen3-32B", (16, 4, 2, 8, 16, True)],
             ["zai-org/GLM-4.5", (16, 4, 2, 8, 16)],
@@ -103,6 +105,7 @@ class ParallelLinearTestCase(unittest.TestCase):
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
+            attention_cls=AttentionTensorCast,
             enable_lmhead=True,
             enable_repetition=True,
         )
@@ -170,6 +173,7 @@ class ParallelLinearTestCase(unittest.TestCase):
         [
             ["Qwen/Qwen3-32B", (16, 1, 1, 1, 1)],
             ["Qwen/Qwen3-32B", (16, 8, 8, 8, 8)],
+            ["Qwen/Qwen3-32B", (16, 16, 16, 16, 16)],
             ["Qwen/Qwen3-32B", (16, 4, 2, 8, 16)],
             ["Qwen/Qwen3-32B", (16, 4, 2, 8, 16, True)],
             ["zai-org/GLM-4.5", (16, 4, 2, 8, 16)],
@@ -180,6 +184,7 @@ class ParallelLinearTestCase(unittest.TestCase):
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
+            attention_cls=AttentionTensorCast,
             enable_lmhead=True,
             enable_repetition=True,
         )

@@ -85,9 +85,9 @@ def flash_attention_forward(
         else attention_meta
     )
     # TODO: understand why we need these shape manipulation
-    hidden = query.shape[-2]
     query, key, value = (x.transpose(1, 2) for x in (query, key, value))
-    query, key, value = (x.reshape(hidden, -1) for x in (query, key, value))
+    num_tokens = query.shape[0] * query.shape[1]
+    query, key, value = (x.reshape(num_tokens, -1) for x in (query, key, value))
     # return (attn_output, attn_weights) while we ignore attn_weights
     return self_attn.forward(
         query,

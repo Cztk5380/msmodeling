@@ -4,8 +4,8 @@ try:
 except ImportError:
     # Fallback for Python 3.10
     from strenum import StrEnum
-from typing import Any, Dict, List
 from dataclasses import dataclass
+from typing import List
 
 import torch
 
@@ -35,6 +35,7 @@ from ..transformers.utils import (
     model_id_to_mla_module_name,
     model_id_to_mtp_block_module_name,
 )
+from ..utils import exact_division
 
 
 class QuantizeLinearAction(StrEnum):
@@ -308,18 +309,28 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
             )
         else:
             # Shape: [2 (K/V), num_blocks, block_size, num_heads, head_dim]
-            assert (
+            if (
                 model.text_config.num_key_value_heads
-                % parallel_config.tensor_parallel_size
-                == 0
-            )
+                >= parallel_config.tensor_parallel_size
+            ):
+                kv_heads = exact_division(
+                    model.text_config.num_key_value_heads,
+                    parallel_config.tensor_parallel_size,
+                )
+            else:
+                assert (
+                    parallel_config.tensor_parallel_size
+                    % model.text_config.num_key_value_heads
+                    == 0
+                )
+                kv_heads = 1
+
             kv_cache_by_layers[i] = torch.empty(
                 [
                     2,
                     num_blocks,
                     block_size,
-                    model.text_config.num_key_value_heads
-                    // parallel_config.tensor_parallel_size,
+                    kv_heads,
                     model.head_dim,
                 ],
                 dtype=kvcache_dtype,
