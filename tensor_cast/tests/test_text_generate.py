@@ -804,7 +804,23 @@ class TestTextGenerate(unittest.TestCase):
             tp_size=2,
             word_embedding_tp=True,
         )
-        self._validate_inference_result(result, "test_o_proj_specific_parallelism")
+        self._validate_inference_result(result, "test_word_embedding_parallel")
+
+    def test_qwen3_32b_tp16(self):
+        """Make sure tp_size can be greater than num_key_value_heads."""
+        result = run_inference(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=10,
+            context_length=0,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            world_size=16,
+            tp_size=16,
+        )
+        self._validate_inference_result(result, "qwen3_32b_tp16")
 
 
 if __name__ == "__main__":

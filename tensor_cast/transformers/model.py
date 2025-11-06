@@ -445,6 +445,7 @@ class TransformerModel(ModelWrapperBase):
                 "global_tp_group": tp_group,
             }
             if self.model_config.mla_config:
+                params.update({"head_num": self.hf_config.num_attention_heads})
                 tp_plan.update(
                     {
                         "layers.*.self_attn.q_proj": (COLWISE_LINEAR, params),
@@ -453,9 +454,17 @@ class TransformerModel(ModelWrapperBase):
                     }
                 )
             else:
+                params.update({"head_num": self.hf_config.num_attention_heads})
+                tp_plan.update({"layers.*.self_attn.q_proj": (COLWISE_LINEAR, params)})
+                params = params.copy()
+                params.update(
+                    {
+                        "head_num": self.hf_config.num_key_value_heads,
+                        "is_replicable": True,
+                    }
+                )
                 tp_plan.update(
                     {
-                        "layers.*.self_attn.q_proj": (COLWISE_LINEAR, params),
                         "layers.*.self_attn.k_proj": (COLWISE_LINEAR, params),
                         "layers.*.self_attn.v_proj": (COLWISE_LINEAR, params),
                     }
@@ -464,6 +473,7 @@ class TransformerModel(ModelWrapperBase):
             params = {
                 "tp_group": o_proj_tp_group,
                 "global_tp_group": tp_group,
+                "head_num": self.hf_config.num_attention_heads,
             }
             tp_plan.update({"layers.*.self_attn.o_proj": (ROWWISE_LINEAR, params)})
 

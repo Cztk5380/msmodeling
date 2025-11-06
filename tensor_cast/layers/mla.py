@@ -6,11 +6,11 @@ import torch
 from .. import ops  # noqa: F401
 from ..model_config import MlaConfig, MultiheadLatentAttentionQuantConfig
 from ..parallel_group import ParallelGroup
+from ..utils import exact_division
 from .attention import AttentionMetadataBase
 
 from .quant_linear import TensorCastQuantLinear
 from .utils import get_partial_sharded
-from ..utils import exact_division
 
 
 class MultiheadLatentAttentionBase(torch.nn.Module, ABC):
@@ -90,7 +90,10 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
     ):
         super().__init__(mla_config, mla_module, decode_only)
         sharded_weight = get_partial_sharded(
-            self.kv_b_proj.weight.data, tp_group.world_size, tp_group.rank_in_group
+            self.kv_b_proj.weight.data,
+            tp_group.world_size,
+            tp_group.rank_in_group,
+            unit_size=self.qk_nope_head_dim + self.v_head_dim,
         )
         self.kv_b_proj_weight_t = sharded_weight.transpose(0, 1)
         kv_b_proj_view = self.kv_b_proj_weight_t.view(

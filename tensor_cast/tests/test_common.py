@@ -6,6 +6,7 @@ from ..layers.attention import AttentionMetadataTensorCast
 from ..model_config import LinearQuantConfig, LinearQuantType, ModelConfig, QuantConfig
 
 from ..transformers.utils import get_attention_quant_config, strip_module_name
+from ..utils import exact_division
 
 
 def assert_close(self, value1, value2, rtol=0.01):
@@ -53,12 +54,28 @@ def create_attn_metadata_and_kv_cache(model, model_config: ModelConfig):
         kvcache_dtype = model_config.dtype
         if (attention_config := get_attention_quant_config(model, i)) is not None:
             kvcache_dtype = attention_config.get_quant_dtype()
+
+        if (
+            model.text_config.num_key_value_heads
+            >= model_config.parallel_config.tensor_parallel_size
+        ):
+            kv_heads = exact_division(
+                model.text_config.num_key_value_heads,
+                model_config.parallel_config.tensor_parallel_size,
+            )
+        else:
+            assert (
+                model_config.parallel_config.tensor_parallel_size
+                % model.text_config.num_key_value_heads
+                == 0
+            )
+            kv_heads = 1
         kv_cache_by_layers[i] = torch.empty(
             [
                 2,
                 num_blocks,
                 block_size,
-                model.text_config.num_key_value_heads,
+                kv_heads,
                 model.text_config.head_dim,
             ],
             dtype=kvcache_dtype,

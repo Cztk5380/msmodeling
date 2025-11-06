@@ -1,10 +1,11 @@
 import math
-from typing import Union
+from typing import Optional, Union
 
 import torch
 from torch import nn
 
 from ..parallel_group import ParallelGroup
+from ..utils import exact_division
 from .quant_linear import QuantLinearBase
 from .utils import get_partial_sharded, ModelWrapperBase
 
@@ -16,9 +17,10 @@ def replace_with_sharded_tensor(
     tp_rank: int,
     is_quant: bool = False,
     dim: int = 0,
+    head_size: Optional[int] = None,
 ):
     shard_attr = get_partial_sharded(
-        getattr(module, attr), tp_size, tp_rank, dim
+        getattr(module, attr), tp_size, tp_rank, dim, head_size
     ).contiguous()
 
     if not is_quant:
@@ -59,6 +61,7 @@ class RowParallelLinear(ParallelLinearBase):
         linear_layer: Union[torch.nn.Linear, QuantLinearBase],
         tp_group: ParallelGroup,
         global_tp_group: ParallelGroup,
+        head_num: Optional[int] = None,
         slice_input_by_last_dim: bool = False,
         reduce_output: bool = True,
     ):
@@ -66,8 +69,15 @@ class RowParallelLinear(ParallelLinearBase):
         self.tp_group = tp_group
         self.tp_size = self.tp_group.world_size
         self.tp_rank = self.tp_group.rank_in_group
-        self.in_features_per_partition = math.ceil(self.in_features / self.tp_size)
+        if head_num is None:
+            self.in_features_per_partition = math.ceil(self.in_features / self.tp_size)
+        else:
+            head_size = exact_division(self.in_features, head_num)
+            assert head_num % self.tp_size == 0
+            self.in_features_per_partition = self.in_features // self.tp_size
+
         self.out_features_per_partition = self.out_features
+        self.head_size = None if head_num is None else head_size
         self.create_weights()
         self.tp_group = tp_group
         self.global_tp_group = global_tp_group
@@ -85,6 +95,7 @@ class RowParallelLinear(ParallelLinearBase):
             self.tp_rank,
             self.is_quant,
             dim=1,
+            head_size=self.head_size,
         )
         if getattr(self._inner, self.inner_bias_name, None) is not None:  # noqa: SIM102
             # need to check
@@ -102,6 +113,7 @@ class RowParallelLinear(ParallelLinearBase):
                 self.tp_size,
                 self.tp_rank,
                 self.is_quant,
+                head_size=self.head_size,
             )
             if self._inner.weight_offset is not None:
                 replace_with_sharded_tensor(
@@ -110,6 +122,7 @@ class RowParallelLinear(ParallelLinearBase):
                     self.tp_size,
                     self.tp_rank,
                     self.is_quant,
+                    head_size=self.head_size,
                 )
 
         self._inner.in_features = self.in_features_per_partition
@@ -148,6 +161,8 @@ class ColumnParallelLinear(ParallelLinearBase):
         linear_layer: Union[torch.nn.Linear, QuantLinearBase],
         tp_group: ParallelGroup,
         global_tp_group: ParallelGroup,
+        head_num: Optional[int] = None,
+        is_replicable: bool = False,
         gather_output: bool = False,
     ):
         super().__init__(linear_layer)
@@ -155,7 +170,20 @@ class ColumnParallelLinear(ParallelLinearBase):
         self.tp_size = self.tp_group.world_size
         self.tp_rank = self.tp_group.rank_in_group
         self.in_features_per_partition = self.in_features
-        self.out_features_per_partition = math.ceil(self.out_features / self.tp_size)
+        if head_num is None:
+            self.out_features_per_partition = math.ceil(
+                self.out_features / self.tp_size
+            )
+        else:
+            head_size = exact_division(self.out_features, head_num)
+            if is_replicable and head_num < self.tp_size:
+                assert self.tp_size % head_num == 0
+                self.out_features_per_partition = head_size
+            else:
+                assert head_num % self.tp_size == 0
+                self.out_features_per_partition = self.out_features // self.tp_size
+
+        self.head_size = None if head_num is None else head_size
         self.create_weights()
         self.tp_group = tp_group
         self.global_tp_group = global_tp_group
@@ -171,6 +199,7 @@ class ColumnParallelLinear(ParallelLinearBase):
             self.tp_size,
             self.tp_rank,
             self.is_quant,
+            head_size=self.head_size,
         )
 
         if getattr(self._inner, self.inner_bias_name, None) is not None:
@@ -180,6 +209,7 @@ class ColumnParallelLinear(ParallelLinearBase):
                 self.tp_size,
                 self.tp_rank,
                 self.is_quant,
+                head_size=self.head_size,
             )
 
         self._inner.out_features = self.out_features_per_partition
