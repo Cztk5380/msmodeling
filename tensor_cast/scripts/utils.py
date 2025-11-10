@@ -362,8 +362,8 @@ class RequestInfo:
     query_len: int
     seq_len: int
     is_decode: bool
-    num_input_tokens: int
-    num_output_tokens: int
+    num_input_tokens: int = None
+    num_output_tokens: int = None
 
 
 def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):

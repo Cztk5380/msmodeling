@@ -4,6 +4,14 @@ import queue
 import threading
 from multiprocessing import Event, Manager
 from typing import List, Optional
+import random
+import os
+import math
+from dataclasses import dataclass
+
+import numpy as np
+from scipy.interpolate import griddata
+from scipy.interpolate import LinearNDInterpolator
 
 import stime
 from service_sim.config import Config
@@ -16,6 +24,12 @@ from tensor_cast.interface.model_runner import (
 )
 
 logger = stime.get_logger(__name__)
+
+
+@dataclass
+class InterpolationPoint:
+    total_seq_len: int
+    total_query_len: int
 
 
 class ModelRunner:
@@ -34,6 +48,8 @@ class ModelRunner:
         self.enable_multi_process = self.common_config.model_config.enable_multi_process
         self.num_processes = self.common_config.model_config.num_processes
         self.predict_steps = self.common_config.model_config.predict_steps
+        if self.enable_multi_process and self.enable_interpolate:
+            raise ValueError("Interpolate is not supported with multi-process.") # TOBEDONE
         if self.enable_multi_process:
             if not (isinstance(self.predict_steps, int) and self.predict_steps > 1):
                 raise ValueError(
@@ -47,6 +63,18 @@ class ModelRunner:
                 raise ValueError(
                     "check common_config.model_config.num_processes, need be int and greater than 1"
                 )
+        self._interpolation_model = None
+        self._interpolation_ready = False
+        self.enable_interpolate = self.common_config.model_config.enable_interpolate
+        self.interpolation_seed = self.common_config.model_config.interpolation_seed
+
+        if self.enable_interpolate:
+            if not isinstance(self.interpolation_seed, int):
+                raise ValueError("check common_config.model_config.interpolation_seed, need be int")
+            random.seed(self.interpolation_seed)
+            np.random.seed(self.interpolation_seed)
+            self.init_interpolate_mode()
+
 
     @staticmethod
     def init_tensor_cast_model_runner(common_config, parallel_config, device_type):
@@ -88,9 +116,9 @@ class ModelRunner:
                 raise ValueError(
                     f"req_id: {req.id}, query_len {query_len} > seq_len {seq_len}"
                 )
-            if req.state not in [RequestState.PREFILLING, RequestState.DECODING]:
+            if req.state not in [RequestState.PREFILLING, RequestState.DECODING, RequestState.RECOMPUTATION]:
                 raise ValueError(
-                    f"req_id: {req.id}, state {req.state} is not PREFILLING or DECODING"
+                    f"req_id: {req.id}, state {req.state} is not PREFILLING, DECODING or RECOMPUTATION"
                 )
             is_decode = req.state == RequestState.DECODING
             request_info = RequestInfo(
@@ -144,6 +172,123 @@ class ModelRunner:
             )
             future_batch.append(future_req_info)
         return future_batch
+
+    @staticmethod
+    def get_interpolation_point(batch: List[RequestInfo]) -> InterpolationPoint:
+        total_seq_len = sum([r.seq_len for r in batch])
+        total_query_len = sum([r.query_len for r in batch])
+        interpolation_point = InterpolationPoint(
+            total_seq_len=total_seq_len,
+            total_query_len=total_query_len,
+        )
+        return interpolation_point
+
+    @staticmethod
+    def get_interpolation_model(x, y):
+        """
+        Build a linear interpolation model for scattered data (z = f(x,y))
+        
+        Parameters:
+            x: np.ndarray, shape (n, 2), each row represents the (x, y) coordinates of a data point
+            y: np.ndarray, shape (n,), corresponding z values (dependent variable) for each (x,y)
+        
+        Returns:
+            predict_func: Prediction function that takes new (x1,y1) coordinates and returns estimated z values
+                - Input format 1: Single point -> (x1, y1) (tuple/list/1D array of length 2)
+                - Input format 2: Multiple points -> (m, 2) array (m points to predict)
+        """
+        # Validate input data format
+        if not isinstance(x, np.ndarray) or x.ndim != 2 or x.shape[1] != 2:
+            raise ValueError("x must be a numpy array of shape (n, 2) (each row is (x,y))")
+        if not isinstance(y, np.ndarray) or y.ndim != 1 or len(y) != len(x):
+            raise ValueError("y must be a numpy array of shape (n,) (consistent with number of rows in x)")
+
+        interpolator = LinearNDInterpolator(points=x, values=y, fill_value=np.nan)
+        
+        # Define prediction function (only call pre-built interpolator, no repeated preprocessing)
+        def predict_func(points):
+            # Process input format (preserve original logic)
+            points_arr = np.asarray(points)
+            if points_arr.ndim == 1:
+                if len(points_arr) != 2:
+                    raise ValueError("Single point input must be a sequence of length 2 (x1, y1)")
+                points_arr = points_arr.reshape(1, 2)
+            elif points_arr.ndim != 2 or points_arr.shape[1] != 2:
+                raise ValueError("Multiple points input must be a numpy array of shape (m, 2)")
+            
+            z_estimated = interpolator(points_arr)
+            return z_estimated[0] if len(z_estimated) == 1 else z_estimated
+
+        return predict_func
+
+    def generate_random_batches(self):
+        batches = []
+
+        serving_config = Config.get_instance().common_config.serving_config
+        load_gen_config = Config.get_instance().common_config.load_gen
+        max_concurrency = serving_config.max_concurrency
+        max_seq_len = load_gen_config.num_input_tokens + load_gen_config.num_output_tokens
+        max_query_len = load_gen_config.num_input_tokens
+        max_tokens_budget = serving_config.max_tokens_budget
+
+        num_blocks, block_size = self.warmup()
+        
+        upper_batch_size = min(
+            num_blocks // ((max_query_len + block_size - 1) // block_size), max_concurrency
+        )
+
+        max_nums_prefill_req = min(upper_batch_size, (max_tokens_budget + max_query_len - 1) // max_query_len)
+        for num_prefill_req in range(1, max_nums_prefill_req + 1):
+            prefill_reqs = [
+                RequestInfo(query_len=max_query_len, seq_len=max_query_len, is_decode=False) \
+                    for _ in range(num_prefill_req)
+            ]
+            max_num_decode_req = upper_batch_size - max_nums_prefill_req
+            for num_decode_req in range(1, max_num_decode_req + 1, 2):
+                decode_reqs = [
+                    RequestInfo(query_len=1, seq_len=max_seq_len, is_decode=True) \
+                        for _ in range(num_decode_req)
+                ]
+                batches.append(prefill_reqs + decode_reqs)
+
+        # edging cases
+        batches.append([RequestInfo(query_len=1, seq_len=1, is_decode=False)])
+        batches.append([RequestInfo(query_len=1, seq_len=max_seq_len * upper_batch_size, is_decode=True)])
+        max_tok = min(serving_config.max_tokens_budget, max_query_len * upper_batch_size)
+        batches.append([RequestInfo(query_len=max_tok, seq_len=max_tok, is_decode=False)])
+        return batches
+
+    def init_interpolate_mode(self):
+        """
+        sampling random batches with certain pattern, 
+        get a set of (total_seq_len, total_query_len, estimated_time)
+        use them to do interpolation
+        """
+        batches = self.generate_random_batches()
+
+        x, y = [], []
+        for batch in batches:
+            interpolation_point = self.get_interpolation_point(batch)
+            dt = self.tensor_cast_model_runner.run_inference(batch).execution_time_s
+            if dt <= 0:
+                raise ValueError(f"run_inference get negative execution time: {dt}")
+            x.append([interpolation_point.total_seq_len, interpolation_point.total_query_len])
+            y.append(dt)
+
+        x, y = np.array(x), np.array(y)
+        self._interpolation_model = self.get_interpolation_model(x, y)
+        self._interpolation_ready = True
+
+    def apply_interpolation_model(self, batch: List[RequestInfo]) -> float:
+        if not self._interpolation_ready:
+            raise ValueError("interpolation model not ready")
+
+        interpolation_point = self.get_interpolation_point(batch)
+        x = np.array([interpolation_point.total_seq_len, interpolation_point.total_query_len])
+        dt = float(self._interpolation_model(x))
+        if math.isnan(dt):
+            raise ValueError("_interpolation_model return nan")
+        return dt
 
     def process_batch(self, batch: List[Request]):
         batch = self.request2info(batch)
@@ -202,10 +347,11 @@ class ModelRunner:
         if hasattr(self, "async_task_manager") and self.enable_multi_process:
             self.async_task_manager.shutdown()
 
-    def _get_estimated_time(self, batch):
-        estimated_time = self.tensor_cast_model_runner.run_inference(
-            batch
-        ).execution_time_s
+    def _get_estimated_time(self, batch: List[RequestInfo]):
+        if self.enable_interpolate:
+            estimated_time = self.apply_interpolation_model(batch)
+        else:
+            estimated_time = self.tensor_cast_model_runner.run_inference(batch).execution_time_s
         return estimated_time
 
 
@@ -261,8 +407,6 @@ class CompletionEventManager:
             target=self._process_completion_queue, daemon=True
         )
         self._event_thread.start()
-
-
 
     def init_event_slot(self, event_id):
         """main process call this func: init event slot for new task"""
