@@ -264,6 +264,7 @@ class BatchScheduler(stime.Task):
                         continue
                     request.state = RequestState.DECODING
                 elif request.state == RequestState.RECOMPUTATION:
+                    request.state = RequestState.PREFILL_DONE
                     request.state = RequestState.DECODING
 
             else:
