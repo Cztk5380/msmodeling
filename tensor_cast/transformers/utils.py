@@ -1,4 +1,7 @@
+import contextlib
 from typing import Dict, Optional
+
+import torch
 
 from ..layers.mla import MultiheadLatentAttentionBase
 
@@ -112,3 +115,66 @@ def get_attention_quant_config(model, layer_idx) -> Optional[AttentionQuantConfi
     if hasattr(model, "attention_by_layers") and layer_idx in model.attention_by_layers:
         return model.attention_by_layers[layer_idx].quant_config
     return None
+
+
+# Copied from `accelerate`
+@contextlib.contextmanager
+def init_on_device_without_buffers(device: torch.device):
+    """
+    A context manager under which models are initialized with all
+    parameters on the specified device. However buffers are not
+    initialized on specified device.
+
+    Args:
+        device (`torch.device`):
+            Device to initialize all parameters on.
+    """
+
+    old_register_parameter = torch.nn.Module.register_parameter
+
+    def register_empty_parameter(module, name, param):
+        old_register_parameter(module, name, param)
+        if param is not None:
+            param_cls = type(module._parameters[name])
+            kwargs = module._parameters[name].__dict__
+            kwargs["requires_grad"] = param.requires_grad
+            module._parameters[name] = param_cls(
+                module._parameters[name].to(device), **kwargs
+            )
+
+    tensor_constructors_to_patch = [
+        # Not a full list of tensor factory functions
+        # TODO: align the list with torch._lazy.tensor_factory_functions
+        "empty",
+        "zeros",
+        "ones",
+        "arange",
+        "randn",
+        "rand",
+        "randint",
+    ]
+    old_tensor_constructors = {}
+
+    def patch_tensor_constructor(fn):
+        def wrapper(*args, **kwargs):
+            kwargs["device"] = device
+            return fn(*args, **kwargs)
+
+        return wrapper
+
+    try:
+        torch.nn.Module.register_parameter = register_empty_parameter
+        for torch_function_name in tensor_constructors_to_patch:
+            old_tensor_constructors[torch_function_name] = getattr(
+                torch, torch_function_name
+            )
+            setattr(
+                torch,
+                torch_function_name,
+                patch_tensor_constructor(getattr(torch, torch_function_name)),
+            )
+        yield
+    finally:
+        torch.nn.Module.register_parameter = old_register_parameter
+        for torch_function_name, old_torch_function in old_tensor_constructors.items():
+            setattr(torch, torch_function_name, old_torch_function)

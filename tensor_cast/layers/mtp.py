@@ -40,7 +40,7 @@ class MultiTokenPredictorLayer(torch.nn.Module):
 
         hidden_states = self.mtp_block(
             hidden_states,
-            position_ids,
+            position_ids=position_ids,
             position_embeddings=position_embeddings,
             **kwargs,
         )
