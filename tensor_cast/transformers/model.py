@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import dataclasses
 import fnmatch
 import importlib
@@ -34,7 +35,11 @@ from ..model_config import ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 
 from ..performance_model.utils import bytes_of_tensor
-from .utils import model_id_to_moe_config, strip_module_name
+from .utils import (
+    init_on_device_without_buffers,
+    model_id_to_moe_config,
+    strip_module_name,
+)
 
 if typing.TYPE_CHECKING:
     from ..layers.sampler import SamplingMetadata
@@ -49,78 +54,14 @@ class TensorDict:
         self.tensors = tensors
 
 
-# Copied from `accelerate`
-@contextlib.contextmanager
-def init_on_device_without_buffers(device: torch.device):
-    """
-    A context manager under which models are initialized with all
-    parameters on the specified device. However buffers are not
-    initialized on specified device.
-
-    Args:
-        device (`torch.device`):
-            Device to initialize all parameters on.
-    """
-
-    old_register_parameter = torch.nn.Module.register_parameter
-
-    def register_empty_parameter(module, name, param):
-        old_register_parameter(module, name, param)
-        if param is not None:
-            param_cls = type(module._parameters[name])
-            kwargs = module._parameters[name].__dict__
-            kwargs["requires_grad"] = param.requires_grad
-            module._parameters[name] = param_cls(
-                module._parameters[name].to(device), **kwargs
-            )
-
-    tensor_constructors_to_patch = [
-        # Not a full list of tensor factory functions
-        # TODO: align the list with torch._lazy.tensor_factory_functions
-        "empty",
-        "zeros",
-        "ones",
-        "arange",
-        "randn",
-        "rand",
-        "randint",
-    ]
-    old_tensor_constructors = {}
-
-    def patch_tensor_constructor(fn):
-        def wrapper(*args, **kwargs):
-            kwargs["device"] = device
-            return fn(*args, **kwargs)
-
-        return wrapper
-
-    try:
-        torch.nn.Module.register_parameter = register_empty_parameter
-        for torch_function_name in tensor_constructors_to_patch:
-            old_tensor_constructors[torch_function_name] = getattr(
-                torch, torch_function_name
-            )
-            setattr(
-                torch,
-                torch_function_name,
-                patch_tensor_constructor(getattr(torch, torch_function_name)),
-            )
-        yield
-    finally:
-        torch.nn.Module.register_parameter = old_register_parameter
-        for torch_function_name, old_torch_function in old_tensor_constructors.items():
-            setattr(torch, torch_function_name, old_torch_function)
-
-
 class CausalLmWrapper(ModelWrapperBase):
-    def __init__(self, model_config, hf_config, model: torch.nn.Module):
+    def __init__(self, hf_config, model: torch.nn.Module):
         super().__init__(model)
         self.hf_config = hf_config
         self.lm_head = torch.nn.Linear(
             self.hf_config.hidden_size,
             self.hf_config.vocab_size,
             bias=False,
-            dtype=model_config.dtype,
         )
 
     def forward(
@@ -232,13 +173,23 @@ class TransformerModel(ModelWrapperBase):
                 self.model_config.parallel_config
             )
             # the order of these functions matters!
-            self.wrap_model()
-            self.maybe_enable_mtp()
-            self.maybe_repeat_layers()
-            self.patch_model()
-            self.quantize_model()
-            self.shard_model()
+            with self.set_default_dtype():
+                self.wrap_model()
+                self.maybe_enable_mtp()
+                self.maybe_repeat_layers()
+                self.patch_model()
+                self.quantize_model()
+                self.shard_model()
         self.load_weights()
+
+    @contextlib.contextmanager
+    def set_default_dtype(self):
+        orig_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(self.model_config.dtype)
+        try:
+            yield
+        finally:
+            torch.set_default_dtype(orig_dtype)
 
     def load_hf_config_from_json(self, hf_config_json: str) -> PretrainedConfig:
         with open(hf_config_json) as f:
@@ -273,7 +224,6 @@ class TransformerModel(ModelWrapperBase):
             self.enable_lmhead = True
         if self.enable_lmhead:
             self._inner = CausalLmWrapper(
-                model_config=self.model_config,
                 hf_config=self.hf_config,
                 model=self._inner,
             )
@@ -284,9 +234,25 @@ class TransformerModel(ModelWrapperBase):
         if not self.model_config.mtp_config:
             return
 
-        self._inner = MtpWrapper(
-            self.model_config.mtp_config, self.hf_config, self._inner
-        )
+        mtp_config = copy.deepcopy(self.model_config.mtp_config)
+        unwrapped = self.unwrap()
+        if mtp_config.mtp_block_module_name is None and hasattr(unwrapped, "layers"):
+            # auto mode: use the last decoder layer's class
+            decoder_cls_name = type(unwrapped.layers[-1]).__name__
+            mtp_config.mtp_block_module_name = decoder_cls_name
+            # expand the layer_types used by Qwen model
+            if hasattr(self.hf_config, "layer_types") and isinstance(
+                self.hf_config.layer_types, list
+            ):
+                self.hf_config.layer_types.extend(
+                    [self.hf_config.layer_types] * mtp_config.num_mtp_layers
+                )
+            logger.info("Automatic MTP mode using decoder class: %s", decoder_cls_name)
+
+        orig_dtype = torch.get_default_dtype()
+        torch.set_default_dtype(self.model_config.dtype)
+        self._inner = MtpWrapper(mtp_config, self.hf_config, self._inner)
+        torch.set_default_dtype(orig_dtype)
 
     def maybe_repeat_layers(self):
         if not self.model_config.enable_repetition:

@@ -119,6 +119,7 @@ def find_best_throughput(
                 next(iter(runtime.get_breakdowns().values())),
             )
         except (
+            RuntimeError,
             AssertionError,
             torch._dynamo.exc.Unsupported,
         ):  # TODO(jgong5): catch assertion due to limited support of TP+EP, need to fix
@@ -246,6 +247,13 @@ models:
         help="A list of TTFT constraints under which to search for the best throughput.",
     )
     parser.add_argument(
+        "--mtp-acceptance-rate",
+        type=float,
+        default=[0.9, 0.6, 0.4, 0.2],
+        nargs="+",
+        help="Acceptance rate list for MTP",
+    )
+    parser.add_argument(
         "--tpot-limits",
         type=float,
         default=[0.05],
@@ -308,6 +316,7 @@ models:
     allow_graph_break = args.compile_allow_graph_break
 
     mtp = args.num_mtp_tokens
+    mtp_acceptance_rate = args.mtp_acceptance_rate
     quantize_linear_action = args.quantize_linear_action
     quantize_attention_action = args.quantize_attention_action
     mxfp4_group_size = args.mxfp4_group_size
@@ -393,6 +402,7 @@ models:
                                     output_length,
                                     slo_limit,
                                     is_decode,
+                                    mtp_acceptance_rate=mtp_acceptance_rate,
                                 )
                             )
                             TPS = concurrency / latency if latency != 0 else 0

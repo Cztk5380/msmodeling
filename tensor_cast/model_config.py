@@ -389,7 +389,9 @@ class MlaConfig:
 @dataclasses.dataclass
 class MtpConfig:
     num_mtp_layers: int
-    mtp_block_module_name: str
+    # None for auto mode, we would use the last decoder layer
+    # class name as the mtp block module name
+    mtp_block_module_name: Optional[str] = None
 
 
 @dataclasses.dataclass

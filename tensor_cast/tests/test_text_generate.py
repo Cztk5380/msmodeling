@@ -1,5 +1,7 @@
 import unittest
 
+import torch
+
 from parameterized import parameterized
 
 from ..scripts.text_generate import run_inference
@@ -17,6 +19,7 @@ class TestTextGenerate(unittest.TestCase):
         self.num_queries = 2
         self.query_len = 10
         self.context_length = 0
+        torch.compiler.reset()
 
     def _validate_inference_result(self, result: dict, test_name: str = ""):
         """
@@ -506,6 +509,22 @@ class TestTextGenerate(unittest.TestCase):
             num_mtp_tokens=2,
         )
         self._validate_inference_result(result, "test_with_mtp_tokens")
+
+    def test_with_auto_mtp(self):
+        """Test with MTP (Multi-Token Prediction) tokens with auto mode."""
+        # Use Qwen3-32B to test the MTP auto mode
+        result = run_inference(
+            device=self.device,
+            model_id="Qwen/Qwen3-32B",
+            num_queries=2,
+            query_len=10,
+            context_length=0,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            num_mtp_tokens=2,
+        )
+        self._validate_inference_result(result, "test_with_auto_mtp")
 
     def test_disable_repetition(self):
         """Test with repetition disabled."""

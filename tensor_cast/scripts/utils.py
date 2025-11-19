@@ -202,14 +202,10 @@ def build_model(
             mla_cls=MultiheadLatentAttentionTensorCast,
         )
         model_config.mla_config = mla_config
-    if (
-        num_mtp_tokens > 0
-        and (mtp_block_module_name := model_id_to_mtp_block_module_name(model_id))
-        is not None
-    ):
+    if num_mtp_tokens > 0:
         mtp_config = MtpConfig(
             num_mtp_layers=num_mtp_tokens,
-            mtp_block_module_name=mtp_block_module_name,
+            mtp_block_module_name=model_id_to_mtp_block_module_name(model_id),
         )
         model_config.mtp_config = mtp_config
     model_config.enable_repetition = enable_repetition
