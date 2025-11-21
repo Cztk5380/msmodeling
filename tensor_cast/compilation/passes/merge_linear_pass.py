@@ -109,13 +109,7 @@ class MergeLinearPass(TensorCastGraphModulePass):
 
         if node.target in (
             torch.ops.tensor_cast.fp8_linear.default,
-            # TODO(jgong5): we currently use int4 to represent mxfp4 while
-            #     torch.int4 is a partial type and not supported well by the
-            #     torch.compile stack, e.g. shape prop fails with some operations
-            #     like torch.cat. So we comment it out for now and will add the
-            #     support after using either tensor subclassing or torch.int8
-            #     emulation for mxfp4.
-            # torch.ops.tensor_cast.mxfp4_linear.default,
+            torch.ops.tensor_cast.mxfp4_linear.default,
         ):
             # Group by: x, x_scale, w_scale, out_dtype
             grouping_key_args = (0, 2, 5)

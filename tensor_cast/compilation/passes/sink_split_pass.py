@@ -236,7 +236,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
         )
         add_config(
             torch.ops.tensor_cast.mxfp4_linear.default,
-            {0},
+            {0, 2},
             {0},
             torch.ops.tensor_cast.grouped_matmul_mxfp4.default,
         )
