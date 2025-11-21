@@ -72,28 +72,9 @@ class TestQuantLinear(unittest.TestCase):
             get_linear_quant_config(LinearQuantType.W4A8, torch.randn(1)),
         )
 
-        # Test packing along dimension 1
-        packed_dim1 = dummy_layer.pack_int4(original_tensor, dim=1)
-        unpacked_dim1 = dummy_layer.unpack_int4(packed_dim1, dim=1)
+        packed_dim1 = dummy_layer.pack_int4(original_tensor)
+        unpacked_dim1 = dummy_layer.unpack_int4(packed_dim1)
         self.assertTrue(torch.equal(original_tensor, unpacked_dim1))
-
-        # Test packing along dimension 0
-        dummy_layer.quant_config.weight_int4_pack_dim = 0
-        packed_dim0 = dummy_layer.pack_int4(original_tensor, dim=0)
-        unpacked_dim0 = dummy_layer.unpack_int4(packed_dim0, dim=0)
-        self.assertTrue(torch.equal(original_tensor, unpacked_dim0))
-
-    def test_pack_int4_raises_error_for_invalid_dim(self):
-        """Tests that pack_int4 raises a ValueError for an unsupported dimension."""
-        tensor = torch.randint(
-            -8, 8, (OUT_FEATURES, IN_FEATURES), dtype=torch.int8, device=DEVICE
-        )
-        dummy_layer = QuantLinearBase(
-            self.linear_layer_no_bias,
-            get_linear_quant_config(LinearQuantType.W4A8, torch.randn(1)),
-        )
-        with self.assertRaises(ValueError):
-            dummy_layer.pack_int4(tensor, dim=2)
 
     def test_dequantize_weight(self):
         """Tests that dequantized weight is close to the original float weight."""

@@ -26,12 +26,12 @@ from ..transformers.model import TransformerModel
 from .test_common import count_events, get_quant_config
 
 
-class MergeLinearPassTestCase(unittest.TestCase):
+class GmmPassTestCase(unittest.TestCase):
     def setUp(self):
         torch.compiler.reset()
 
-    def test_qwen3_32b_fp(self):
-        model_id = "Qwen/Qwen3-32B"
+    def test_qwen3_fp(self):
+        model_id = "Qwen/Qwen3-235B-A22B"
         num_tokens = 100
         model_config = ModelConfig(
             ParallelConfig(),
@@ -53,21 +53,18 @@ class MergeLinearPassTestCase(unittest.TestCase):
         ):
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
-        self.assertEqual(count_events(runtime, torch.ops.aten.mm.default), 4)
         self.assertEqual(
-            count_events(runtime, torch.ops.aten.split_with_sizes.default), 2
+            count_events(runtime, torch.ops.tensor_cast.grouped_matmul.default), 2
         )
 
-    def test_qwen3_32b_static_int8(self):
-        model_id = "Qwen/Qwen3-32B"
+    def test_qwen3_static_int8(self):
+        model_id = "Qwen/Qwen3-235B-A22B"
         num_tokens = 100
         model_config = ModelConfig(
             ParallelConfig(),
             get_quant_config(
                 quant_type=LinearQuantType.W8A8,
-                activation_scale=torch.empty(
-                    [num_tokens], dtype=torch.float, device="meta"
-                ),
+                activation_scale=torch.tensor(1.0),
             ),
             quant_linear_cls=TensorCastQuantLinear,
             attention_cls=AttentionTensorCast,
@@ -88,10 +85,7 @@ class MergeLinearPassTestCase(unittest.TestCase):
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
         self.assertEqual(
-            count_events(runtime, torch.ops.tensor_cast.static_quant_linear.default), 4
-        )
-        self.assertEqual(
-            count_events(runtime, torch.ops.aten.split_with_sizes.default), 2
+            count_events(runtime, torch.ops.tensor_cast.grouped_matmul_quant.default), 2
         )
 
     @parameterized.expand(
@@ -99,11 +93,11 @@ class MergeLinearPassTestCase(unittest.TestCase):
             [LinearQuantType.W8A8],
             [LinearQuantType.W4A8],
             [LinearQuantType.FP8],
-            # [LinearQuantType.MXFP4],  # TODO(jgong5): Enable after MXFP4 is supported in merge linear pass
+            # [LinearQuantType.MXFP4],  # TODO(jgong5): Enable it after merge linear pass is enabled for MXFP4
         ]
     )
-    def test_qwen3_32b_dynamic_quant(self, quant_type):
-        model_id = "Qwen/Qwen3-32B"
+    def test_qwen3_dynamic_quant(self, quant_type):
+        model_id = "Qwen/Qwen3-235B-A22B"
         num_tokens = 100
         model_config = ModelConfig(
             ParallelConfig(),
@@ -134,14 +128,11 @@ class MergeLinearPassTestCase(unittest.TestCase):
             self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
         expected_op = None
         if quant_type == LinearQuantType.W8A8:
-            expected_op = torch.ops.tensor_cast.static_quant_linear.default
+            expected_op = torch.ops.tensor_cast.grouped_matmul_quant.default
         elif quant_type == LinearQuantType.W4A8:
-            expected_op = torch.ops.tensor_cast.static_quant_linear_int4.default
+            expected_op = torch.ops.tensor_cast.grouped_matmul_quant_int4.default
         elif quant_type == LinearQuantType.FP8:
-            expected_op = torch.ops.tensor_cast.fp8_linear.default
+            expected_op = torch.ops.tensor_cast.grouped_matmul_fp8.default
         elif quant_type == LinearQuantType.MXFP4:
-            expected_op = torch.ops.tensor_cast.mxfp4_linear.default
-        self.assertEqual(count_events(runtime, expected_op), 4)
-        self.assertEqual(
-            count_events(runtime, torch.ops.aten.split_with_sizes.default), 2
-        )
+            expected_op = torch.ops.tensor_cast.grouped_matmul_mxfp4.default
+        self.assertEqual(count_events(runtime, expected_op), 2)

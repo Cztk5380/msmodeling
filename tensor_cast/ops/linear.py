@@ -24,12 +24,12 @@ def _static_quant_linear(
 
     Args:
         x: (M, K)
-        x_scale: scalar, (M,)
-        x_offset: scalar, (M,)
-        w: (K, N), for int4 (K/2, N) or (K, N/2)
-        w_scale: scalar, (N,) or (K_group, N)
-        w_offset: scalar, (N,) or (K_group, N)
-        bias: scalar, (1, N)
+        x_scale: scalar, (M, 1)
+        x_offset: scalar, (M, 1)
+        w: (K, N), for int4 (K/2, N)
+        w_scale: scalar or (N,)
+        w_offset: scalar or (N,)
+        bias: Optional[(N,)] bias tensor
     """
     if out_dtype is None:
         out_dtype = x.dtype
@@ -53,9 +53,9 @@ def _fp8_linear(
     Args:
         x: (M, K) in FP8 format
         w: (K, N) in FP8 format
-        x_scale: scalar or (M,) for activation scale
+        x_scale: scalar or (M, 1) for activation scale
         w_scale: scalar or (N,) for weight scale
-        bias: scalar or (N,) bias tensor
+        bias: Optional[(N,)] bias tensor
         out_dtype: output data type
     """
     if out_dtype is None:
@@ -85,7 +85,7 @@ def _mxfp4_linear(
         w: (K, N) in MXFP4 format
         x_scale: (Kg,) for activation scale in torch.float8_e8m0fnu
         w_scale: (Kg,) for weight scale in torch.float8_e8m0fnu
-        bias: scalar or (N,) bias tensor
+        bias: Optional[(N,)] bias tensor
         out_dtype: output data type
     """
     if out_dtype is None:

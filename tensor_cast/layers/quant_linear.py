@@ -79,9 +79,7 @@ class QuantLinearBase(torch.nn.Module):
 
         if self.quant_config.quant_type == LinearQuantType.W4A8:
             # Pack two 4-bit values into a single int8
-            quantized_weight = self.pack_int4(
-                quantized_weight, dim=self.quant_config.weight_int4_pack_dim
-            )
+            quantized_weight = self.pack_int4(quantized_weight)
 
         quantized_weight = quantized_weight.transpose(0, 1).contiguous().transpose(0, 1)
         self.register_buffer("qweight", quantized_weight)
@@ -151,9 +149,7 @@ class QuantLinearBase(torch.nn.Module):
     def dequantize_weight(self) -> torch.Tensor:
         """Dequantizes the weight tensor."""
         if self.quant_config.quant_type == LinearQuantType.W4A8:
-            unpacked_qweight = self.unpack_int4(
-                self.qweight, self.quant_config.weight_int4_pack_dim
-            )
+            unpacked_qweight = self.unpack_int4(self.qweight)
         else:
             unpacked_qweight = self.qweight
 
@@ -162,24 +158,16 @@ class QuantLinearBase(torch.nn.Module):
             return (weight - self.weight_offset) * self.weight_scale
         return weight * self.weight_scale
 
-    def pack_int4(self, tensor: torch.Tensor, dim: int = 1) -> torch.Tensor:
+    def pack_int4(self, tensor: torch.Tensor) -> torch.Tensor:
         """Packs a tensor of int8 values (where each value is in [-8, 7]) into an int8 tensor."""
         # Ensure values are in the correct range for int4
         tensor = tensor.clamp(-8, 7)
-        if dim == 1:
-            # Shift to be non-negative for bitwise operations
-            high_bits = (tensor[:, ::2] + 8).to(torch.uint8)
-            low_bits = (tensor[:, 1::2] + 8).to(torch.uint8)
-        else:
-            if dim != 0:
-                raise ValueError(f"Unsupported dimension for int4 packing: {dim}")
-            # Shift to be non-negative for bitwise operations
-            high_bits = (tensor[::2, :] + 8).to(torch.uint8)
-            low_bits = (tensor[1::2, :] + 8).to(torch.uint8)
-
+        # Shift to be non-negative for bitwise operations
+        high_bits = (tensor[:, ::2] + 8).to(torch.uint8)
+        low_bits = (tensor[:, 1::2] + 8).to(torch.uint8)
         return (high_bits << 4) | low_bits
 
-    def unpack_int4(self, packed_tensor: torch.Tensor, dim: int = 1) -> torch.Tensor:
+    def unpack_int4(self, packed_tensor: torch.Tensor) -> torch.Tensor:
         """Unpacks an int8 tensor into two int4 tensors (represented as int8)."""
         high_bits = (packed_tensor >> 4).to(torch.int8) - 8
         low_bits = (packed_tensor & 0x0F).to(torch.int8) - 8
@@ -190,14 +178,8 @@ class QuantLinearBase(torch.nn.Module):
             dtype=torch.int8,
             device=packed_tensor.device,
         )
-        if dim == 1:
-            unpacked[:, ::2] = high_bits
-            unpacked[:, 1::2] = low_bits
-        else:
-            if dim != 0:
-                raise ValueError(f"Unsupported dimension for int4 unpacking: {dim}")
-            unpacked[::2, :] = high_bits
-            unpacked[1::2, :] = low_bits
+        unpacked[:, ::2] = high_bits
+        unpacked[:, 1::2] = low_bits
         return unpacked
 
     def _calculate_dynamic_qparams(

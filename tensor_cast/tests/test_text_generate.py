@@ -1,7 +1,6 @@
 import unittest
 
 import torch
-
 from parameterized import parameterized
 
 from ..scripts.text_generate import run_inference
@@ -694,6 +693,24 @@ class TestTextGenerate(unittest.TestCase):
         self._validate_inference_result(result, "qwen3_32b_4_a3die_decode")
         self.assertLess(result["execution_time_s"], 0.0328)
 
+    def test_deepseek_v3_1_a3_ep64_decode_result(self):
+        """Make sure the result of deepseek v3.1 model on 64 A3 dies with EP 64 is as expected in some range"""
+        result = run_inference(
+            device="ATLAS_800_A3_560T_128G_DIE",
+            model_id="deepseek-ai/DeepSeek-V3.1",
+            num_queries=256,
+            query_len=4,
+            context_length=4250,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+            world_size=64,
+            num_mtp_tokens=3,
+            ep=True,
+        )
+        self._validate_inference_result(result, "test_deepseek_v3_1_a3_ep64_decode")
+        self.assertLess(result["execution_time_s"], 0.063)
+
     def test_padding(self):
         """Test with padding tokens."""
         result = run_inference(
@@ -840,6 +857,31 @@ class TestTextGenerate(unittest.TestCase):
             tp_size=16,
         )
         self._validate_inference_result(result, "qwen3_32b_tp16")
+
+    @parameterized.expand(
+        [
+            [QuantizeLinearAction.W8A8_DYNAMIC, False],
+            [QuantizeLinearAction.W8A8_STATIC, False],
+            [QuantizeLinearAction.DISABLED, False],
+            [QuantizeLinearAction.W8A8_DYNAMIC, True],
+            [QuantizeLinearAction.W8A8_STATIC, True],
+            [QuantizeLinearAction.DISABLED, True],
+        ]
+    )
+    def test_gmm_fusion(self, quant_linear_action, enable_ep):
+        result = run_inference(
+            device=self.device,
+            model_id="Qwen/Qwen3-235B-A22B",
+            num_queries=2,
+            query_len=1,
+            context_length=500,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=quant_linear_action,
+            world_size=8,
+            ep=enable_ep,
+        )
+        self.assertIn("tensor_cast.grouped_matmul", result["table_result"])
 
 
 if __name__ == "__main__":
