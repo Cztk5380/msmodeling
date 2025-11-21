@@ -141,6 +141,30 @@ def patch_dtype_abbrs():
 
 
 @contextlib.contextmanager
+def patch_dtype_to_type():
+    """This patch tries to fix the FX graph tracing issue when int4 dtype is used.
+    For example, the `torch.cat` fails with int4 tensors because the dtype_to_type
+    function in torch._prims_common does not support int4 dtype.
+    """
+    try:
+        from torch import _prims_common
+    except ModuleNotFoundError:
+        yield
+        return
+
+    original_dtype_to_type = _prims_common.dtype_to_type
+
+    def dtype_to_type_patched(dtype: torch.dtype) -> type:
+        if dtype == torch.int4:
+            return int
+        return original_dtype_to_type(dtype)
+
+    _prims_common.dtype_to_type = dtype_to_type_patched
+    yield
+    _prims_common.dtype_to_type = original_dtype_to_type
+
+
+@contextlib.contextmanager
 def patch_torch():
     """
     Apply all patches to PyTorch.
@@ -150,6 +174,7 @@ def patch_torch():
         specialize_float(),
         patch_fallback_node_due_to_unsupported_type(),
         patch_dtype_abbrs(),
+        patch_dtype_to_type(),
         prepare_freezing(),
     ):
         yield

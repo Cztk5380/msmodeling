@@ -99,7 +99,7 @@ class MergeLinearPassTestCase(unittest.TestCase):
             [LinearQuantType.W8A8],
             [LinearQuantType.W4A8],
             [LinearQuantType.FP8],
-            # [LinearQuantType.MXFP4],  # TODO(jgong5): Enable after MXFP4 is supported in merge linear pass
+            [LinearQuantType.MXFP4],
         ]
     )
     def test_qwen3_32b_dynamic_quant(self, quant_type):
