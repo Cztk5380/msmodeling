@@ -3,6 +3,7 @@ from typing import Optional
 import torch
 
 
+# TODO(jgong5): add meaning for each configuration item
 class performance_model:
     class empirical:
         runtime_device_override: Optional[torch.device] = None
@@ -16,6 +17,7 @@ class compilation:
     class passes:
         enable_life_combine_quant = True
         enable_merge_linear = True
+        enable_sink_split = True
 
     class fusion_patterns:
         enable_rms_norm = True

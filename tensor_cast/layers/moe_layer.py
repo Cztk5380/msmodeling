@@ -235,7 +235,17 @@ class FusedMoETensorCast(FusedMoEBase):
         for i in range(self.local_num_experts):
             cur_expert_tokens = [x[rank][i] for rank in range(self.ep_group.world_size)]
             rearranged_x.append(torch.cat(cur_expert_tokens, dim=0))
-        return rearranged_x
+        # TODO(jgong5): We deliberately concat and then split rearranged_x here to form
+        # a split pattern in the graph so that the sink_split_pass can recognize the pattern
+        # and is able to do horizontal fusion for experts later on. This is a workaround
+        # for now. A better way is to directly recognize the split+split+concat pattern
+        # in the graph without the need of hacking the python script here.
+        rearranged_x_tensor = torch.cat(rearranged_x, dim=0)
+        return list(
+            torch.split_with_sizes(
+                rearranged_x_tensor, [t.shape[0] for t in rearranged_x], dim=0
+            )
+        )
 
     def rearrange_token_by_device(
         self, x: List[torch.Tensor], split_sizes_by_expert: List[List[int]]

@@ -37,6 +37,19 @@ class OpInvokeInfo:
         memory_readwrite_bytes: int = 0
         """Read-write bytes"""
 
+        def combine(
+            self, other: "OpInvokeInfo.PerformanceProperties", compute_only=False
+        ):
+            for dtype, compute_ops in other.compute_ops.items():
+                if dtype not in self.compute_ops:
+                    self.compute_ops[dtype] = OpInvokeInfo.ComputeOps()
+                self.compute_ops[dtype].mma_ops += compute_ops.mma_ops
+                self.compute_ops[dtype].gp_ops += compute_ops.gp_ops
+            if not compute_only:
+                self.memory_read_bytes += other.memory_read_bytes
+                self.memory_write_bytes += other.memory_write_bytes
+                self.memory_readwrite_bytes += other.memory_readwrite_bytes
+
     def __init__(self, func, args, kwargs, out, cache_key=None):
         self.func = func
         self.args = args
@@ -86,14 +99,17 @@ class OpInvokeInfo:
         memory_readwrite_bytes = 0
         args_schema = self.func._schema.arguments
         for i, arg in enumerate(itertools.chain(self.args, self.kwargs.values())):
-            if isinstance(arg, torch.Tensor) and i not in exclude_input_ids:
-                access_bytes = bytes_of_tensor(arg)
-                if args_schema[i].is_out:
-                    memory_write_bytes += access_bytes
-                elif args_schema[i].is_write:
-                    memory_readwrite_bytes += access_bytes
-                else:
-                    memory_read_bytes += access_bytes
+            if i not in exclude_input_ids:
+                inputs = arg if isinstance(arg, (list, tuple)) else [arg]
+                if inputs and isinstance(inputs[0], torch.Tensor):
+                    for tensor in inputs:
+                        access_bytes = bytes_of_tensor(tensor)
+                        if args_schema[i].is_out:
+                            memory_write_bytes += access_bytes
+                        elif args_schema[i].is_write:
+                            memory_readwrite_bytes += access_bytes
+                        else:
+                            memory_read_bytes += access_bytes
         out = self.out if isinstance(self.out, (list, tuple)) else [self.out]
         for i, arg in enumerate(out):
             if isinstance(arg, torch.Tensor) and i not in exclude_output_ids:
@@ -258,28 +274,47 @@ def _bmm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformancePro
     return properties
 
 
-@OpInvokeInfo.register_op_properties(torch.ops.aten.mm.default)
-def _mm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
-    assert len(op_invoke_info.args) == 2
-    mat1 = op_invoke_info.args[0]
-    mat2 = op_invoke_info.args[1]
-    assert isinstance(mat1, torch.Tensor)
-    assert isinstance(mat2, torch.Tensor)
-    assert mat1.ndim == 2
-    assert mat2.ndim == 2
+def _mm_properties_helper(
+    op_invoke_info: OpInvokeInfo, mat1, mat2, bias
+) -> OpInvokeInfo.PerformanceProperties:
+    # Get the logical dimensions of the operation.
+    # mat1 is (M, K).
     m = mat1.size(0)
     k = mat1.size(1)
     n = mat2.size(1)
-    assert mat2.size(0) == k
 
-    mma_ops = m * n * k * 2
-    if mma_ops == 0:
+    # Matrix Multiplication: mat1 @ mat2
+    # Cost is M * N * K fused multiply-adds (FMAs), which are 2 FLOPs each.
+    matmul_ops = m * n * k * 2
+
+    # Bias Addition: ... + bias
+    # M * N additions.
+    bias_ops = 0
+    if bias is not None:
+        bias_ops = m * n
+
+    if matmul_ops == 0:
         return OpInvokeInfo.PerformanceProperties()
 
     properties = op_invoke_info.get_memory_access_properties()
     properties.compute_ops[mat1.dtype] = OpInvokeInfo.ComputeOps()
-    properties.compute_ops[mat1.dtype].mma_ops = mma_ops
+    properties.compute_ops[mat1.dtype].mma_ops = matmul_ops
+    if bias is not None:
+        compute_ops = properties.compute_ops.setdefault(
+            bias.dtype, OpInvokeInfo.ComputeOps()
+        )
+        compute_ops.gp_ops = bias_ops
+        properties.compute_ops[bias.dtype] = compute_ops
+
     return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.aten.mm.default)
+def _mm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 2
+    return _mm_properties_helper(
+        op_invoke_info, op_invoke_info.args[0], op_invoke_info.args[1], None
+    )
 
 
 def _static_quant_linear_properties_helper(
@@ -881,4 +916,98 @@ def _multihead_latent_attention_quant_properties(
     )
     compute_ops.gp_ops += total_quant_dequant_ops
 
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.grouped_matmul.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 3
+    x = op_invoke_info.args[0]
+    w = op_invoke_info.args[1]
+    bias = op_invoke_info.args[2]
+    assert len(x) == len(w) == len(bias)
+    properties = op_invoke_info.get_memory_access_properties()
+    for xi, wi, biasi in zip(x, w, bias):
+        properties_i = _mm_properties_helper(op_invoke_info, xi, wi, biasi)
+        properties.combine(properties_i, compute_only=True)
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.grouped_matmul_quant.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 8
+    x = op_invoke_info.args[0]
+    w = op_invoke_info.args[1]
+    w_offset = op_invoke_info.args[3]
+    bias = op_invoke_info.args[6]
+    assert len(x) == len(w) == len(w_offset) == len(bias)
+
+    properties = op_invoke_info.get_memory_access_properties()
+    for xi, wi, w_offseti, biasi in zip(x, w, w_offset, bias):
+        properties_i = _static_quant_linear_properties_helper(
+            op_invoke_info, xi, wi, w_offseti, biasi, is_int4=False
+        )
+        properties.combine(properties_i, compute_only=True)
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.grouped_matmul_quant_int4.default
+)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 8
+    x = op_invoke_info.args[0]
+    w = op_invoke_info.args[1]
+    w_offset = op_invoke_info.args[3]
+    bias = op_invoke_info.args[6]
+    assert len(x) == len(w) == len(w_offset) == len(bias)
+
+    properties = op_invoke_info.get_memory_access_properties()
+    for xi, wi, w_offseti, biasi in zip(x, w, w_offset, bias):
+        properties_i = _static_quant_linear_properties_helper(
+            op_invoke_info, xi, wi, w_offseti, biasi, is_int4=True
+        )
+        properties.combine(properties_i, compute_only=True)
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.grouped_matmul_fp8.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 6
+    x = op_invoke_info.args[0]
+    w = op_invoke_info.args[1]
+    bias = op_invoke_info.args[4]
+    assert len(x) == len(w) == len(bias)
+    properties = op_invoke_info.get_memory_access_properties()
+    for xi, wi, biasi in zip(x, w, bias):
+        properties_i = _static_quant_linear_properties_helper(
+            op_invoke_info, xi, wi, None, biasi, is_int4=False
+        )
+        properties.combine(properties_i, compute_only=True)
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.grouped_matmul_mxfp4.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 6
+    x = op_invoke_info.args[0]
+    w = op_invoke_info.args[1]
+    bias = op_invoke_info.args[4]
+    assert len(x) == len(w) == len(bias)
+    properties = op_invoke_info.get_memory_access_properties()
+    for xi, wi, biasi in zip(x, w, bias):
+        properties_i = _static_quant_linear_properties_helper(
+            op_invoke_info, xi, wi, None, biasi, is_int4=True
+        )
+        properties.combine(properties_i, compute_only=True)
     return properties
