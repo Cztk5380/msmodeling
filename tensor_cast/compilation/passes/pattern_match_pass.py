@@ -19,10 +19,10 @@ class PatternMatchPass(TensorCastGraphModulePass):
             pass_name="pattern_match_pass"
         )
 
-    def __call__(self, graph: torch.fx.GraphModule) -> torch.fx.GraphModule:
+    def __call__(self, gm: torch.fx.GraphModule) -> torch.fx.GraphModule:
         matched_cnt = 0
         while True:
-            cnt = self.pattern_pass.apply(graph)
+            cnt = self.pattern_pass.apply(gm)
             if cnt == 0:
                 break
             matched_cnt += cnt
@@ -35,7 +35,7 @@ class PatternMatchPass(TensorCastGraphModulePass):
                     p_str = PatternPrettyPrinter.run(p.pattern)
                     logger.debug("Pattern %d: %s", pattern_idx, p_str)
                     pattern_idx += 1
-        return graph
+        return gm
 
     def uuid(self) -> Any:
         # TODO: hash all registered patterns

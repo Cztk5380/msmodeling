@@ -6,7 +6,7 @@ from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("rms_norm")
-def _rms_norm(
+def _(
     x: torch.Tensor,
     weight: torch.Tensor,
     eps: float,
@@ -15,7 +15,7 @@ def _rms_norm(
 
 
 @register_tensor_cast_op("rms_norm_quant")
-def _rms_norm_quant(
+def _(
     x: torch.Tensor,
     weight: torch.Tensor,
     quant_scale: torch.Tensor,
@@ -27,7 +27,7 @@ def _rms_norm_quant(
 
 
 @register_tensor_cast_op("add_rms_norm")
-def _add_rms_norm(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -37,7 +37,7 @@ def _add_rms_norm(
 
 
 @register_tensor_cast_op("add_rms_norm2")
-def _add_rms_norm2(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -47,7 +47,7 @@ def _add_rms_norm2(
 
 
 @register_tensor_cast_op("add_rms_norm_quant")
-def _add_rms_norm_quant(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -60,7 +60,7 @@ def _add_rms_norm_quant(
 
 
 @register_tensor_cast_op("add_rms_norm_quant2")
-def _add_rms_norm_quant2(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -75,7 +75,7 @@ def _add_rms_norm_quant2(
 
 
 @register_tensor_cast_op("rms_norm_dynamic_quant_symmetric")
-def _rms_norm_dynamic_quant_symmetric(
+def _(
     x: torch.Tensor,
     weight: torch.Tensor,
     eps: float,
@@ -89,7 +89,7 @@ def _rms_norm_dynamic_quant_symmetric(
 
 
 @register_tensor_cast_op("rms_norm_dynamic_quant_asymmetric")
-def _rms_norm_dynamic_quant_asymmetric(
+def _(
     x: torch.Tensor,
     weight: torch.Tensor,
     eps: float,
@@ -103,7 +103,7 @@ def _rms_norm_dynamic_quant_asymmetric(
 
 
 @register_tensor_cast_op("add_rms_norm_dynamic_quant_symmetric")
-def _add_rms_norm_dynamic_quant_symmetric(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -118,7 +118,7 @@ def _add_rms_norm_dynamic_quant_symmetric(
 
 
 @register_tensor_cast_op("add_rms_norm_dynamic_quant_asymmetric")
-def _add_rms_norm_dynamic_quant_asymmetric(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -133,7 +133,7 @@ def _add_rms_norm_dynamic_quant_asymmetric(
 
 
 @register_tensor_cast_op("add_rms_norm_dynamic_quant2_symmetric")
-def _add_rms_norm_dynamic_quant2_symmetric(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -150,7 +150,7 @@ def _add_rms_norm_dynamic_quant2_symmetric(
 
 
 @register_tensor_cast_op("add_rms_norm_dynamic_quant2_asymmetric")
-def _add_rms_norm_dynamic_quant2_asymmetric(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -167,7 +167,7 @@ def _add_rms_norm_dynamic_quant2_asymmetric(
 
 
 @register_tensor_cast_op("rms_norm_dynamic_quant_mxfp4")
-def _rms_norm_dynamic_quant_mxfp4(
+def _(
     x: torch.Tensor,
     weight: torch.Tensor,
     eps: float,
@@ -177,7 +177,7 @@ def _rms_norm_dynamic_quant_mxfp4(
 
 
 @register_tensor_cast_op("add_rms_norm_dynamic_quant_mxfp4")
-def _add_rms_norm_dynamic_quant_mxfp4(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,
@@ -188,7 +188,7 @@ def _add_rms_norm_dynamic_quant_mxfp4(
 
 
 @register_tensor_cast_op("add_rms_norm_dynamic_quant2_mxfp4")
-def _add_rms_norm_dynamic_quant2_mxfp4(
+def _(
     x: torch.Tensor,
     residual: torch.Tensor,
     weight: torch.Tensor,

@@ -150,7 +150,7 @@ class MetaConstantFolder(torch.fx.Interpreter):
         return out
 
 
-def fold_meta_constants(gm: GraphModule) -> None:
+def fold_meta_constants(gm: GraphModule) -> GraphModule:
     """
     Performs constant folding on a GraphModule with 'meta' device tensors.
 
@@ -175,3 +175,4 @@ def fold_meta_constants(gm: GraphModule) -> None:
     gm.graph.eliminate_dead_code()
     gm.graph.lint()
     gm.recompile()
+    return gm

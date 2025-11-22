@@ -46,7 +46,7 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
     7. Finally, it removes all the old, now-unused nodes.
     """
 
-    def __call__(self, graph_module: fx.GraphModule) -> None:
+    def __call__(self, gm: fx.GraphModule) -> fx.GraphModule:
         # TODO(jgong5): we should apply AOT dispatch to normalize the graph
         # before going through the remaining passes like this so that
         # the graph would only contain call_function not call_method
@@ -67,7 +67,7 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
                 for user in node.users
             )
 
-        graph = graph_module.graph
+        graph = gm.graph
 
         for quantize_op in self._QUANTIZE_OPS:
             # Cache to store (target, args, kwargs) -> new_quantize_node
@@ -196,4 +196,5 @@ class LiftCombineQuantPass(TensorCastGraphModulePass):
 
         # Turn on DCE before recompile.
         graph.eliminate_dead_code()
-        graph_module.recompile()
+        gm.recompile()
+        return gm

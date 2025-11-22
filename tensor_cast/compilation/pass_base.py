@@ -10,7 +10,7 @@ class TensorCastGraphModulePass(ABC):
     """Use the same interface as Inductor's CustomGraphPass"""
 
     @abstractmethod
-    def __call__(self, graph: torch.fx.GraphModule) -> None:
+    def __call__(self, graph: torch.fx.GraphModule) -> torch.fx.GraphModule:
         """
         Implementation of the custom pass.
         """

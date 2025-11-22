@@ -15,10 +15,10 @@ from .. import config
 from . import patterns
 
 from .constant_folding import fold_meta_constants
+from .freezing_passes.sink_split_pass import SinkSplitPass
 from .passes.lift_quant_pass import LiftCombineQuantPass
 from .passes.merge_linear_pass import MergeLinearPass
 from .passes.redundant_node_elimination_pass import ReduandantNodeEliminationPass
-from .passes.sink_split_pass import SinkSplitPass
 
 logger = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ class CompilerBackend:
     It is used to process the FX graph and perform custom operation fusing etc.
     """
 
-    def __call__(self, graph: fx.GraphModule, example_inputs) -> Callable:
+    def __call__(self, gm: fx.GraphModule, example_inputs) -> Callable:
         """
         Process the FX graph and perform custom operation fusing.
 
@@ -40,8 +40,8 @@ class CompilerBackend:
         Returns:
             fx.Graph: The processed FX graph with custom operation fusing applied.
         """
-        graph = self.compile(graph, example_inputs)
-        return graph
+        gm = self.compile(gm, example_inputs)
+        return gm
 
     def compile(
         self,
@@ -105,34 +105,34 @@ class CompilerBackend:
             decompositions=decompositions,
         )(gm, example_inputs)
 
-    def apply_redundant_node_elimination_pass(self, graph: fx.GraphModule, inputs):
+    def apply_redundant_node_elimination_pass(self, gm: fx.GraphModule, inputs):
         GraphTransformObserver = functools.partial(
             torch.fx.passes.graph_transform_observer.GraphTransformObserver,
             subsystem="redundant_node_elimination_pass",
             log_url=config.compilation.debug.graph_log_url,
         )
-        GraphTransformObserver(graph, "redundant_node_elimination_pass").apply_gm_pass(
+        GraphTransformObserver(gm, "redundant_node_elimination_pass").apply_gm_pass(
             ReduandantNodeEliminationPass()
         )
         logger.debug("Graph after redundant node elimination pass:")
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(graph.print_readable(print_output=False))
+            logger.debug(gm.print_readable(print_output=False))
 
-    def apply_quantization_passes(self, graph: fx.GraphModule, inputs):
+    def apply_quantization_passes(self, gm: fx.GraphModule, inputs):
         GraphTransformObserver = functools.partial(
             torch.fx.passes.graph_transform_observer.GraphTransformObserver,
             subsystem="quantization_passes",
             log_url=config.compilation.debug.graph_log_url,
         )
         if config.compilation.passes.enable_life_combine_quant:
-            GraphTransformObserver(graph, "life_combine_quant_pass").apply_gm_pass(
+            GraphTransformObserver(gm, "life_combine_quant_pass").apply_gm_pass(
                 LiftCombineQuantPass()
             )
         logger.debug("Graph after quantization passes:")
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(graph.print_readable(print_output=False))
+            logger.debug(gm.print_readable(print_output=False))
 
-    def apply_pattern_match_passes(self, graph: fx.GraphModule, inputs):
+    def apply_pattern_match_passes(self, gm: fx.GraphModule, inputs):
         patterns.lazy_init()
         GraphTransformObserver = functools.partial(
             torch.fx.passes.graph_transform_observer.GraphTransformObserver,
@@ -140,53 +140,51 @@ class CompilerBackend:
             log_url=config.compilation.debug.graph_log_url,
         )
         for i, pattern_match_pass in enumerate(patterns.all_passes):
-            GraphTransformObserver(graph, f"pattern_match_pass_{i}").apply_gm_pass(
+            GraphTransformObserver(gm, f"pattern_match_pass_{i}").apply_gm_pass(
                 pattern_match_pass
             )
         logger.debug("Graph after pattern matching:")
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(graph.print_readable(print_output=False))
+            logger.debug(gm.print_readable(print_output=False))
 
-    def apply_decompose_auto_functionalized_pass(self, graph: fx.GraphModule):
+    def apply_decompose_auto_functionalized_pass(self, gm: fx.GraphModule):
         GraphTransformObserver = functools.partial(
             torch.fx.passes.graph_transform_observer.GraphTransformObserver,
             subsystem="decompose_auto_functionalized_pass",
             log_url=config.compilation.debug.graph_log_url,
         )
-        GraphTransformObserver(graph, "decompose_auto_functionalized").apply_graph_pass(
+        GraphTransformObserver(gm, "decompose_auto_functionalized").apply_graph_pass(
             decompose_auto_functionalized
         )
 
-    def apply_merge_linear_pass(self, graph: fx.GraphModule, inputs):
+    def apply_merge_linear_pass(self, gm: fx.GraphModule, inputs):
         GraphTransformObserver = functools.partial(
             torch.fx.passes.graph_transform_observer.GraphTransformObserver,
             subsystem="merge_linear_pass",
             log_url=config.compilation.debug.graph_log_url,
         )
         if config.compilation.passes.enable_merge_linear:
-            GraphTransformObserver(graph, "merge_linear_pass").apply_gm_pass(
+            GraphTransformObserver(gm, "merge_linear_pass").apply_gm_pass(
                 MergeLinearPass()
             )
             # TODO(jgong): make sure the merge linear pass is correct by shape propagation
             #              since explicitly adding shape info might be expensive
-            fake_tensor_prop(graph, inputs, force_allow_non_fake_inputs=True)
+            fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs=True)
             logger.debug("Graph after the merge linear pass:")
             if logger.isEnabledFor(logging.DEBUG):
-                logger.debug(graph.print_readable(print_output=False))
+                logger.debug(gm.print_readable(print_output=False))
 
-    def apply_freezing_passes(self, graph: fx.GraphModule, inputs):
+    def apply_freezing_passes(self, gm: fx.GraphModule, inputs):
         GraphTransformObserver = functools.partial(
             torch.fx.passes.graph_transform_observer.GraphTransformObserver,
             subsystem="freezing_passes",
             log_url=config.compilation.debug.graph_log_url,
         )
         if config.compilation.passes.enable_sink_split:
-            GraphTransformObserver(graph, "sink_split_pass").apply_gm_pass(
-                SinkSplitPass()
-            )
+            GraphTransformObserver(gm, "sink_split_pass").apply_gm_pass(SinkSplitPass())
             # TODO(jgong): make sure the sink split pass is correct by shape propagation
             #              since explicitly adding shape info might be expensive
-            fake_tensor_prop(graph, inputs, force_allow_non_fake_inputs=True)
+            fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs=True)
         logger.debug("Graph after freezing passes:")
         if logger.isEnabledFor(logging.DEBUG):
-            logger.debug(graph.print_readable(print_output=False))
+            logger.debug(gm.print_readable(print_output=False))

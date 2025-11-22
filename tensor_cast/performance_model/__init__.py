@@ -249,7 +249,7 @@ class CachingPerformanceModel(PerformanceModel):
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.bmm.default)
-def _bmm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 2
     mat1 = op_invoke_info.args[0]
     mat2 = op_invoke_info.args[1]
@@ -310,7 +310,7 @@ def _mm_properties_helper(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.mm.default)
-def _mm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 2
     return _mm_properties_helper(
         op_invoke_info, op_invoke_info.args[0], op_invoke_info.args[1], None
@@ -382,7 +382,7 @@ def _static_quant_linear_properties_helper(
 @OpInvokeInfo.register_op_properties(
     torch.ops.tensor_cast.static_quant_linear_int4.default
 )
-def _static_quant_linear_int4_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -396,7 +396,7 @@ def _static_quant_linear_int4_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.static_quant_linear.default)
-def _static_quant_linear_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -411,7 +411,7 @@ def _static_quant_linear_properties(
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.fp8_linear.default)
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.mxfp4_linear.default)
-def _fp8_fp4_linear_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -424,7 +424,7 @@ def _fp8_fp4_linear_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.embedding.default)
-def _embedding_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 2
@@ -438,7 +438,7 @@ def _embedding_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.index_select.default)
-def _index_select_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -453,7 +453,7 @@ def _index_select_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.reshape_and_cache.default)
-def _reshape_and_cache_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 4
@@ -540,7 +540,7 @@ def _default_query_lens_and_seq_lens(query) -> Tuple[torch.Tensor, torch.Tensor]
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.attention.default)
-def _attention_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 8
@@ -556,7 +556,7 @@ def _attention_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.attention_quant.default)
-def _attention_quant_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 15
@@ -620,7 +620,7 @@ def _attention_quant_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.concat_and_cache_mla.default)
-def _concat_and_cache_mla_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 4
@@ -776,7 +776,7 @@ def _multihead_latent_attention_properties_helper(
 @OpInvokeInfo.register_op_properties(
     torch.ops.tensor_cast.multihead_latent_attention.default
 )
-def _multihead_latent_attention_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     q = op_invoke_info.args[0]
@@ -865,7 +865,7 @@ def _calculate_mla_quant_ops(
 @OpInvokeInfo.register_op_properties(
     torch.ops.tensor_cast.multihead_latent_attention_quant.default
 )
-def _multihead_latent_attention_quant_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     q = op_invoke_info.args[0]
