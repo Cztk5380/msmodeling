@@ -860,15 +860,18 @@ class TestTextGenerate(unittest.TestCase):
 
     @parameterized.expand(
         [
-            [QuantizeLinearAction.W8A8_DYNAMIC, False],
-            [QuantizeLinearAction.W8A8_STATIC, False],
-            [QuantizeLinearAction.DISABLED, False],
-            [QuantizeLinearAction.W8A8_DYNAMIC, True],
-            [QuantizeLinearAction.W8A8_STATIC, True],
-            [QuantizeLinearAction.DISABLED, True],
+            [QuantizeLinearAction.W8A8_DYNAMIC, False, False],
+            [QuantizeLinearAction.W8A8_STATIC, False, False],
+            [QuantizeLinearAction.DISABLED, False, False],
+            [QuantizeLinearAction.W8A8_DYNAMIC, True, False],
+            [QuantizeLinearAction.W8A8_STATIC, True, False],
+            [QuantizeLinearAction.DISABLED, True, False],
+            [QuantizeLinearAction.W8A8_DYNAMIC, False, True],
+            [QuantizeLinearAction.W8A8_STATIC, True, True],
+            [QuantizeLinearAction.DISABLED, False, True],
         ]
     )
-    def test_gmm_fusion(self, quant_linear_action, enable_ep):
+    def test_gmm_fusion(self, quant_linear_action, enable_ep, enable_tp):
         result = run_inference(
             device=self.device,
             model_id="Qwen/Qwen3-235B-A22B",
@@ -880,6 +883,7 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=quant_linear_action,
             world_size=8,
             ep=enable_ep,
+            tp_size=8 if enable_tp else 1,
         )
         self.assertIn("tensor_cast.grouped_matmul", result["table_result"])
 

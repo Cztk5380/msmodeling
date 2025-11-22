@@ -24,8 +24,20 @@ def _is_split_node(node: Node) -> bool:
     return node.target == torch.ops.aten.split_with_sizes.default
 
 
-def _get_num_splits(split_node: Node) -> int:
-    return sum(1 for split_size in split_node.args[1] if split_size != 0)
+def _get_num_split_users(split_node: Node) -> int:
+    return len(split_node.users)
+
+
+def _get_getitem_sizes(split_node: Node) -> Dict[int, Argument]:
+    getitem_sizes = {}
+    split_sizes = split_node.args[1]
+    assert isinstance(split_sizes, (list, tuple))
+    for user in split_node.users:
+        if user.target == operator.getitem:
+            index = user.args[1]
+            assert isinstance(index, int) and index < len(split_sizes), index
+            getitem_sizes[index] = split_sizes[index]
+    return getitem_sizes
 
 
 def _is_cat_node(node: Node) -> bool:
@@ -508,7 +520,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
         """Remove the paired split-concat patterns in the graph."""
         nodes_to_clean = set()
         for cat_node in graph.nodes:
-            if cat_node.target != torch.ops.aten.cat.default:
+            if not _is_cat_node(cat_node):
                 continue
 
             tensors_arg = cat_node.args[0]
@@ -603,15 +615,14 @@ class SinkSplitPass(TensorCastGraphModulePass):
             """
             source_op_groups: List[List[Node]] = []
             assert isinstance(split_node.args[1], (list, tuple))
-            num_splits = _get_num_splits(split_node)
-            if num_splits == 1:
-                return []
+            if len(split_node.args[1]) == 1:
+                return source_op_groups
+            num_split_users = _get_num_split_users(split_node)
+            if num_split_users == 0:
+                return source_op_groups
             getitem_nodes = sorted(
                 split_node.users, key=lambda n: n.args[1]
             )  # sort by index
-
-            if not getitem_nodes or len(getitem_nodes) != num_splits:
-                return source_op_groups
 
             # Group source ops by their target
             target_to_group: Dict[Target, List[Node]] = {}
@@ -621,7 +632,9 @@ class SinkSplitPass(TensorCastGraphModulePass):
                     group.append(user)
 
             source_op_groups = [
-                group for group in target_to_group.values() if len(group) == num_splits
+                group
+                for group in target_to_group.values()
+                if len(group) == num_split_users
             ]
             return source_op_groups
 
@@ -663,7 +676,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
                         for source_op in source_op_group
                     ):
                         _split_node = arg_node.args[0]
-                        if _get_num_splits(_split_node) != len(source_op_group):
+                        if _get_num_split_users(_split_node) != len(source_op_group):
                             matched = False
                             break
                         for source_op in source_op_group:
@@ -795,6 +808,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
         split_node = next(iter(match.split_args.values()))
         split_sizes = split_node.args[1]
         split_dim = split_node.args[2] if len(split_node.args) > 2 else 0
+        getitem_sizes = _get_getitem_sizes(split_node)
 
         op_config = match.op_config
         num_outputs = len(op_config.rewrite_output_types)
@@ -842,7 +856,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
                                 args=(new_getitem, split_sizes, split_dim),
                             )
                     old_node_idx = 0
-                    for j, split_size in enumerate(split_sizes):
+                    for j, split_size in getitem_sizes.items():
                         if split_size == 0:
                             continue
                         assert old_node_idx < len(old_output_nodes)
@@ -865,7 +879,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
                         )
 
                     old_node_idx = 0
-                    for j, split_size in enumerate(split_sizes):
+                    for j, split_size in getitem_sizes.items():
                         if split_size == 0:
                             continue
                         assert old_node_idx < len(old_output_nodes)
