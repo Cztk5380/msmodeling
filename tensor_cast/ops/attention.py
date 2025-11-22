@@ -6,7 +6,7 @@ from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("reshape_and_cache", mutates_args=("kv_cache",))
-def _reshape_and_cache(
+def _(
     key: torch.Tensor,
     value: torch.Tensor,
     kv_cache: torch.Tensor,
@@ -16,7 +16,7 @@ def _reshape_and_cache(
 
 
 @register_tensor_cast_op("attention")
-def _attention(
+def _(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,
@@ -46,7 +46,7 @@ def _attention(
 
 
 @register_tensor_cast_op("attention_quant")
-def _attention_quant(
+def _(
     query: torch.Tensor,
     key: torch.Tensor,
     value: torch.Tensor,

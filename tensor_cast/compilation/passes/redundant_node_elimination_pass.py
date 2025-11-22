@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 
 class ReduandantNodeEliminationPass(TensorCastGraphModulePass):
-    def __call__(self, gm: fx.GraphModule) -> None:
+    def __call__(self, gm: fx.GraphModule) -> fx.GraphModule:
         """
         Runs a graph pass to eliminate semantically no-op nodes.
 
@@ -125,3 +125,5 @@ class ReduandantNodeEliminationPass(TensorCastGraphModulePass):
             graph.eliminate_dead_code()
             # Re-compile the graph module with the changes
             gm.recompile()
+
+        return gm

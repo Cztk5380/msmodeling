@@ -6,7 +6,7 @@ from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("shift_and_update_input_ids")
-def _shift_and_update_input_ids(
+def _(
     input_ids: torch.Tensor,
     query_start_loc: Optional[torch.Tensor],
     next_tokens: torch.Tensor,

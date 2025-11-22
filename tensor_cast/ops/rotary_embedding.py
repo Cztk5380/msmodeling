@@ -6,7 +6,7 @@ from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("apply_rope")
-def _apply_rope(
+def _(
     query: torch.Tensor,
     key: torch.Tensor,
     cos: torch.Tensor,

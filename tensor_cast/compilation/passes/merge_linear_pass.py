@@ -8,8 +8,9 @@ import torch
 from torch.fx import Node
 
 from ..pass_base import TensorCastGraphModulePass
+from ..topo_sort import stable_topo_sort
 
-from ..utils import get_node_shape, stable_topo_sort
+from ..utils import get_node_shape
 
 logger = logging.getLogger(__name__)
 
@@ -129,14 +130,14 @@ class MergeLinearPass(TensorCastGraphModulePass):
 
         return None
 
-    def __call__(self, graph: torch.fx.GraphModule) -> None:
+    def __call__(self, gm: torch.fx.GraphModule) -> torch.fx.GraphModule:
         logger.debug("Running MergeLinearPass.........")
 
         # {grouping_key: [list_of_nodes]}
         groups = collections.defaultdict(list)
 
         # 1. Group all target nodes
-        for node in graph.graph.nodes:
+        for node in gm.graph.nodes:
             if node.op != "call_function":
                 continue
 
@@ -221,8 +222,8 @@ class MergeLinearPass(TensorCastGraphModulePass):
             insertion_point = group[-1]
 
             def insert_concat_node(insertion_point, nodes: List[Node], dim) -> Node:
-                with graph.graph.inserting_before(insertion_point):
-                    cat_node = graph.graph.create_node(
+                with gm.graph.inserting_before(insertion_point):
+                    cat_node = gm.graph.create_node(
                         "call_function",
                         torch.ops.aten.cat.default,
                         args=(nodes, dim),
@@ -280,8 +281,8 @@ class MergeLinearPass(TensorCastGraphModulePass):
                 assert w_offset_idx is not None
                 new_args[w_offset_idx] = w_offset_cat_node
 
-            with graph.graph.inserting_before(insertion_point):
-                merged_node = graph.graph.create_node(
+            with gm.graph.inserting_before(insertion_point):
+                merged_node = gm.graph.create_node(
                     "call_function",
                     ref_node.target,
                     args=tuple(new_args),
@@ -289,23 +290,24 @@ class MergeLinearPass(TensorCastGraphModulePass):
                 )
 
             # 6. Split the output of the merged op and replace uses
-            with graph.graph.inserting_after(merged_node):
-                split_node = graph.graph.create_node(
+            with gm.graph.inserting_after(merged_node):
+                split_node = gm.graph.create_node(
                     "call_function",
                     torch.ops.aten.split_with_sizes.default,
                     args=(merged_node, split_sizes, 1),
                 )
 
             for i, old_node in enumerate(group):
-                with graph.graph.inserting_after(old_node):
-                    getitem_node = graph.graph.create_node(
+                with gm.graph.inserting_after(old_node):
+                    getitem_node = gm.graph.create_node(
                         "call_function", operator.getitem, args=(split_node, i)
                     )
                     old_node.replace_all_uses_with(getitem_node)
 
         # 7. Clean up the graph
         # Make sure the graph is topologically ordered first before DCE
-        stable_topo_sort(graph)
-        graph.graph.eliminate_dead_code()
-        graph.graph.lint()
-        graph.recompile()
+        stable_topo_sort(gm)
+        gm.graph.eliminate_dead_code()
+        gm.graph.lint()
+        gm.recompile()
+        return gm

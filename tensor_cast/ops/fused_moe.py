@@ -4,7 +4,7 @@ from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("permute_tokens")
-def _permute_tokens(
+def _(
     x: torch.Tensor,
     topk_indices: torch.Tensor,
 ) -> torch.Tensor:
@@ -24,7 +24,7 @@ def _permute_tokens(
 
 
 @register_tensor_cast_op("unpermute_tokens")
-def _unpermute_tokens(
+def _(
     x: torch.Tensor,
     topk_indices: torch.Tensor,
 ) -> torch.Tensor:

@@ -4,7 +4,7 @@ from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("_internal_mark_region_begin")
-def _internal_mark_region_begin(
+def _(
     x: torch.Tensor,
     id: int,
 ) -> torch.Tensor:
@@ -13,7 +13,7 @@ def _internal_mark_region_begin(
 
 
 @register_tensor_cast_op("_internal_mark_region_end")
-def _internal_mark_region_end(
+def _(
     x: torch.Tensor,
     id: int,
 ) -> torch.Tensor:
@@ -22,7 +22,7 @@ def _internal_mark_region_end(
 
 
 @register_tensor_cast_op("_internal_copy_region")
-def _internal_copy_region(
+def _(
     x: torch.Tensor,
     id: int,
 ) -> torch.Tensor:

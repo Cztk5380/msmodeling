@@ -9,13 +9,9 @@ from torch.fx.node import Argument, Node, Target
 
 from ... import ops  # noqa: F401
 from ..pass_base import TensorCastGraphModulePass
+from ..topo_sort import stable_topo_sort
 
-from ..utils import (
-    get_node_shape,
-    is_non_scalar_tensor_node,
-    maybe_copy_meta,
-    stable_topo_sort,
-)
+from ..utils import get_node_shape, is_non_scalar_tensor_node, maybe_copy_meta
 
 logger = logging.getLogger(__name__)
 
@@ -931,7 +927,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
 
         return pass_changed
 
-    def __call__(self, gm: fx.GraphModule) -> None:
+    def __call__(self, gm: fx.GraphModule) -> fx.GraphModule:
         """
         Applies the Split Sinking optimization pass to a GraphModule.
 

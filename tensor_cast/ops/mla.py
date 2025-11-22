@@ -6,7 +6,7 @@ from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("concat_and_cache_mla", mutates_args=("kv_cache",))
-def _concat_and_cache_mla(
+def _(
     kv_c_normed: torch.Tensor,
     k_rot: torch.Tensor,
     kv_cache: torch.Tensor,
@@ -24,7 +24,7 @@ def _concat_and_cache_mla(
 
 
 @register_tensor_cast_op("multihead_latent_attention")
-def _multihead_latent_attention(
+def _(
     q: torch.Tensor,
     kv_c_normed: torch.Tensor,
     k_rot: torch.Tensor,
@@ -75,7 +75,7 @@ def _multihead_latent_attention(
 
 
 @register_tensor_cast_op("multihead_latent_attention_quant")
-def _multihead_latent_attention_quant(
+def _(
     q: torch.Tensor,
     kv_c_normed: torch.Tensor,
     k_rot: torch.Tensor,

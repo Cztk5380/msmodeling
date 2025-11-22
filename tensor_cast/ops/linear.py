@@ -7,7 +7,7 @@ from ..utils import register_tensor_cast_op
 
 @register_tensor_cast_op("static_quant_linear")
 @register_tensor_cast_op("static_quant_linear_int4")
-def _static_quant_linear(
+def _(
     x: torch.Tensor,
     w: torch.Tensor,
     w_scale: torch.Tensor,
@@ -37,7 +37,7 @@ def _static_quant_linear(
 
 
 @register_tensor_cast_op("fp8_linear")
-def _fp8_linear(
+def _(
     x: torch.Tensor,
     w: torch.Tensor,
     x_scale: torch.Tensor,
@@ -64,7 +64,7 @@ def _fp8_linear(
 
 
 @register_tensor_cast_op("mxfp4_linear")
-def _mxfp4_linear(
+def _(
     x: torch.Tensor,
     w: torch.Tensor,
     x_scale: torch.Tensor,

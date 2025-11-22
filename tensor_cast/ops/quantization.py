@@ -6,7 +6,7 @@ from ..utils import register_tensor_cast_op
 
 
 @register_tensor_cast_op("quantize")
-def _quantize(
+def _(
     x: torch.Tensor,
     scale: torch.Tensor,
     offset: Optional[torch.Tensor],
@@ -17,7 +17,7 @@ def _quantize(
 
 
 @register_tensor_cast_op("dynamic_quantize_asymmetric")
-def _dynamic_quantize_asymmetric(
+def _(
     x: torch.Tensor,
     dims: List[int],
     scale_dtype: torch.dtype = torch.float32,
@@ -55,7 +55,7 @@ def _dynamic_quantize_asymmetric(
 
 
 @register_tensor_cast_op("dynamic_quantize_symmetric")
-def _dynamic_quantize_symmetric(
+def _(
     x: torch.Tensor,
     dims: List[int],
     scale_dtype: torch.dtype = torch.float32,
@@ -78,7 +78,7 @@ def _dynamic_quantize_symmetric(
 
 
 @register_tensor_cast_op("dynamic_quantize_mxfp4")
-def _dynamic_quantize_mxfp4(
+def _(
     x: torch.Tensor,
     group_size: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
