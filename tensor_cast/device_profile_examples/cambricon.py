@@ -13,7 +13,7 @@ from ..utils import DTYPE_FP4, DTYPE_FP8
 
 class CAMBRICON:
     # TODO(jgong5): double-confirm static cost
-    STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6)
+    STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6, comm_op_cost_s=10 * 1e-6)
 
     # TODO(jgong5): double-confirm latency
     # TODO(jgong5): double-confirm communication efficiency
@@ -36,7 +36,7 @@ class CAMBRICON:
         grid=torch.arange(128 * 8).reshape(128, 8),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=25 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=50 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
                 bandwidth_bytes_ps=400 * 1e9,
@@ -51,7 +51,7 @@ class CAMBRICON:
         grid=torch.arange(8),
         topologies={
             0: InterconnectTopology(
-                bandwidth_bytes_ps=32 * 1e9, latency_s=10.0 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=64 * 1e9, latency_s=0.2 * 1e-6, comm_efficiency=0.7
             ),
         },
     )
@@ -110,11 +110,11 @@ class CAMBRICON:
         name="MLU580",
         vendor="CAMBRICON",
         mma_ops={
-            torch.float32: 157 * 1e12,
+            torch.float32: 87.5 * 1e12,
             torch.bfloat16: 275 * 1e12,
-            torch.half: 275 * 1e12,
-            DTYPE_FP8: 550 * 1e12,
-            torch.int8: 550 * 1e12,
+            torch.half: 175 * 1e12,
+            DTYPE_FP8: 350 * 1e12,
+            torch.int8: 350 * 1e12,
         },
         gp_ops={
             torch.float32: 17 * 1e12,
@@ -122,7 +122,7 @@ class CAMBRICON:
             torch.half: 17 * 1e12,
         },
         memory_size_bytes=48 * (1024**3),
-        memory_bandwidth_bytes_ps=0.768 * (1024**4),
+        memory_bandwidth_bytes_ps=1.3 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
         memory_efficiency=0.6,
