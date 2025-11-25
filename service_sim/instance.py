@@ -29,7 +29,7 @@ class Instance:
 
         self.engines: List[Engine] = [
             Engine(
-                parallel_config=instance_config.parallel_config,
+                instance_config=instance_config,
                 device_type=device_type,
                 dp_rank=i
                 )

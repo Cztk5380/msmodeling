@@ -20,8 +20,11 @@ from tensor_cast.scripts.utils import (
     QuantizeAttentionAction,
     QuantizeLinearAction,
     generate_inputs_varlen,
-    RequestInfo
+    RequestInfo,
+    get_inputs_num_bytes,
+    get_kv_cache_info,
 )
+from tensor_cast.layers.sampler import Sampler
 
 
 @dataclass
@@ -118,6 +121,8 @@ class ModelRunner:
         self.reserved_memory_gb = reserved_memory_gb
         self.block_size = block_size
 
+        self.sampler = Sampler()
+
     # -----------------------------------------------------
     # internal helpers
     # -----------------------------------------------------
@@ -159,7 +164,8 @@ class ModelRunner:
             self.device_profile,
             memory_tracker=MemoryTracker(self.device_profile),
         ) as runtime, torch.no_grad():
-            _ = self.model.forward(**input_kwargs)
+            logits = self.model.forward(**input_kwargs)
+            _ = self.sampler(logits, input_kwargs['sampling_metadata'])
         run_end = time.perf_counter()
         execution_time_s = runtime.total_execution_time_s()[self.perf_model.name]
 
@@ -198,3 +204,9 @@ class ModelRunner:
             table_result=table_result,
             breakdowns=runtime.get_breakdowns(),
         )
+
+    def get_inputs_num_bytes(self, requests: List[Request]) -> int:
+        return get_inputs_num_bytes(self.model, requests, self.block_size)
+
+    def get_kv_cache_num_bytes(self, num_tokens: int) -> int:
+        return get_kv_cache_info(self.model, 1, 1) * num_tokens
