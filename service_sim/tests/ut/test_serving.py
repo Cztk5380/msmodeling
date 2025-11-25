@@ -3,7 +3,7 @@ import unittest
 from unittest.mock import Mock, patch
 
 import stime
-from service_sim.config import Config, InstanceConfig, ParallelConfig
+from service_sim.config import Config, InstanceConfig, ParallelConfig, CommunicationConfig
 from service_sim.device import DummyDeviceConfig, MachineConfig
 
 from service_sim.instance import Instance
@@ -23,6 +23,10 @@ class ServingTestCase(unittest.TestCase):
         self.mock_cfg.common_config.serving_config.max_tokens_budget = 8192
         self.mock_cfg.common_config.model_config.enable_multi_process = False
         self.mock_cfg.enable_profiling = False
+        self.mock_cfg.common_config.model_config.enable_multi_process = False
+        self.mock_cfg.common_config.model_config.enable_interpolate = False
+        self.mock_cfg.common_config.model_config.enable_preprocessing_modeling = False
+        self.mock_cfg.common_config.model_config.enable_kv_transfer_modeling = False
 
 
         self.patch_get_instance = patch.object(Config, "get_instance")
@@ -62,6 +66,12 @@ class ServingTestCase(unittest.TestCase):
                     lmhead_tp_size=None,
                     lmhead_dp_size=None,
                     ep=False,
+                ),
+                communication_config=CommunicationConfig(
+                    host2device_bandwidth=1e10,
+                    host2device_rate=0.5,
+                    device2device_bandwidth=4e9,
+                    device2device_rate=0.5,
                 )
             )
 
@@ -79,6 +89,12 @@ class ServingTestCase(unittest.TestCase):
                     lmhead_tp_size=None,
                     lmhead_dp_size=None,
                     ep=False,
+                ),
+                communication_config=CommunicationConfig(
+                    host2device_bandwidth=1e10,
+                    host2device_rate=0.5,
+                    device2device_bandwidth=4e9,
+                    device2device_rate=0.5,
                 )
             )
             
@@ -130,6 +146,12 @@ class ServingTestCase(unittest.TestCase):
                 lmhead_tp_size=None,
                 lmhead_dp_size=None,
                 ep=False,
+            ),
+            communication_config=CommunicationConfig(
+                host2device_bandwidth=1e10,
+                host2device_rate=0.5,
+                device2device_bandwidth=4e9,
+                device2device_rate=0.5,
             )
         )
 
@@ -171,6 +193,12 @@ class ServingTestCase(unittest.TestCase):
                 lmhead_tp_size=None,
                 lmhead_dp_size=None,
                 ep=False,
+            ),
+            communication_config=CommunicationConfig(
+                host2device_bandwidth=1e10,
+                host2device_rate=0.5,
+                device2device_bandwidth=4e9,
+                device2device_rate=0.5,
             )
         )
 
@@ -211,6 +239,12 @@ class ServingTestCase(unittest.TestCase):
                 lmhead_tp_size=None,
                 lmhead_dp_size=None,
                 ep=False,
+            ),
+            communication_config=CommunicationConfig(
+                host2device_bandwidth=1e10,
+                host2device_rate=0.5,
+                device2device_bandwidth=4e9,
+                device2device_rate=0.5,
             )
         )
 

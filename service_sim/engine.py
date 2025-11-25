@@ -8,20 +8,25 @@ from service_sim.model_runner import ModelRunner
 from service_sim.request import Request, RequestState
 from service_sim.profiler import profiler_interface
 from service_sim.config import Config
+from service_sim.communication import CommunicationManager
 
 
 logger = stime.get_logger(__name__)
 
 
 class BatchScheduler(stime.Task):
-    def __init__(self, model_runner: ModelRunner, kv_manager: KVCacheManager):
+    def __init__(self, model_runner: ModelRunner, kv_manager: KVCacheManager, communication_manager):
         super().__init__()
+        common_config = Config.get_instance().common_config
         self.model_runner = model_runner
         self.kv_manager = kv_manager
+        self.enable_preprocessing_modeling = common_config.model_config.enable_preprocessing_modeling
+        self.enable_kv_transfer_modeling = common_config.model_config.enable_kv_transfer_modeling
+        self.communication_manager = communication_manager
         self.waiting_queue = []
         self.running_queue = []
         self.requests: Dict[int, Request] = {}
-        self.max_tokens_budget = Config.get_instance().common_config.serving_config.max_tokens_budget
+        self.max_tokens_budget = common_config.serving_config.max_tokens_budget
 
     def add(self, request: Request):
         logger.debug(f"BatchScheduler adding {request}")
@@ -149,7 +154,15 @@ class BatchScheduler(stime.Task):
     def _send_kvs_from_remote(self, request):
         self.running_queue.remove(request)
         self.kv_manager.free(request.id)
-        request.state = RequestState.KVS_TRANSFERRING
+        if self.enable_kv_transfer_modeling:
+            transferred_num_tokens = request.num_input_tokens
+            num_bytes = self.model_runner.get_kv_cache_num_bytes(transferred_num_tokens)
+
+            def kv_transfer_done_callback():
+                request.state = RequestState.KVS_TRANSFERRING
+            self.communication_manager.device2device_async(num_bytes, kv_transfer_done_callback)
+        else:
+            request.state = RequestState.KVS_TRANSFERRING
 
     def _process_preempted_request(self, request: Request):
         """
@@ -172,6 +185,11 @@ class BatchScheduler(stime.Task):
         self.kv_manager.free(request.id)
         self.running_queue.remove(request)
         request.state = RequestState.DECODE_DONE
+
+    def _preprocess_batch(self, batch: List[Request]):
+        if self.enable_preprocessing_modeling:
+            num_bytes = self.model_runner.get_inputs_num_bytes(batch)
+            self.communication_manager.host2device_sync(num_bytes)
 
     def _scheduling_loop(self):
         """
@@ -208,6 +226,7 @@ class BatchScheduler(stime.Task):
                         f"Scheduled batch size: {len(self.running_queue)}"
                         f"request ids: {[request.id for request in self.running_queue]}"
                     )
+                    self._preprocess_batch(self.running_queue)
                     if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
                         if request_id_with_iter_list:
                             prof = profiler_interface.SimProfiler(profiler_interface.Level.INFO).domain("ModelExecute")
@@ -282,10 +301,11 @@ class Engine:
     Process request, PREFILLING --> PREFILL_DONE or DECODING --> DECODE_DONE
     """
 
-    def __init__(self, parallel_config, device_type, dp_rank: int):
-        self.model_runner = ModelRunner(parallel_config, device_type, dp_rank)
+    def __init__(self, instance_config, device_type, dp_rank: int):
+        self.model_runner = ModelRunner(instance_config.parallel_config, device_type, dp_rank)
+        self.communication_manager = CommunicationManager(instance_config.communication_config)
         self.kv_manager = self.create_kv_manager()
-        self.batch_scheduler = BatchScheduler(self.model_runner, self.kv_manager)
+        self.batch_scheduler = BatchScheduler(self.model_runner, self.kv_manager, self.communication_manager)
 
 
     def create_kv_manager(self):

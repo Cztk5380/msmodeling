@@ -362,6 +362,47 @@ class RequestInfo:
     num_output_tokens: int = None
 
 
+def get_kv_cache_info(model, num_blocks, block_size):
+    model_config = model.model_config
+    tp_size = model_config.parallel_config.tensor_parallel_size
+    kv_cache_by_layers = {}
+    kv_cache_per_token = 0
+    for i in range(model.num_hidden_layers):
+        kvcache_dtype = model_config.dtype
+        attention_config = get_attention_quant_config(model, i)
+        if attention_config is not None:
+            kvcache_dtype = attention_config.get_quant_dtype()
+
+        if model_config.mla_config is not None:
+            kv_cache_by_layers[i] = torch.empty(
+                (
+                    num_blocks,
+                    block_size,
+                    model.text_config.kv_lora_rank + model.text_config.qk_rope_head_dim,
+                ),
+                dtype=kvcache_dtype,
+                device="meta",
+            )
+        else:
+            assert model.text_config.num_key_value_heads % tp_size == 0
+            kv_cache_by_layers[i] = torch.empty(
+                (
+                    2,
+                    num_blocks,
+                    block_size,
+                    model.text_config.num_key_value_heads // tp_size,
+                    model.head_dim,
+                ),
+                dtype=kvcache_dtype,
+                device="meta",
+            )
+        kv_cache_per_token += bytes_of_tensor(kv_cache_by_layers[i]) / (
+            num_blocks * block_size
+        )
+
+    return kv_cache_by_layers, kv_cache_per_token
+
+
 def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     """
     requests: List[RequestInfo], each dict represents a request, containing keys: query_len, seq_len, is_decode
@@ -409,40 +450,7 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     input_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
     position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
 
-    kv_cache_by_layers = {}
-    kv_cache_per_token = 0
-    for i in range(model.num_hidden_layers):
-        kvcache_dtype = model_config.dtype
-        attention_config = get_attention_quant_config(model, i)
-        if attention_config is not None:
-            kvcache_dtype = attention_config.get_quant_dtype()
-
-        if model_config.mla_config is not None:
-            kv_cache_by_layers[i] = torch.empty(
-                (
-                    num_blocks,
-                    block_size,
-                    model.text_config.kv_lora_rank + model.text_config.qk_rope_head_dim,
-                ),
-                dtype=kvcache_dtype,
-                device="meta",
-            )
-        else:
-            assert model.text_config.num_key_value_heads % tp_size == 0
-            kv_cache_by_layers[i] = torch.empty(
-                (
-                    2,
-                    num_blocks,
-                    block_size,
-                    model.text_config.num_key_value_heads // tp_size,
-                    model.head_dim,
-                ),
-                dtype=kvcache_dtype,
-                device="meta",
-            )
-        kv_cache_per_token += bytes_of_tensor(kv_cache_by_layers[i]) / (
-            num_blocks * block_size
-        )
+    kv_cache_by_layers, kv_cache_per_token = get_kv_cache_info(model, num_blocks, block_size)
 
     sampling_meta = SamplingMetadata(query_start_loc=query_start_loc)
     selected_token_indices = []
@@ -473,3 +481,23 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
         )
 
     return kwargs
+
+
+def get_inputs_num_bytes(model, requests: List[RequestInfo], block_size: int) -> int:
+    """
+    Get the number of bytes of the input tensors.
+    """
+    input_kwargs = generate_inputs_varlen(
+        model,
+        requests,
+        block_size
+    )
+    inputs_num_bytes = 0
+    inputs_num_bytes += bytes_of_tensor(input_kwargs["input_ids"])
+    inputs_num_bytes += bytes_of_tensor(input_kwargs["position_ids"])
+    inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].query_start_loc)
+    inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].seq_lens)
+    inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].query_lens)
+    inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].block_table_tensor)
+    inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].slot_mapping)
+    return inputs_num_bytes

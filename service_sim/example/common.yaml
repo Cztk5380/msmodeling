@@ -14,6 +14,8 @@ model_config:
   predict_steps: 20
   enable_interpolate: True
   interpolation_seed: 1234
+  enable_preprocessing_modeling: True
+  enable_kv_transfer_modeling: True
 
 load_gen:
   load_gen_type: fixed_length

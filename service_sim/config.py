@@ -20,11 +20,20 @@ class ParallelConfig:
 
 
 @dataclass
+class CommunicationConfig:
+    host2device_bandwidth: float = 1e10
+    host2device_rate: float = 0.5
+    device2device_bandwidth: float = 4e9
+    device2device_rate: float = 0.5
+
+
+@dataclass
 class InstanceConfig:
     num_instances: int
     num_devices_per_instance: int
     pd_role: str  # "prefill" / "decode" / "both"
     parallel_config: ParallelConfig
+    communication_config: CommunicationConfig
     device_type: str = "TEST_DEVICE"
 
 
@@ -62,6 +71,8 @@ class ModelConfig:
     predict_steps: int = 20
     enable_interpolate: bool = True
     interpolation_seed: int = 1234
+    enable_preprocessing_modeling: bool = False
+    enable_kv_transfer_modeling: bool = False
 
 
 @dataclass
@@ -112,6 +123,7 @@ class Config:
         return [
             InstanceConfig(
                 parallel_config=ParallelConfig(**item.pop("parallel_config", {})),
+                communication_config=CommunicationConfig(**item.pop("communication_config", {})),
                 **item,
             )
             for item in instances

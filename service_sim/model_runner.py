@@ -343,6 +343,13 @@ class ModelRunner:
         logger.debug(f"warmup result: {num_blocks} blocks")
         return num_blocks, block_size
 
+    def get_kv_cache_num_bytes(self, num_tokens) -> int:
+        return self.tensor_cast_model_runner.get_kv_cache_num_bytes(num_tokens)
+
+    def get_inputs_num_bytes(self, batch: List[Request]) -> int:
+        batch = self.request2info(batch)
+        return self.tensor_cast_model_runner.get_inputs_num_bytes(batch)
+
     def shutdown(self):
         if hasattr(self, "async_task_manager") and self.enable_multi_process:
             self.async_task_manager.shutdown()
