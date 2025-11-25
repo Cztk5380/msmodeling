@@ -1023,36 +1023,30 @@ def _addmm_properties(
         mat1,
         mat2
     ) = op_invoke_info.args[:3]
-    # 2 dimension
-    B = int(torch.tensor(mat1.shape[:-2]).prod()) if mat1.dim() > 2 else 1
-    M, K = mat1.shape[-2:]
+
+    # mat1:[M,K], mat2:[K,N]
+    M, K = mat1.shape
     N = mat2.shape[-1]
 
-    # mat1: [..., M, K], mat2: [...,K,N]
-    # mat_output = mat1 @ mat2 ; mat_output: [...,M,N]
-    bmm1 = 2 * B * M * N * K
-    # input: [..., M, N], mat_output: [...,M,N]
-    # input + mat_output
-    gp_add = B * M * N
-    gp_alpha_beta = 2 * B * M * N
+    # mat_output = mat1 @ mat2 ; mat_output: [M,N]
+    bmm1 = 2 * M * N * K
 
     properties = op_invoke_info.get_memory_access_properties()
     compute_ops = properties.compute_ops.setdefault(
         input.dtype, OpInvokeInfo.ComputeOps()
     )
     compute_ops.mma_ops = bmm1
-    # compute_ops.gp_ops = gp_add + gp_alpha_beta
     return properties
 
 
 
-@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.convolution.default)
+@OpInvokeInfo.register_op_properties(torch.ops.aten.convolution.default)
 def _convolution_properties(
-    op_invoke_info: OpInvokeInfo,
+        op_invoke_info: OpInvokeInfo,
 
 ) -> OpInvokeInfo.PerformanceProperties:
     import math
-    assert len(op_invoke_info.args) == 7
+    assert len(op_invoke_info.args) == 9
     # Conv2D input:(B, C_in, H, W), weight:(C_out, C_in/groups, K_h, K_w)
     # Conv3D input:(B, C_in, D, H, W), weight:(C_out, C_in/groups, K_d, K_h, K_w)
     (
@@ -1062,28 +1056,13 @@ def _convolution_properties(
         stride,
         padding,
         dilation,
-        groups
-    ) = op_invoke_info.args
-
+    ) = op_invoke_info.args = op_invoke_info.args[:6]
+    groups = op_invoke_info.args[8]
     input_shape = input.shape
     weight_shape = weight.shape
     B = input_shape[0]
     C_in = input_shape[1]
     C_out = weight_shape[0]
-
-    dim = input.dim()-2
-    if stride is None:
-        stride = [1] * dim
-    if padding is None:
-        padding = [0] * dim
-    if dilation is None:
-        dilation = [1] * dim
-
-    # make sure tuple/list
-    stride = list(stride) if isinstance(stride, (list, tuple)) else [stride] * dim
-    padding = list(padding) if isinstance(padding, (list, tuple)) else [padding] * dim
-    dilation = list(dilation) if isinstance(dilation, (list, tuple)) else [dilation] * dim
-
     if input.dim() == 3:
         # Conv1D
         _, _, L_in = input_shape
