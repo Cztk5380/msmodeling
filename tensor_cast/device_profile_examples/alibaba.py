@@ -10,18 +10,18 @@ from ..device import (
 
 
 class ALIBABA:
-    STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6)
+    STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6, comm_op_cost_s=10 * 1e-6)
 
     # TODO(jgong5): double-confirm latency
     # TODO(jgong5): double-confirm communication efficiency
     INTERCONNECT = CommGrid(
-        grid=torch.arange(4 * 4 * 4).reshape(4, 4, 4),
+        grid=torch.arange(32 * 4 * 4).reshape(32, 4, 4),
         topologies={
             0: InterconnectTopology(
                 bandwidth_bytes_ps=50 * 1e9, latency_s=10 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=350 * 1e9, latency_s=1 * 1e-6, comm_efficiency=0.7
+                bandwidth_bytes_ps=200 * 1e9, latency_s=1 * 1e-6, comm_efficiency=0.7
             ),
             2: InterconnectTopology(
                 bandwidth_bytes_ps=200 * 1e9,

@@ -7,7 +7,7 @@ from ..device import CommGrid, DeviceProfile, InterconnectTopology, StaticCost
 
 class NVIDIA:
     # TODO(jgong5): double-confirm static cost
-    STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6)
+    STATIC_COST = StaticCost(mma_op_cost_s=5 * 1e-6, gp_op_cost_s=2 * 1e-6, comm_op_cost_s=10 * 1e-6)
 
     # TODO(jgong5): double-confirm latency
     # TODO(jgong5): double-confirm communication efficiency

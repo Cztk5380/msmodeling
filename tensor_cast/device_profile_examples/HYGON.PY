@@ -21,7 +21,7 @@ class METAX:
                 bandwidth_bytes_ps=50 * 1e9, latency_s=10 * 1e-6, comm_efficiency=0.7
             ),
             1: InterconnectTopology(
-                bandwidth_bytes_ps=448 * 1e9,
+                bandwidth_bytes_ps=224 * 1e9,
                 latency_s=1 * 1e-6,
                 comm_efficiency=0.7,
                 type=InterconnectType.FULL_MESH,
@@ -29,22 +29,22 @@ class METAX:
         },
     )
 
-    C550 = DeviceProfile(
-        name="C550",
-        vendor="METAX",
+    BW1000 = DeviceProfile(
+        name="BW1000",
+        vendor="HYGON",
         mma_ops={
-            torch.float32: 140 * 1e12,
-            torch.bfloat16: 280 * 1e12,
-            torch.half: 280 * 1e12,
-            torch.int8: 560 * 1e12,
+            torch.float32: 78 * 1e12,
+            torch.bfloat16: 420 * 1e12,
+            torch.half: 840 * 1e12,
+            torch.int8: 982 * 1e12,
         },
         gp_ops={
-            torch.float32: 17.5 * 1e12,
-            torch.bfloat16: 17.5 * 1e12,
-            torch.half: 17.5 * 1e12,
+            torch.float32: 26 * 1e12,
+            torch.bfloat16: 26 * 1e12,
+            torch.half: 26 * 1e12,
         },
         memory_size_bytes=64 * (1024**3),
-        memory_bandwidth_bytes_ps=1.8 * (1024**4),
+        memory_bandwidth_bytes_ps=1.6 * (1024**4),
         # The efficiencies are something we need to calibrate
         compute_efficiency=0.7,
         memory_efficiency=0.6,
