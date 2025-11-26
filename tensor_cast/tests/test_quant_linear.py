@@ -430,7 +430,7 @@ class TestQuantLinear(unittest.TestCase):
             quant_config,
             hf_config_json=hf_config_json,
             quant_linear_cls=TensorCastQuantLinear,
-            num_hidden_layers_override=1,
+            enable_repetition=True,
             enable_lmhead=True,
         )
         mla_config = MlaConfig(

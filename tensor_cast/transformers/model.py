@@ -5,6 +5,7 @@ import fnmatch
 import importlib
 import json
 import logging
+import math
 import os
 import re
 import typing
@@ -369,15 +370,16 @@ class TransformerModel(ModelWrapperBase):
                     self._replace_module(name, mla)
 
     def get_moe_config(self):
-        moe_config = self.model_config.moe_config
-        if not moe_config:
-            moe_config = model_id_to_moe_config(self.model_id)
-        return moe_config
+        if not self.model_config.moe_config:
+            return model_id_to_moe_config(self.model_id)
+        return self.model_config.moe_config
 
     def patch_moe(self, moe_config: Optional[MoEConfig]):
         if not moe_config:
             return
 
+        self.top_k = None
+        self.num_routing_experts = None
         named_modules = list(self._inner.named_modules())
         for name, module in named_modules:
             if type(module).__name__ == moe_config.module_name:
@@ -387,6 +389,13 @@ class TransformerModel(ModelWrapperBase):
                     moe_config,
                     module,
                 )
+                if self.top_k is None:
+                    self.top_k = moe_layer.top_k
+                    self.num_routing_experts = len(moe_layer.fused_moe.experts)
+                else:
+                    assert self.top_k == moe_layer.top_k
+                    assert self.num_routing_experts == len(moe_layer.fused_moe.experts)
+
                 self._replace_module(name, moe_layer)
 
     def get_shard_plan(self):
@@ -505,18 +514,74 @@ class TransformerModel(ModelWrapperBase):
                 self._replace_module(name, parallel_module)
 
     def shard_model_by_ep(self):
+        moe_config = self.get_moe_config()
+        if not moe_config or not self.top_k or not self.num_routing_experts:
+            return
+
+        ep_group = self.parallel_group_manager.ep_group
+        self.num_external_shared_experts = 0
+        self.num_redundant_experts = 0
+        if not self.model_config.parallel_config.has_ep():
+            assert (
+                not moe_config.enable_redundant_experts
+                and not moe_config.enable_external_shared_experts
+            )
+        else:
+            if moe_config.enable_external_shared_experts:
+                assert ep_group.world_size >= 2
+                if self.top_k + 1 > ep_group.world_size:
+                    self.num_external_shared_experts = 1
+                else:
+                    self.num_external_shared_experts = math.ceil(
+                        ep_group.world_size / (self.top_k + 1)
+                    )
+
+                num_routing_experts_device = (
+                    ep_group.world_size - self.num_external_shared_experts
+                )
+                self.num_redundant_experts = (
+                    num_routing_experts_device
+                    - self.num_routing_experts % num_routing_experts_device
+                )
+                if (
+                    not moe_config.enable_redundant_experts
+                    and self.num_redundant_experts == num_routing_experts_device
+                ):
+                    self.num_redundant_experts = 0
+
+                if not moe_config.host_external_shared_experts:
+                    if self.model_config.parallel_config.rank == -1:
+                        self.parallel_group_manager.set_rank(
+                            self.num_external_shared_experts
+                        )
+                    else:
+                        raise ValueError(
+                            "If you want to check the performance of the device with external shared experts, "
+                            f"set the rank to -1 or {self.num_external_shared_experts}."
+                        )
+            else:
+                if moe_config.enable_redundant_experts:
+                    self.num_redundant_experts = ep_group.world_size
+
         dp_group = self.parallel_group_manager.dp_group
         tp_group = self.parallel_group_manager.tp_group
-        ep_group = self.parallel_group_manager.ep_group
         for name, module in self._inner.named_modules():
             if isinstance(module, MoELayer):
                 self._replace_module(
-                    name, ParallelMoELayer(module, dp_group, tp_group, ep_group)
+                    name,
+                    ParallelMoELayer(
+                        module,
+                        dp_group,
+                        tp_group,
+                        ep_group,
+                        self.num_external_shared_experts,
+                        self.num_redundant_experts,
+                    ),
                 )
 
     def shard_model(self):
-        self.shard_model_by_tp()
         self.shard_model_by_ep()
+        self.shard_model_by_tp()
 
     def quantize_linear(self):
         """
