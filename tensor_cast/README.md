@@ -53,6 +53,19 @@ usage: text_generate.py [-h]
 Run a simulated LLM inference pass and dump the perf result.
 ```
 Run `python -m tensor_cast.scripts.text_generate --help` for details.
+#### External Shared Experts & Redundant Experts Implementation
+The following outlines the implementation logic for External Shared Experts and Redundant Experts.
+
+1. Redundant Experts Only:
+Each device will host an additional redundant expert.
+
+2. External Shared Experts Only:
+Devices are allocated between external shared experts and routing experts at a ratio of 1:`top_k`. Redundant experts are used to pad routing experts if needed.
+For example, if `world_size` is 64, `top_k` is 8, and number of routing experts is 256, 8 devices are assigned to host external shared experts.
+The remaining 56 devices are used to distribute 256 routing experts. 32 devices host 5 routing experts each. 24 devices host 4 routing experts and 1 redundant expert.
+
+3. Both External Shared Experts & Redundant Experts Enabled: 
+The allocation logic is identical to the "External Shared Experts Only" mode, with one addition: If no redundant experts are needed to pad routing experts (i.e., routing experts are evenly distributed across devices), each device hosting routing experts will host an additional redundant expert.
 
 #### Run Prefill
 To run a prefill of Qwen3-32B with two requests with 3500-token input length each on A2. You can run the following command:
