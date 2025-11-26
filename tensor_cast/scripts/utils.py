@@ -33,6 +33,7 @@ from ..transformers.utils import (
     get_attention_quant_config,
     model_id_to_json,
     model_id_to_mla_module_name,
+    model_id_to_moe_config,
     model_id_to_mtp_block_module_name,
 )
 from ..utils import exact_division
@@ -171,8 +172,11 @@ def build_model(
     num_mtp_tokens: int = 0,
     compile: bool = False,
     allow_graph_break: bool = True,
-    enable_repetition=True,
-    num_hidden_layers_override=0,
+    enable_repetition: bool = True,
+    num_hidden_layers_override: int = 0,
+    enable_redundant_experts: bool = False,
+    enable_external_shared_experts: bool = False,
+    host_external_shared_experts: bool = False,
 ) -> TransformerModel:
     """
     Build a transformer model based on the given args
@@ -195,6 +199,13 @@ def build_model(
         hf_config_json=model_id_to_json(model_id),
         enable_lmhead=enable_lmhead,
     )
+    moe_config = model_id_to_moe_config(model_id)
+    if moe_config is not None:
+        moe_config.enable_redundant_experts = enable_redundant_experts
+        moe_config.enable_external_shared_experts = enable_external_shared_experts
+        moe_config.host_external_shared_experts = host_external_shared_experts
+    model_config.moe_config = moe_config
+
     mla_module_name = model_id_to_mla_module_name(model_id)
     if mla_module_name is not None:
         mla_config = MlaConfig(

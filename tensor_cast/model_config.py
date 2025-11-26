@@ -215,8 +215,7 @@ class QuantConfig:
 @dataclasses.dataclass
 class ParallelConfig:
     world_size: int = 1
-    rank: int = 0
-    local_rank: int = 0
+    rank: int = -1
     tensor_parallel_size: int = 1
     data_parallel_size: Optional[int] = None
     pipeline_parallel_size: int = 1
@@ -348,6 +347,9 @@ class MoEConfig:
     gate_returns_raw_logits: bool = False
     """whether the gate module returns raw logits or (topk_indices, topk_weights) tuple"""
     # TODO: add expert-parallel configuration
+    enable_redundant_experts: bool = False
+    enable_external_shared_experts: bool = False
+    host_external_shared_experts: bool = False
 
 
 @dataclasses.dataclass(frozen=True)

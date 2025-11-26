@@ -1,3 +1,4 @@
+import copy
 import unittest
 
 import torch
@@ -11,7 +12,7 @@ from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json
+from ..transformers.utils import model_id_to_json, model_id_to_moe_config
 from .test_common import create_mla_metadata_and_kv_cache
 
 
@@ -85,11 +86,15 @@ class ParallelMoETestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            ["deepseek-ai/DeepSeek-V3.1", (16, 2, 4, 1, True)],
-            ["moonshotai/Kimi-K2-Base", (16, 2, 4, 1, True)],
+            ["deepseek-ai/DeepSeek-V3.1", (16, 2, 4, 1, True), (False, False)],
+            ["deepseek-ai/DeepSeek-V3.1", (16, 2, 4, 1, True), (True, False)],
+            ["deepseek-ai/DeepSeek-V3.1", (16, 2, 4, 1, True), (False, True)],
+            ["moonshotai/Kimi-K2-Base", (16, 2, 4, 1, True), (True, True)],
         ]
     )
-    def test_deepseek_with_ep(self, model_id, parallel_configuration):
+    def test_deepseek_with_ep(
+        self, model_id, parallel_configuration, moe_configuration
+    ):
         parallel_config = get_parallel_config(parallel_configuration)
         hf_config_json = model_id_to_json(model_id)
         model_config = ModelConfig(
@@ -104,6 +109,13 @@ class ParallelMoETestCase(unittest.TestCase):
             mla_cls=MultiheadLatentAttentionTensorCast,
         )
         model_config.mla_config = mla_config
+
+        moe_config = copy.deepcopy(model_id_to_moe_config(model_id))
+        if moe_config is not None:
+            moe_config.enable_redundant_experts = moe_configuration[0]
+            moe_config.enable_external_shared_experts = moe_configuration[1]
+        model_config.moe_config = moe_config
+
         model = TransformerModel(model_id, model_config)
 
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
@@ -131,3 +143,50 @@ class ParallelMoETestCase(unittest.TestCase):
             self._check_comm_analytic(
                 runtime.get_trace_events(), "tensor_cast.all_to_all.default"
             )
+
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1", (64, 2, 4, 1, True), (True, True), 8, 24],
+            ["deepseek-ai/DeepSeek-V3.1", (64, 2, 4, 1, True), (False, False), 0, 0],
+            ["deepseek-ai/DeepSeek-V3.1", (64, 2, 4, 1, True), (True, False), 0, 64],
+            ["deepseek-ai/DeepSeek-V3.1", (64, 2, 4, 1, True), (False, True), 8, 24],
+        ]
+    )
+    def test_deepseek_with_redundant_experts_and_external_shared_expert(
+        self,
+        model_id,
+        parallel_configuration,
+        moe_configuration,
+        num_external_shared_experts,
+        num_redundant_experts,
+    ):
+        parallel_config = get_parallel_config(parallel_configuration)
+        hf_config_json = model_id_to_json(model_id)
+        model_config = ModelConfig(
+            parallel_config,
+            QuantConfig(),
+            hf_config_json=hf_config_json,
+            enable_lmhead=True,
+            enable_repetition=True,
+        )
+        mla_config = MlaConfig(
+            module_name="DeepseekV3Attention",
+            mla_cls=MultiheadLatentAttentionTensorCast,
+        )
+        model_config.mla_config = mla_config
+
+        moe_config = copy.deepcopy(model_id_to_moe_config(model_id))
+        if moe_config is not None:
+            moe_config.enable_redundant_experts = moe_configuration[0]
+            moe_config.enable_external_shared_experts = moe_configuration[1]
+        model_config.moe_config = moe_config
+
+        model = TransformerModel(model_id, model_config)
+        self.assertEqual(
+            model.num_external_shared_experts,
+            num_external_shared_experts,
+        )
+        self.assertEqual(
+            model.num_redundant_experts,
+            num_redundant_experts,
+        )

@@ -887,6 +887,47 @@ class TestTextGenerate(unittest.TestCase):
         )
         self.assertIn("tensor_cast.grouped_matmul", result["table_result"])
 
+    def test_redundant_experts(self):
+        result = run_inference(
+            device=self.device,
+            model_id="Qwen/Qwen3-235B-A22B",
+            num_queries=2,
+            query_len=10,
+            context_length=0,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            world_size=16,
+            tp_size=16,
+            ep=True,
+            enable_redundant_experts=True,
+        )
+        self._validate_inference_result(result, "test_redundant_experts")
+
+    @parameterized.expand(
+        [
+            [True],
+            [False],
+        ]
+    )
+    def test_external_shared_experts(self, host_external_shared_experts):
+        result = run_inference(
+            device=self.device,
+            model_id="deepseek-ai/DeepSeek-V3.1",
+            num_queries=2,
+            query_len=10,
+            context_length=0,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            world_size=16,
+            tp_size=16,
+            ep=True,
+            enable_external_shared_experts=True,
+            host_external_shared_experts=host_external_shared_experts,
+        )
+        self._validate_inference_result(result, "test_external_shared_experts")
+
 
 if __name__ == "__main__":
     unittest.main()

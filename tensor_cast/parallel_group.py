@@ -1,4 +1,4 @@
-from typing import List, Optional
+from typing import List
 
 import numpy as np
 
@@ -16,8 +16,7 @@ class ParallelGroup:
     def __init__(
         self,
         rank: int,
-        local_rank: int,
-        rank_groups: list[list[int]],
+        rank_groups: List[List[int]],
         global_world_size: int,
     ):
         """
@@ -26,8 +25,6 @@ class ParallelGroup:
         Args:
             rank:
                 The global rank.
-            local_rank:
-                The local rank of this process on this device.
             rank_groups:
                 All the groups divided according to the current parallel strategy. We need to find the group
                 that contains the given global rank.
@@ -37,17 +34,20 @@ class ParallelGroup:
             global_world_size:
                 The world size of the whole process group.
         """
+        self.rank_groups = rank_groups
+        self.set_rank(rank)
+        self.world_size = len(self.rank_group)
+        self.global_world_size = global_world_size
+
+    def set_rank(self, rank):
         self.rank = rank
-        self.local_rank = local_rank
         self.rank_group = None
-        for ranks in rank_groups:
+        for ranks in self.rank_groups:
             if self.rank in ranks:
                 self.rank_group = ranks
                 self.rank_group.sort()
                 self.rank_in_group = self.rank_group.index(self.rank)
                 break
-        self.world_size = len(self.rank_group)
-        self.global_world_size = global_world_size
 
     def all_reduce(self, input_: torch.Tensor) -> torch.Tensor:
         if self.world_size == 1:
@@ -91,27 +91,24 @@ class ParallelGroup:
         return torch.narrow(input_, dim=dim, start=start_pos, length=split_size)
 
 
-_DEFAULT_PG = ParallelGroup(0, 0, [[0]], 1)
+_DEFAULT_PG = ParallelGroup(0, [[0]], 1)
 
 
 class ParallelGroupManager:
-    tp_group: Optional[ParallelGroup] = None
-    dp_group: Optional[ParallelGroup] = None
-
-    mlp_tp_group: Optional[ParallelGroup] = None
-    mlp_dp_group: Optional[ParallelGroup] = None
-
-    lmhead_tp_group: Optional[ParallelGroup] = None
-    lmhead_dp_group: Optional[ParallelGroup] = None
-
     def __init__(self, parallel_config: ParallelConfig):
         self.parallel_config = parallel_config
         self.initialize_model_parallel()
 
+    def set_rank(self, rank):
+        for value in vars(self).values():
+            if isinstance(value, ParallelGroup):
+                value.set_rank(rank)
+
     def initialize_model_parallel(self):
         world_size = self.parallel_config.world_size
         rank = self.parallel_config.rank
-        local_rank = self.parallel_config.local_rank
+        if rank == -1:
+            rank = 0
 
         tensor_parallel_size = self.parallel_config.tensor_parallel_size
         pipeline_parallel_size = self.parallel_config.pipeline_parallel_size
@@ -138,7 +135,6 @@ class ParallelGroupManager:
 
             _ParallelGroup = ParallelGroup(
                 rank=rank,
-                local_rank=local_rank,
                 rank_groups=[x.tolist() for x in rank_groups],
                 global_world_size=world_size,
             )

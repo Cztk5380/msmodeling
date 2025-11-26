@@ -54,6 +54,9 @@ def run_inference(
     lmhead_dp_size: Optional[int] = None,
     ep: bool = False,
     word_embedding_tp: bool = False,
+    enable_redundant_experts: bool = False,
+    enable_external_shared_experts: bool = False,
+    host_external_shared_experts: bool = False,
 ):
     """
     Sets up and runs a simulated LLM inference pass.
@@ -141,6 +144,9 @@ def run_inference(
         allow_graph_break=allow_graph_break,
         enable_repetition=not disable_repetition,
         num_hidden_layers_override=num_hidden_layers_override,
+        enable_redundant_experts=enable_redundant_experts,
+        enable_external_shared_experts=enable_external_shared_experts,
+        host_external_shared_experts=host_external_shared_experts,
     ).eval()
     print("Preparing dummy input tensors...")
     input_kwargs = generate_inputs(model, query_len, seq_len, num_queries)
@@ -404,6 +410,25 @@ def main():
         action="store_true",
         help="Whether or not to implement word embedding tensor parallel",
     )
+    parser.add_argument(
+        "--enable-redundant-experts",
+        action="store_true",
+        help="Whether or not to use redundant experts. When this flag is True: "
+        "if the externalization of shared experts is not enabled at this time, "
+        "each device will add one redundant expert. If the externalization of shared experts is enabled "
+        "and the number of routing experts on each device is the same, "
+        "then each device hosting the routing experts will also add one redundant expert.",
+    )
+    parser.add_argument(
+        "--enable-external-shared-experts",
+        action="store_true",
+        help="Whether or not to implement external shared experts",
+    )
+    parser.add_argument(
+        "--host-external-shared-experts",
+        action="store_true",
+        help="Whether to have the current device host the external shared experts",
+    )
 
     args = parser.parse_args()
 
@@ -443,6 +468,9 @@ def main():
         lmhead_dp_size=args.lmhead_dp_size,
         ep=args.ep,
         word_embedding_tp=args.word_embedding_tp,
+        enable_redundant_experts=args.enable_redundant_experts,
+        enable_external_shared_experts=args.enable_external_shared_experts,
+        host_external_shared_experts=args.host_external_shared_experts,
     )
 
 
