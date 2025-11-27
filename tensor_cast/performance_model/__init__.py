@@ -1013,7 +1013,7 @@ def _(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.addmm.default)
-def _addmm_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 3 or len(op_invoke_info.args) == 5
@@ -1038,7 +1038,7 @@ def _addmm_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.convolution.default)
-def _convolution_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     import math
