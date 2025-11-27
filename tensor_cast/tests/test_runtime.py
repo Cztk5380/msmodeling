@@ -268,6 +268,81 @@ class PerfAnalysisTestCase(unittest.TestCase):
             _ = func(x, y)
         self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
 
+    def test_model_cost_with_zero_shape_conv1d(self):
+        def func(x, y):
+            return torch.nn.functional.conv1d(x, y)
+
+        x = torch.randn([0, 3, 32], device="meta")
+        y = torch.randn([16, 3, 3], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_conv2d(self):
+        def func(x, y):
+            return torch.nn.functional.conv2d(x, y)
+
+        x = torch.randn([0, 3, 32, 32], device="meta")
+        y = torch.randn([16, 3, 3, 3], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_conv3d(self):
+        def func(x, y):
+            return torch.nn.functional.conv3d(x, y)
+
+        x = torch.randn([0, 3, 8, 32, 32], device="meta")
+        y = torch.randn([16, 3, 3, 3, 3], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_addmm(self):
+        def func(input_tensor, mat1, mat2):
+            return torch.addmm(input_tensor, mat1, mat2)
+
+        input_tensor = torch.randn([0, 10], device="meta")
+        mat1 = torch.randn([0, 5], device="meta")
+        mat2 = torch.randn([5, 10], device="meta")
+
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(input_tensor, mat1, mat2)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
     def test_model_cost_with_zero_shape_static_quant_linear(self):
         def func(x, w, w_scale):
             return torch.ops.tensor_cast.static_quant_linear(
