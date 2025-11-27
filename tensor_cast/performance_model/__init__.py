@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 import torch
 
 from .. import ops  # noqa: F401
-
 from ..device import DeviceProfile
 from .utils import bytes_of_elements, bytes_of_tensor, is_view_op, run_once
 
@@ -249,7 +248,7 @@ class CachingPerformanceModel(PerformanceModel):
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.bmm.default)
-def _bmm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 2
     mat1 = op_invoke_info.args[0]
     mat2 = op_invoke_info.args[1]
@@ -310,7 +309,7 @@ def _mm_properties_helper(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.mm.default)
-def _mm_properties(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 2
     return _mm_properties_helper(
         op_invoke_info, op_invoke_info.args[0], op_invoke_info.args[1], None
@@ -382,7 +381,7 @@ def _static_quant_linear_properties_helper(
 @OpInvokeInfo.register_op_properties(
     torch.ops.tensor_cast.static_quant_linear_int4.default
 )
-def _static_quant_linear_int4_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -396,7 +395,7 @@ def _static_quant_linear_int4_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.static_quant_linear.default)
-def _static_quant_linear_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -411,7 +410,7 @@ def _static_quant_linear_properties(
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.fp8_linear.default)
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.mxfp4_linear.default)
-def _fp8_fp4_linear_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -424,7 +423,7 @@ def _fp8_fp4_linear_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.embedding.default)
-def _embedding_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 2
@@ -438,7 +437,7 @@ def _embedding_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.index_select.default)
-def _index_select_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) >= 3
@@ -453,7 +452,7 @@ def _index_select_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.reshape_and_cache.default)
-def _reshape_and_cache_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 4
@@ -540,7 +539,7 @@ def _default_query_lens_and_seq_lens(query) -> Tuple[torch.Tensor, torch.Tensor]
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.attention.default)
-def _attention_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 8
@@ -556,7 +555,7 @@ def _attention_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.attention_quant.default)
-def _attention_quant_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 15
@@ -620,7 +619,7 @@ def _attention_quant_properties(
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.concat_and_cache_mla.default)
-def _concat_and_cache_mla_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 4
@@ -776,7 +775,7 @@ def _multihead_latent_attention_properties_helper(
 @OpInvokeInfo.register_op_properties(
     torch.ops.tensor_cast.multihead_latent_attention.default
 )
-def _multihead_latent_attention_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     q = op_invoke_info.args[0]
@@ -865,7 +864,7 @@ def _calculate_mla_quant_ops(
 @OpInvokeInfo.register_op_properties(
     torch.ops.tensor_cast.multihead_latent_attention_quant.default
 )
-def _multihead_latent_attention_quant_properties(
+def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     q = op_invoke_info.args[0]
@@ -1015,14 +1014,10 @@ def _(
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.addmm.default)
 def _addmm_properties(
-        op_invoke_info: OpInvokeInfo,
+    op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     assert len(op_invoke_info.args) == 3 or len(op_invoke_info.args) == 5
-    (
-        input,
-        mat1,
-        mat2
-    ) = op_invoke_info.args[:3]
+    (input, mat1, mat2) = op_invoke_info.args[:3]
 
     # mat1:[M,K], mat2:[K,N]
     M, K = mat1.shape
@@ -1030,6 +1025,9 @@ def _addmm_properties(
 
     # mat_output = mat1 @ mat2 ; mat_output: [M,N]
     bmm1 = 2 * M * N * K
+
+    if bmm1 == 0:
+        return OpInvokeInfo.PerformanceProperties()
 
     properties = op_invoke_info.get_memory_access_properties()
     compute_ops = properties.compute_ops.setdefault(
@@ -1039,14 +1037,14 @@ def _addmm_properties(
     return properties
 
 
-
 @OpInvokeInfo.register_op_properties(torch.ops.aten.convolution.default)
 def _convolution_properties(
-        op_invoke_info: OpInvokeInfo,
-
+    op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     import math
-    assert len(op_invoke_info.args) == 9
+
+    # op_invoke_info.args length: torch.nn.functional.conv2d is 7, nn.Conv2d is 9
+    assert len(op_invoke_info.args) == 7 or len(op_invoke_info.args) == 9
     # Conv2D input:(B, C_in, H, W), weight:(C_out, C_in/groups, K_h, K_w)
     # Conv3D input:(B, C_in, D, H, W), weight:(C_out, C_in/groups, K_d, K_h, K_w)
     (
@@ -1056,8 +1054,12 @@ def _convolution_properties(
         stride,
         padding,
         dilation,
-    ) = op_invoke_info.args = op_invoke_info.args[:6]
-    groups = op_invoke_info.args[8]
+    ) = op_invoke_info.args[:6]
+    if len(op_invoke_info.args) == 9:
+        groups = op_invoke_info.args[8]
+    else:
+        groups = op_invoke_info.args[6]
+
     input_shape = input.shape
     weight_shape = weight.shape
     B = input_shape[0]
@@ -1067,9 +1069,9 @@ def _convolution_properties(
         # Conv1D
         _, _, L_in = input_shape
         _, _, K_l = weight_shape
-        s_l, = stride
-        p_l, = padding
-        d_l, = dilation
+        (s_l,) = stride
+        (p_l,) = padding
+        (d_l,) = dilation
 
         L_out = math.floor((L_in + 2 * p_l - d_l * (K_l - 1) - 1) / s_l + 1)
 
@@ -1078,7 +1080,7 @@ def _convolution_properties(
         if bias is not None:
             total_flops += B * C_out * L_out
 
-    elif input.dim()==4:
+    elif input.dim() == 4:
         # Conv2D
         _, _, H_in, W_in = input_shape
         _, _, K_h, K_w = weight_shape
@@ -1095,7 +1097,7 @@ def _convolution_properties(
         if bias is not None:
             total_flops += B * C_out * H_out * W_out
 
-    elif input.dim()==5:
+    elif input.dim() == 5:
         # Conv3D
         _, _, D_in, H_in, W_in = input_shape
         _, _, K_d, K_h, K_w = weight_shape
@@ -1115,6 +1117,9 @@ def _convolution_properties(
 
     else:
         raise ValueError(f"Unsupported convolution dimension: {input.dim()}")
+
+    if total_flops == 0:
+        return OpInvokeInfo.PerformanceProperties()
 
     properties = op_invoke_info.get_memory_access_properties()
     compute_ops = properties.compute_ops.setdefault(
