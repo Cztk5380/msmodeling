@@ -8,7 +8,6 @@ from typing import Any, Dict, List, Optional, Protocol, Tuple
 import torch
 
 from .. import ops  # noqa: F401
-
 from ..device import DeviceProfile
 from .utils import bytes_of_elements, bytes_of_tensor, is_view_op, run_once
 
@@ -1010,4 +1009,121 @@ def _(
             op_invoke_info, xi, wi, None, biasi, is_int4=True
         )
         properties.combine(properties_i, compute_only=True)
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.aten.addmm.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 3 or len(op_invoke_info.args) == 5
+    (input, mat1, mat2) = op_invoke_info.args[:3]
+
+    # mat1:[M,K], mat2:[K,N]
+    M, K = mat1.shape
+    N = mat2.shape[-1]
+
+    # mat_output = mat1 @ mat2 ; mat_output: [M,N]
+    bmm1 = 2 * M * N * K
+
+    if bmm1 == 0:
+        return OpInvokeInfo.PerformanceProperties()
+
+    properties = op_invoke_info.get_memory_access_properties()
+    compute_ops = properties.compute_ops.setdefault(
+        input.dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.mma_ops = bmm1
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.aten.convolution.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    import math
+
+    # op_invoke_info.args length: torch.nn.functional.conv2d is 7, nn.Conv2d is 9
+    assert len(op_invoke_info.args) == 7 or len(op_invoke_info.args) == 9
+    # Conv2D input:(B, C_in, H, W), weight:(C_out, C_in/groups, K_h, K_w)
+    # Conv3D input:(B, C_in, D, H, W), weight:(C_out, C_in/groups, K_d, K_h, K_w)
+    (
+        input,
+        weight,
+        bias,
+        stride,
+        padding,
+        dilation,
+    ) = op_invoke_info.args[:6]
+    if len(op_invoke_info.args) == 9:
+        groups = op_invoke_info.args[8]
+    else:
+        groups = op_invoke_info.args[6]
+
+    input_shape = input.shape
+    weight_shape = weight.shape
+    B = input_shape[0]
+    C_in = input_shape[1]
+    C_out = weight_shape[0]
+    if input.dim() == 3:
+        # Conv1D
+        _, _, L_in = input_shape
+        _, _, K_l = weight_shape
+        (s_l,) = stride
+        (p_l,) = padding
+        (d_l,) = dilation
+
+        L_out = math.floor((L_in + 2 * p_l - d_l * (K_l - 1) - 1) / s_l + 1)
+
+        flops_per_output = 2 * (C_in / groups) * K_l
+        total_flops = B * C_out * L_out * flops_per_output
+        if bias is not None:
+            total_flops += B * C_out * L_out
+
+    elif input.dim() == 4:
+        # Conv2D
+        _, _, H_in, W_in = input_shape
+        _, _, K_h, K_w = weight_shape
+        s_h, s_w = stride
+        p_h, p_w = padding
+        d_h, d_w = dilation
+
+        H_out = math.floor((H_in + 2 * p_h - d_h * (K_h - 1) - 1) / s_h + 1)
+        W_out = math.floor((W_in + 2 * p_w - d_w * (K_w - 1) - 1) / s_w + 1)
+
+        flops_per_output = 2 * (C_in / groups) * K_h * K_w
+        total_flops = B * C_out * H_out * W_out * flops_per_output
+
+        if bias is not None:
+            total_flops += B * C_out * H_out * W_out
+
+    elif input.dim() == 5:
+        # Conv3D
+        _, _, D_in, H_in, W_in = input_shape
+        _, _, K_d, K_h, K_w = weight_shape
+        s_d, s_h, s_w = stride
+        p_d, p_h, p_w = padding
+        d_d, d_h, d_w = dilation
+
+        D_out = math.floor((D_in + 2 * p_d - d_d * (K_d - 1) - 1) / s_d + 1)
+        H_out = math.floor((H_in + 2 * p_h - d_h * (K_h - 1) - 1) / s_h + 1)
+        W_out = math.floor((W_in + 2 * p_w - d_w * (K_w - 1) - 1) / s_w + 1)
+
+        flops_per_output = 2 * (C_in / groups) * K_d * K_h * K_w
+        total_flops = B * C_out * D_out * H_out * W_out * flops_per_output
+
+        if bias is not None:
+            total_flops += B * C_out * D_out * H_out * W_out
+
+    else:
+        raise ValueError(f"Unsupported convolution dimension: {input.dim()}")
+
+    if total_flops == 0:
+        return OpInvokeInfo.PerformanceProperties()
+
+    properties = op_invoke_info.get_memory_access_properties()
+    compute_ops = properties.compute_ops.setdefault(
+        input.dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.mma_ops = total_flops
     return properties
