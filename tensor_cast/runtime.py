@@ -43,6 +43,7 @@ class Runtime(TorchDispatchMode):
         perf_models: Union[PerformanceModel, List[PerformanceModel]],
         device_profile: DeviceProfile,
         memory_tracker: Optional[MemoryTracker] = None,
+        **kwargs
     ):
         super().__init__()
         self.perf_models = (
@@ -61,6 +62,8 @@ class Runtime(TorchDispatchMode):
         # TODO: add multi-stream support
 
         self.exit_stack = contextlib.ExitStack()
+        self.is_vl_model = kwargs.get('is_vl_model', False)
+        self.hf_config = kwargs.get('hf_config')
 
     @classmethod
     def is_infra_mode(cls):
@@ -224,12 +227,16 @@ class Runtime(TorchDispatchMode):
 
     def replay_op_invoke_infos(self):
         for op_invoke_info in self.op_invoke_infos:
+            if self.is_vl_model:
+                op_invoke_info.kwargs['hf_config'] = self.hf_config
             if self.memory_tracker:
                 self.memory_tracker.record_op_invocation(op_invoke_info)
             perf_results = {}
             for perf_model in self.perf_models:
                 result = perf_model.process_op(op_invoke_info)
                 perf_results[perf_model.name] = result
+            if self.is_vl_model:
+                op_invoke_info.kwargs.pop('hf_config', None)
             self.event_list.append(
                 RuntimeEvent(op_invoke_info=op_invoke_info, perf_results=perf_results)
             )

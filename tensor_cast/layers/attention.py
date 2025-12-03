@@ -64,26 +64,37 @@ def flash_attention_forward(
     attention_by_layers: Optional[dict[int, AttentionBase]] = kwargs.pop(
         "attention_by_layers", None
     )
+    # 从此处判断为为vision还是text
+    is_vision_attention = False
+    if attention_by_layers is None:
+        # 从配置中获取
+        is_vision_attention = True
+        attention_by_layers = getattr(module.config,'attention_by_layers',None)
+
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
+    if is_vision_attention:
+        layer_idx = getattr(module.config, 'depth_layer_idx')
+        module.config.update({'depth_layer_idx': layer_idx + 1})
+        self_attn = attention_by_layers[layer_idx]
+    else:
+        kv_cache_by_layers: Optional[dict[int, torch.Tensor]] = kwargs.pop(
+            "kv_cache_by_layers", None
+        )
+        attention_meta: AttentionMetadataBase = kwargs.pop("attention_meta", None)
+        attention_meta_by_layers: Optional[dict[int, AttentionMetadataBase]] = kwargs.pop(
+            "attention_meta_by_layers", None
+        )
+        assert attention_meta is None or attention_meta_by_layers is None, (
+            "Only one of attention_meta and attention_meta_by_layers can be provided."
+        )
 
-    kv_cache_by_layers: Optional[dict[int, torch.Tensor]] = kwargs.pop(
-        "kv_cache_by_layers", None
-    )
-    attention_meta: AttentionMetadataBase = kwargs.pop("attention_meta", None)
-    attention_meta_by_layers: Optional[dict[int, AttentionMetadataBase]] = kwargs.pop(
-        "attention_meta_by_layers", None
-    )
-    assert attention_meta is None or attention_meta_by_layers is None, (
-        "Only one of attention_meta and attention_meta_by_layers can be provided."
-    )
-
-    self_attn = attention_by_layers[module.layer_idx]
-    kv_cache = kv_cache_by_layers[module.layer_idx] if kv_cache_by_layers else None
-    attention_meta = (
-        attention_meta_by_layers[module.layer_idx]
-        if attention_meta_by_layers
-        else attention_meta
-    )
+        self_attn = attention_by_layers[module.layer_idx]
+        kv_cache = kv_cache_by_layers[module.layer_idx] if kv_cache_by_layers else None
+        attention_meta = (
+            attention_meta_by_layers[module.layer_idx]
+            if attention_meta_by_layers
+            else attention_meta
+        )
     # TODO: understand why we need these shape manipulation
     query, key, value = (x.transpose(1, 2) for x in (query, key, value))
     num_tokens = query.shape[0] * query.shape[1]

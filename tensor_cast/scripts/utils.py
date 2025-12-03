@@ -1,3 +1,5 @@
+import math
+
 try:
     # Native in Python 3.11+
     from enum import StrEnum
@@ -366,6 +368,70 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
         )
     return kwargs
 
+
+def img_smart_resize(
+        height: int, width: int, factor: int = 28, min_pixels: int = 56 * 56, max_pixels: int = 14 * 14 * 4 * 1280
+):
+    """Rescales the image so that the following conditions are met:
+
+    1. Both dimensions (height and width) are divisible by 'factor'.
+
+    2. The total number of pixels is within the range ['min_pixels', 'max_pixels'].
+
+    3. The aspect ratio of the image is maintained as closely as possible.
+
+    """
+    if max(height, width) / min(height, width) > 200:
+        raise ValueError(
+            f"absolute aspect ratio must be smaller than 200, got {max(height, width) / min(height, width)}"
+        )
+    h_bar = round(height / factor) * factor
+    w_bar = round(width / factor) * factor
+    if h_bar * w_bar > max_pixels:
+        beta = math.sqrt((height * width) / max_pixels)
+        h_bar = max(factor, math.floor(height / beta / factor) * factor)
+        w_bar = max(factor, math.floor(width / beta / factor) * factor)
+    elif h_bar * w_bar < min_pixels:
+        beta = math.sqrt(min_pixels / (height * width))
+        h_bar = math.ceil(height * beta / factor) * factor
+        w_bar = math.ceil(width * beta / factor) * factor
+    return h_bar, w_bar
+
+def generate_image_inputs(model, image_batch_size, image_height, image_width):
+    if not model.is_vl_model:
+        return {}
+    if image_batch_size is None or image_height is None or image_width is None:
+        print("For vision-language models,without image input")
+        return {}
+    print("--- Image Configuration ---")
+    print(f"image_batch_size: {image_batch_size}")
+    print(f"image_height: {image_height}")
+    print(f"image_width: {image_width}")
+    print("---------------------\n")
+    vision_config = model.hf_config.vision_config
+    patch_size = vision_config.patch_size
+    merge_size = vision_config.spatial_merge_size if vision_config.spatial_merge_size else 2
+    resized_height, resized_width = img_smart_resize(
+        image_height,
+        image_width,
+        factor=patch_size * merge_size
+    )
+
+    grid_t = 1
+    grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
+    image_grid_thw = torch.tensor([[grid_t, grid_h, grid_w]], dtype=torch.long).expand(image_batch_size, 3)
+    channel = vision_config.in_channels if vision_config.in_channels else 3
+    temporal_patch_size = vision_config.temporal_patch_size if vision_config.temporal_patch_size else 2
+    hidden_dim = channel * temporal_patch_size * patch_size * patch_size
+    tokens = grid_t * grid_h * grid_w
+    pixel_values = torch.empty(image_batch_size * tokens, hidden_dim, dtype=torch.float32, device="meta")
+    # 计算嵌入到文本的token
+    merge_length = merge_size ** 2
+    num_image_tokens = image_batch_size * (tokens // merge_length + 2)
+    print(pixel_values)
+    print(image_grid_thw)
+    print(f'num_image_tokens is {num_image_tokens}')
+    return {"pixel_values": pixel_values, "image_grid_thw": image_grid_thw, "num_image_tokens": num_image_tokens}
 
 @dataclass
 class RequestInfo:

@@ -16,9 +16,11 @@ class CachingRotaryEmb(torch.nn.Module):
         rotary_emb: torch.nn.Module,
         act_dtype: torch.dtype,
         max_position_embeddings: int,
+        is_vl_model:bool = False
     ):
         super().__init__()
         self.act_dtype = act_dtype
+        self.is_vl_model = is_vl_model
         x = torch.empty(
             max_position_embeddings, device="meta", dtype=act_dtype
         ).unsqueeze(0)
@@ -32,13 +34,22 @@ class CachingRotaryEmb(torch.nn.Module):
             isinstance(position_embeddings, (tuple, list))
             and len(position_embeddings) == 2
         ):
-            position_embeddings = torch.cat(position_embeddings, dim=-1).squeeze()
-            self.register_buffer("cos_sin_cache", position_embeddings, persistent=False)
+            if is_vl_model:
+                position_embeddings = torch.cat(position_embeddings, dim=-1)
+                self.register_buffer("cos_sin_cache", position_embeddings, persistent=False)
+            else:
+                position_embeddings = torch.cat(position_embeddings, dim=-1).squeeze()
+                self.register_buffer("cos_sin_cache", position_embeddings, persistent=False)
         else:
             self.cos_sin_cache = None
             self.rotary_emb = rotary_emb
 
     def forward(self, x: torch.Tensor, position_ids: torch.Tensor) -> torch.Tensor:
+        if self.is_vl_model and self.cos_sin_cache is not None:
+            bs, seq_len = position_ids.shape[-2:]
+            pos_emb = self.cos_sin_cache[:, :seq_len, :]
+            pos_emb = pos_emb.expand(bs, seq_len, -1)
+            return pos_emb.chunk(2, dim=-1)
         if self.cos_sin_cache is not None and x.dtype == self.act_dtype:
             return (
                 self.cos_sin_cache.index_select(0, position_ids.flatten())

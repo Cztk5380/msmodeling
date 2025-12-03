@@ -19,6 +19,7 @@ from .utils import (
     generate_inputs,
     QuantizeAttentionAction,
     QuantizeLinearAction,
+    generate_image_inputs,
 )
 
 
@@ -55,6 +56,9 @@ def run_inference(
     enable_redundant_experts: bool = False,
     enable_external_shared_experts: bool = False,
     host_external_shared_experts: bool = False,
+    image_batch_size: Optional[int] = None,
+    image_height: Optional[int] = None,
+    image_width: Optional[int] = None,
 ):
     """
     Sets up and runs a simulated LLM inference pass.
@@ -79,7 +83,7 @@ def run_inference(
     batch_size = (
         num_queries + parallel_config.data_parallel_size - 1
     ) // parallel_config.data_parallel_size
-    seq_len = context_length + query_len  # Total sequence length for each query
+
 
     print("--- Configuration ---")
     print(f"Device: {device}")
@@ -146,12 +150,25 @@ def run_inference(
         host_external_shared_experts=host_external_shared_experts,
     ).eval()
     print("Preparing dummy input tensors...")
+    image_kwargs = generate_image_inputs(model, image_batch_size, image_height, image_width)
+    print(model)
+    num_image_tokens = image_kwargs.pop("num_image_tokens", 0)
+    if is_decode:
+        # decode阶段,移除图片的输入,但需要将图片的token添加到content_length中
+        image_kwargs = {}
+        context_length += num_image_tokens
+    else:
+        query_len += num_image_tokens
+    seq_len = context_length + query_len  # Total sequence length for each query
     input_kwargs = generate_inputs(model, query_len, seq_len, num_queries)
+    input_kwargs.update(image_kwargs)
+
     print("Running simulated inference...")
     run_start = time.perf_counter()
     with (
         Runtime(
-            perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            perf_model, device_profile, memory_tracker=MemoryTracker(device_profile),
+            is_vl_model=model.is_vl_model, hf_config=model.hf_config if model.hf_config else None
         ) as runtime,
         torch.no_grad(),
     ):
@@ -427,6 +444,26 @@ def main():
         help="Whether to have the current device host the external shared experts",
     )
 
+    # Image parameters
+    parser.add_argument(
+        "--image-batch-size",
+        type=int,
+        default=None,
+        help="Batch size for image processing",
+    )
+    parser.add_argument(
+        "--image-height",
+        type=int,
+        default=None,
+        help="Height of the input images",
+    )
+    parser.add_argument(
+        "--image-width",
+        type=int,
+        default=None,
+        help="Width of the input images",
+    )
+
     args = parser.parse_args()
 
     if args.log_level:
@@ -468,6 +505,9 @@ def main():
         enable_redundant_experts=args.enable_redundant_experts,
         enable_external_shared_experts=args.enable_external_shared_experts,
         host_external_shared_experts=args.host_external_shared_experts,
+        image_batch_size=args.image_batch_size,
+        image_height=args.image_height,
+        image_width=args.image_width,
     )
 
 

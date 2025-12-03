@@ -91,6 +91,124 @@ class CausalLmWrapper(ModelWrapperBase):
             return hidden_states
 
 
+
+class VLModelWrapper(ModelWrapperBase):
+    """
+    # todo 文本的moe和vl的moe的区别
+    Vision-Language模型包装器，专门处理Qwen3 VL 多模态模型
+    """
+
+    def __init__(self, hf_config, model: torch.nn.Module):
+        super().__init__(model)
+        self.hf_config = hf_config
+        hidden_size = hf_config.text_config.hidden_size
+        vocab_size = hf_config.text_config.vocab_size
+        self.lm_head = torch.nn.Linear(hidden_size, vocab_size, bias=False)
+
+    def forward(
+            self,
+            input_ids: torch.LongTensor = None,
+            attention_mask: Optional[torch.Tensor] = None,
+            position_ids: Optional[torch.LongTensor] = None,
+            past_key_values=None,
+            inputs_embeds: Optional[torch.FloatTensor] = None,
+            pixel_values: Optional[torch.Tensor] = None,
+            pixel_values_videos: Optional[torch.FloatTensor] = None,
+            image_grid_thw: Optional[torch.LongTensor] = None,
+            video_grid_thw: Optional[torch.LongTensor] = None,
+            cache_position: Optional[torch.LongTensor] = None,
+            **kwargs,
+    ) -> Union[torch.Tensor, TensorDict]:
+        """
+        多模态前向传播
+
+        Args:
+            input_ids: 文本token IDs
+            position_ids: 位置编码
+            inputs_embeds: 文本嵌入
+            pixel_values: 图像输入 (batch_size, num_images, channels, height, width)
+            pixel_values_videos: 视频输入
+            image_grid_thw: 图像网格时空信息 (num_images, 3) [t, h, w]
+            video_grid_thw: 视频网格时空信息 (num_videos, 3) [t, h, w]
+            attention_mask: 注意力掩码
+            cache_position: 缓存位置
+
+        Returns:
+            logits: 生成概率logits
+        """
+        # 因为vision层attention的layer数量为image_batch_size * vision_config.depth,所以前面的一些配置放在此处来进行
+        if image_grid_thw is not None:
+            attention_by_layers: Optional[dict] = kwargs.get('attention_by_layers', None)
+            if attention_by_layers is not None:
+                self._inner.config.vision_config.update(kwargs)
+                exist_length = len(attention_by_layers)
+                num_vision_layers = self._inner.config.vision_config.depth * image_grid_thw.shape[0]
+                self._inner.config.vision_config.update({"depth_layer_idx": exist_length})
+                # 从第一个获取cls,然后实例化
+                attn_cls = attention_by_layers[0].__class__
+                for i in range(num_vision_layers):
+                    attention_by_layers[i + exist_length] = attn_cls()
+
+            self.patch_source_for_meta()
+
+        outputs = self._inner(
+            input_ids=input_ids,
+            attention_mask=attention_mask,
+            position_ids=position_ids,
+            past_key_values=past_key_values,
+            inputs_embeds=inputs_embeds,
+            pixel_values=pixel_values,
+            pixel_values_videos=pixel_values_videos,
+            image_grid_thw=image_grid_thw,
+            video_grid_thw=video_grid_thw,
+            cache_position=cache_position,
+            **kwargs
+        )
+
+        hidden_states = outputs.last_hidden_state
+        # 处理采样元数据 - 这是TensorCast特有的
+        sampling_metadata: Optional[SamplingMetadata] = kwargs.get("sampling_metadata")
+
+        # 采样优化：只计算选定的token
+        if sampling_metadata and sampling_metadata.selected_token_indices is not None:
+            hidden_states = hidden_states.index_select(
+                1, sampling_metadata.selected_token_indices
+            )
+        logits = self.lm_head(hidden_states)
+
+        return logits
+
+    def patch_source_for_meta(self):
+        from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel, Qwen3VLTextModel
+        from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeModel,Qwen3VLMoeTextModel
+        # 要 patch 的类
+        TARGET_CLASSES = [Qwen3VLModel, Qwen3VLMoeModel]
+
+        # 保存每个类的原方法
+        ORIGINAL_METHODS = {cls: cls.get_placeholder_mask for cls in TARGET_CLASSES}
+
+        # 通用 patch
+        def patched_get_placeholder_mask(self, *args, **kwargs):
+            # 强制跳过 image_features
+            kwargs["image_features"] = None
+            # 调用对应类的原始方法
+            return ORIGINAL_METHODS[type(self)](self, *args, **kwargs)
+
+        # 执行循环 patch
+        for cls in TARGET_CLASSES:
+            cls.get_placeholder_mask = patched_get_placeholder_mask
+
+
+        DEEPSTACK_PROCESS_TARGET_CLASSES = [Qwen3VLTextModel, Qwen3VLMoeTextModel]
+        def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
+            return hidden_states
+
+        # 执行循环 patch
+        for cls in DEEPSTACK_PROCESS_TARGET_CLASSES:
+            cls._deepstack_process = _patched_deepstack_process
+
+
+
 class ModelWrapper(ModelWrapperBase):
     def __init__(self, model: torch.nn.Module):
         super().__init__(model)
@@ -150,6 +268,10 @@ class TransformerModel(ModelWrapperBase):
             logger.info("origin model and config are loaded successfully")
 
             self.text_config = self.hf_config.get_text_config()
+            self.is_vl_model = hasattr(self.hf_config, "vision_config")
+            # 修改model_config的type
+            if self.is_vl_model:
+                self.model_config.dtype = self.text_config.dtype
             if (
                 self.model_config.attention_cls
                 and self.model_config.attention_cls.attn_implmentation
@@ -157,6 +279,9 @@ class TransformerModel(ModelWrapperBase):
                 self.text_config._attn_implementation = (
                     self.model_config.attention_cls.attn_implmentation
                 )
+                if self.is_vl_model:
+                    self.hf_config.vision_config._attn_implementation = (
+                    self.model_config.attention_cls.attn_implmentation)
 
             self.parallel_group_manager = ParallelGroupManager(
                 self.model_config.parallel_config
@@ -188,10 +313,16 @@ class TransformerModel(ModelWrapperBase):
         This makes other wrappers' life simpler.
         """
         if not self._inner.get_output_embeddings():
-            self._inner = CausalLmWrapper(
-                hf_config=self.hf_config,
-                model=self._inner,
-            )
+            if self.is_vl_model:
+                self._inner = VLModelWrapper(
+                    hf_config=self.hf_config,
+                    model=self._inner,
+                )
+            else:
+                self._inner = CausalLmWrapper(
+                    hf_config=self.hf_config,
+                    model=self._inner,
+                )
         else:
             self._inner = ModelWrapper(self._inner)
 
@@ -255,6 +386,14 @@ class TransformerModel(ModelWrapperBase):
         unwrapped = self.unwrap()
         if hasattr(unwrapped, "layers"):
             repeat_layers(unwrapped.layers)
+        if self.is_vl_model:
+            # 先处理visual后处理text
+            visual = unwrapped.visual
+            if hasattr(visual, "blocks"):
+                repeat_layers(visual.blocks)
+            language_model = unwrapped.language_model
+            if hasattr(language_model, "layers"):
+                repeat_layers(language_model.layers)
 
         if isinstance(self._inner, MtpWrapper):
             repeat_layers(self._inner.mtp.layers)
@@ -275,7 +414,17 @@ class TransformerModel(ModelWrapperBase):
                 act_dtype=self.model_config.dtype,
                 max_position_embeddings=self.text_config.max_position_embeddings,
             )
-
+        if self.is_vl_model:
+            language_model = unwrapped.language_model
+            if self.model_config.cache_rotary_embedding and hasattr(
+                    language_model, "rotary_emb"
+            ):
+                language_model.rotary_emb = CachingRotaryEmb(
+                    language_model.rotary_emb,
+                    act_dtype=self.model_config.dtype,
+                    max_position_embeddings=self.text_config.max_position_embeddings,
+                    is_vl_model=True
+                )
         # replace attention with custom implementation if defined
         if self.model_config.attention_cls is not None:
             self.attention_by_layers = {}
@@ -390,8 +539,12 @@ class TransformerModel(ModelWrapperBase):
                 "tp_group": tp_group,
                 "global_tp_group": tp_group,
             }
+            config_info = self.hf_config if not self.is_vl_model else self.text_config
+            layers_keyword = "layers"
+            if self.is_vl_model:
+                layers_keyword = "language_model.layers"
             if self.model_config.mla_config:
-                params.update({"head_num": self.hf_config.num_attention_heads})
+                params.update({"head_num": config_info.num_attention_heads})
                 tp_plan.update(
                     {
                         "layers.*.self_attn.q_proj": (COLWISE_LINEAR, params),
@@ -400,40 +553,66 @@ class TransformerModel(ModelWrapperBase):
                     }
                 )
             else:
-                params.update({"head_num": self.hf_config.num_attention_heads})
-                tp_plan.update({"layers.*.self_attn.q_proj": (COLWISE_LINEAR, params)})
+                params.update({"head_num": config_info.num_attention_heads})
+                tp_plan.update({f"{layers_keyword}.*.self_attn.q_proj": (COLWISE_LINEAR, params)})
                 params = params.copy()
                 params.update(
                     {
-                        "head_num": self.hf_config.num_key_value_heads,
+                        "head_num": config_info.num_key_value_heads,
                         "is_replicable": True,
                     }
                 )
                 tp_plan.update(
                     {
-                        "layers.*.self_attn.k_proj": (COLWISE_LINEAR, params),
-                        "layers.*.self_attn.v_proj": (COLWISE_LINEAR, params),
+                        f"{layers_keyword}.*.self_attn.k_proj": (COLWISE_LINEAR, params),
+                        f"{layers_keyword}.*.self_attn.v_proj": (COLWISE_LINEAR, params),
                     }
                 )
 
             params = {
                 "tp_group": o_proj_tp_group,
                 "global_tp_group": tp_group,
-                "head_num": self.hf_config.num_attention_heads,
+                "head_num": config_info.num_attention_heads,
             }
-            tp_plan.update({"layers.*.self_attn.o_proj": (ROWWISE_LINEAR, params)})
+            tp_plan.update({f"{layers_keyword}.*.self_attn.o_proj": (ROWWISE_LINEAR, params)})
 
             params = {
                 "tp_group": mlp_tp_group,
                 "global_tp_group": tp_group,
             }
-            tp_plan.update(
-                {
-                    "layers.*.mlp.gate_proj": (COLWISE_LINEAR, params),
-                    "layers.*.mlp.up_proj": (COLWISE_LINEAR, params),
-                    "layers.*.mlp.down_proj": (ROWWISE_LINEAR, params),
-                }
-            )
+            if self.is_vl_model:
+                tp_plan.update(
+                    {
+                        # 非moe的相关配置：
+                        "language_model.layers.*.mlp.gate_proj": (COLWISE_LINEAR, params),
+                        "language_model.layers.*.mlp.up_proj": (COLWISE_LINEAR, params),
+                        "language_model.layers.*.mlp.down_proj": (ROWWISE_LINEAR, params),
+
+                        # "visual.blocks.*.mlp.linear_fc1": (COLWISE_LINEAR, params),
+                        # "visual.blocks.*.mlp.linear_fc2": (ROWWISE_LINEAR, params),
+                        # "visual.merger.linear_fc1": (COLWISE_LINEAR, params),
+                        # "visual.merger.linear_fc2": (ROWWISE_LINEAR, params),
+                        # "visual.deepstack_merger_list.*.linear_fc1": (COLWISE_LINEAR, params),
+                        # "visual.deepstack_merger_list.*.linear_fc2": (ROWWISE_LINEAR, params),
+
+                        # # todo tensor_cast 当前没有qkv合并的tp切分plan，实际上qkv切分需要先拆分q,k,v，再切分再合并
+                        # # todo 确认非vl的qwen的qkv是已经合并还是切分,非vl的qkv以及拆分为q,k,v，没有对应的合并关系
+                        # "visual.blocks.*.attn.qkv": (COLWISE_LINEAR, params),
+                        # "visual.blocks.*.attn.proj": (ROWWISE_LINEAR, params),
+
+                        # todo layers_keyword尝试做更广泛的适配而非qwen的language_model.layers
+                        # "language_model.layers.*.mlp.gate": (COLWISE_LINEAR, params),
+
+                    }
+                )
+            else:
+                tp_plan.update(
+                    {
+                        "layers.*.mlp.gate_proj": (COLWISE_LINEAR, params),
+                        "layers.*.mlp.up_proj": (COLWISE_LINEAR, params),
+                        "layers.*.mlp.down_proj": (ROWWISE_LINEAR, params),
+                    }
+                )
 
             if not self.model_config.parallel_config.has_ep():
                 params = {
