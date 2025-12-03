@@ -93,7 +93,7 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
             self.kv_b_proj.weight.data,
             tp_group.world_size,
             tp_group.rank_in_group,
-            unit_size=self.qk_nope_head_dim + self.v_head_dim,
+            unit_num=self.num_heads,
         )
         self.kv_b_proj_weight_t = sharded_weight.transpose(0, 1)
         kv_b_proj_view = self.kv_b_proj_weight_t.view(

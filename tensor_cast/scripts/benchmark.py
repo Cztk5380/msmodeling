@@ -388,9 +388,14 @@ models:
                             if model.model_config.mtp_config is not None
                             else 0
                         )
+
+                        # When Attention is not MLA,
+                        # it is not supported when the kv heads can not be evenly distributed across a tp group
+                        # and uniformly replicated within a tp group.
                         if (
                             model.model_config.mla_config is None
                             and model.text_config.num_key_value_heads % tp_size != 0
+                            and tp_size % model.text_config.num_key_value_heads != 0
                         ):
                             continue
                         for slo_limit in slo_limits:

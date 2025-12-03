@@ -3,6 +3,8 @@ from typing import Optional
 
 import torch
 
+from ..utils import exact_division
+
 
 def _get_sharded_shape(shape: torch.Tensor, dim: int, block_size: int):
     sharded_shape = list(shape)
@@ -94,11 +96,11 @@ def get_partial_sharded(
     world_size: int,
     rank: int,
     dim: int = 0,
-    unit_size: Optional[int] = None,
+    unit_num: Optional[int] = None,
 ):
     size = tensor.shape[dim]
-    if unit_size is not None:
-        unit_num = size // unit_size
+    if unit_num is not None:
+        unit_size = exact_division(size, unit_num)
         if unit_num % world_size == 0 or world_size % unit_num == 0:
             return _get_partial_sharded_by_unit(
                 tensor, world_size, rank, dim, unit_size

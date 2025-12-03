@@ -15,7 +15,10 @@ from ..model_config import (
     ModelConfig,
     ParallelConfig,
     QuantConfig,
+    QuantGranularity,
+    QuantScheme,
 )
+
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
@@ -262,3 +265,44 @@ class ParallelLinearTestCase(unittest.TestCase):
         result = runtime.table_averages()
         self._validate_comm_result(result, runtime, parallel_config)
         self.assertTrue("tensor_cast.dynamic_quantize_symmetric.default" in result)
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B", (16, 8, 8, 8, 8)],
+            ["Qwen/Qwen3-32B", (16, 4, 2, 8, 16)],
+            ["Qwen/Qwen3-32B", (16, 4, 2, 8, 16, True)],
+            ["zai-org/GLM-4.5", (16, 4, 2, 8, 16)],
+        ]
+    )
+    def test_model_quant_mxfp4_with_tp_and_dp(self, model_id, parallel_configuration):
+        parallel_config = get_parallel_config(parallel_configuration)
+        mxfp4_quant_config = get_quant_config(
+            quant_type=LinearQuantType.MXFP4,
+            weight_group_size=32,
+            weight_quant_granularity=QuantGranularity.PER_GROUP,
+            weight_quant_scheme=QuantScheme.SYMMETRIC,
+        )
+        model_config_with_mxfp4 = ModelConfig(
+            parallel_config,
+            mxfp4_quant_config,
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=2,
+            enable_lmhead=True,
+        )
+        qmodel = TransformerModel(model_id, model_config_with_mxfp4)
+
+        num_tokens = 100
+        output_batch_size = self.input_batch_size
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = qmodel.forward(self.inputs, self.position_ids)
+            self.assertEqual(
+                outputs.shape, (output_batch_size, num_tokens, qmodel.vocab_size)
+            )
+        result = runtime.table_averages()
+
+        self._validate_comm_result(result, runtime, parallel_config)
+
+        self.assertIn("tensor_cast.dynamic_quantize_mxfp4.default", result)
+        self.assertIn("tensor_cast.mxfp4_linear.default", result)

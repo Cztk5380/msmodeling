@@ -17,10 +17,10 @@ def replace_with_sharded_tensor(
     tp_rank: int,
     is_quant: bool = False,
     dim: int = 0,
-    head_size: Optional[int] = None,
+    head_num: Optional[int] = None,
 ):
     shard_attr = get_partial_sharded(
-        getattr(module, attr), tp_size, tp_rank, dim, head_size
+        getattr(module, attr), tp_size, tp_rank, dim, head_num
     ).contiguous()
 
     if not is_quant:
@@ -72,12 +72,11 @@ class RowParallelLinear(ParallelLinearBase):
         if head_num is None:
             self.in_features_per_partition = math.ceil(self.in_features / self.tp_size)
         else:
-            head_size = exact_division(self.in_features, head_num)
             assert head_num % self.tp_size == 0
             self.in_features_per_partition = self.in_features // self.tp_size
 
         self.out_features_per_partition = self.out_features
-        self.head_size = None if head_num is None else head_size
+        self.head_num = head_num
         self.create_weights()
         self.tp_group = tp_group
         self.global_tp_group = global_tp_group
@@ -95,7 +94,7 @@ class RowParallelLinear(ParallelLinearBase):
             self.tp_rank,
             self.is_quant,
             dim=1,
-            head_size=self.head_size,
+            head_num=self.head_num,
         )
         if getattr(self._inner, self.inner_bias_name, None) is not None:  # noqa: SIM102
             # need to check
@@ -113,7 +112,7 @@ class RowParallelLinear(ParallelLinearBase):
                 self.tp_size,
                 self.tp_rank,
                 self.is_quant,
-                head_size=self.head_size,
+                head_num=self.head_num,
             )
             if self._inner.weight_offset is not None:
                 replace_with_sharded_tensor(
@@ -122,7 +121,7 @@ class RowParallelLinear(ParallelLinearBase):
                     self.tp_size,
                     self.tp_rank,
                     self.is_quant,
-                    head_size=self.head_size,
+                    head_num=self.head_num,
                 )
 
         self._inner.in_features = self.in_features_per_partition
@@ -183,7 +182,7 @@ class ColumnParallelLinear(ParallelLinearBase):
                 assert head_num % self.tp_size == 0
                 self.out_features_per_partition = self.out_features // self.tp_size
 
-        self.head_size = None if head_num is None else head_size
+        self.head_num = head_num
         self.create_weights()
         self.tp_group = tp_group
         self.global_tp_group = global_tp_group
@@ -199,7 +198,7 @@ class ColumnParallelLinear(ParallelLinearBase):
             self.tp_size,
             self.tp_rank,
             self.is_quant,
-            head_size=self.head_size,
+            head_num=self.head_num,
         )
 
         if getattr(self._inner, self.inner_bias_name, None) is not None:
@@ -209,7 +208,7 @@ class ColumnParallelLinear(ParallelLinearBase):
                 self.tp_size,
                 self.tp_rank,
                 self.is_quant,
-                head_size=self.head_size,
+                head_num=self.head_num,
             )
 
         self._inner.out_features = self.out_features_per_partition
