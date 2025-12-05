@@ -1,0 +1,233 @@
+# -*- coding: utf-8 -*-
+# Copyright (c) 2025-2025 Huawei Technologies Co., Ltd.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+# http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+# modelevalstate
+import os
+ 
+from msserviceprofiler.modelevalstate.inference.simulate import Simulate
+from msserviceprofiler.modelevalstate.inference.simulate_vllm import SimulateVllm
+
+from msserviceprofiler.modelevalstate.config.constant import simulate_flag
+ 
+ 
+class NPUModelRunnerCustom(NPUModelRunner):
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        if simulate_flag:
+            SimulateVllm.init()
+    @torch.inference_mode()
+    def execute_model(
+            self,
+            model_input: ModelInputForNPUWithSamplingMetadata,
+            kv_caches: List[torch.Tensor],
+            intermediate_tensors: Optional[IntermediateTensors] = None,
+            num_steps: int = 1,
+            **kwargs,
+    ) -> Optional[Union[List[SamplerOutput], IntermediateTensors]]:
+ 
+        if num_steps > 1:
+            raise ValueError("num_steps > 1 is not supported in ModelRunner")
+ 
+        if self.lora_config:
+            if model_input.lora_requests is None:
+                raise ValueError("lora_requests cannot be None when lora_config is set")
+            if model_input.lora_mapping is None:
+                raise ValueError("lora_mapping cannot be None when lora_config is set")
+            self.set_active_loras(model_input.lora_requests,
+                                  model_input.lora_mapping)
+        if simulate_flag:
+            if not self.in_profile_run and self.is_driver_worker:
+                SimulateVllm.init()
+                SimulateVllm.generate_features(model_input)
+        self.attn_state.begin_forward(model_input)
+ 
+        if model_input.attn_metadata is None:
+            raise ValueError("attn_metadata cannot be None")
+        # TODO(zzzzwwjj): Do we need to do it every time?
+        if self.enable_graph_mode:
+            torch._dynamo.mark_static(model_input.input_tokens)
+            torch._dynamo.mark_static(model_input.input_positions)
+            torch._dynamo.mark_static(model_input.attn_metadata.block_tables)
+            torch._dynamo.mark_static(model_input.attn_metadata.slot_mapping)
+            for kv in kv_caches:
+                if isinstance(kv, tuple):
+                    torch._dynamo.mark_static(kv[0])
+                    torch._dynamo.mark_static(kv[1])
+ 
+        # TODO(andoorve): We can remove this once all
+        # virtual engines share the same kv cache.
+        virtual_engine = model_input.virtual_engine
+        prefill_meta = model_input.attn_metadata.prefill_metadata
+        previous_hidden_states = kwargs.get("previous_hidden_states")
+        if prefill_meta is None and self.enable_graph_mode:
+            model_executable = self.compile_model
+            # Note: graph_batch_size value not same as GPU
+            graph_batch_size = model_input.input_tokens.shape[  # type: ignore
+                0]  # type: ignore
+            # Note: previous_hidden_states maybe None not same as GPU
+            if previous_hidden_states is not None:
+                previous_hidden_states = torch.cat([
+                    previous_hidden_states,
+                    torch.empty([
+                        graph_batch_size - previous_hidden_states.shape[0],
+                        *previous_hidden_states.shape[1:]
+                    ],
+                        dtype=previous_hidden_states.dtype,
+                        device=previous_hidden_states.device)
+                ])
+        else:
+            model_executable = self.model
+
+        # Receive KV cache in distributed KV cache transfer setting
+        # In disagg prefill setting, it will also recv hidden states and bypass
+        # model forwarding
+        # In KV cache database setting, it will change the model input so that
+        # we can skip prefilling on tokens that successfully received KV caches
+        # NOTE: The receive operation is blocking
+        bypass_model_exec = False
+        if self.need_recv_kv(model_input, kv_caches):
+            hidden_or_intermediate_states, bypass_model_exec, model_input = \
+                get_kv_transfer_group().recv_kv_caches_and_hidden_states(
+                    # model is used to know which layer the current worker
+                    # is working on, so that we can receive KV for only those
+                    # layers.
+                    model_executable,
+                    model_input,
+                    kv_caches=kv_caches
+                )
+ 
+        multi_modal_kwargs = model_input.multi_modal_kwargs or {}
+        seqlen_agnostic_kwargs = {
+            "finished_requests_ids": model_input.finished_requests_ids,
+            "request_ids_to_seq_ids": model_input.request_ids_to_seq_ids,
+        } if self.has_inner_state else {}
+ 
+        if self.enable_graph_mode:
+            model_kwargs: Dict[str, Any] = {"inputs_embeds": None}
+        else:
+            model_kwargs = {}
+        if previous_hidden_states is not None:
+            model_kwargs["previous_hidden_states"] = previous_hidden_states
+ 
+        if (self.observability_config is not None
+                and self.observability_config.collect_model_forward_time):
+            model_forward_start = torch_npu.npu.Event(enable_timing=True)
+            model_forward_end = torch_npu.npu.Event(enable_timing=True)
+            model_forward_start.record()
+        _model_input_valid = (not self.in_profile_run) and model_input.seq_lens is not None and self.is_driver_worker
+        if simulate_flag  and _model_input_valid:
+            logits = Simulate.generate_logits(len(model_input.seq_lens), self.vocab_size, self.device,
+                                              self.model_config.dtype)
+            Simulate.predict_and_save()
+        elif simulate_flag and not _model_input_valid:
+            return []
+        else:
+            if not bypass_model_exec:
+                with set_forward_context(model_input.attn_metadata,
+                                         self.vllm_config, virtual_engine):
+                    if model_input.attn_metadata is not None:
+                        model_input.attn_metadata.input_positions = model_input.input_positions
+                    if self.enable_graph_mode:
+                        model_kwargs["kv_caches"] = kv_caches
+                        model_kwargs["attn_metadata"] = model_input.attn_metadata
+                    hidden_or_intermediate_states = model_executable(
+                        input_ids=model_input.input_tokens,
+                        positions=model_input.input_positions,
+                        intermediate_tensors=intermediate_tensors,
+                        **MultiModalKwargs.as_kwargs(multi_modal_kwargs,
+                                                     device=self.device),
+                        **seqlen_agnostic_kwargs,
+                        **model_kwargs)
+ 
+                # Compute the logits in the last pipeline stage.
+                if not get_pp_group().is_last_rank:
+                    if (self.is_driver_worker
+                            and hidden_or_intermediate_states is not None
+                            and isinstance(hidden_or_intermediate_states,
+                                           IntermediateTensors)
+                            and self.observability_config is not None and
+                            self.observability_config.collect_model_forward_time):
+                        model_forward_end.synchronize()
+                        model_forward_time = model_forward_start.elapsed_time(
+                            model_forward_end)
+                        orig_model_forward_time = 0.0
+                        if intermediate_tensors is not None:
+                            orig_model_forward_time = intermediate_tensors.tensors.get(
+                                "model_forward_time", torch.tensor(0.0)).item()
+                        hidden_or_intermediate_states.tensors[
+                            "model_forward_time"] = (
+                            torch.tensor(model_forward_time +
+                                         orig_model_forward_time))
+                    return hidden_or_intermediate_states
+                # TODO: remove the synchronize here
+                torch.npu.synchronize()
+                logits = self.model.compute_logits(hidden_or_intermediate_states,
+                                                   model_input.sampling_metadata)
+
+        if not self.is_driver_worker:
+            return []
+ 
+        if model_input.async_callback is not None:
+            model_input.async_callback()
+ 
+        # Sample the next token.
+        if vllm_version_is("0.8.4"):
+            output = self.model.sample(
+                logits=logits,
+                sampling_metadata=model_input.sampling_metadata,
+            )
+        else:
+            if self.sampler is None:
+                raise ValueError("sampler cannot be None")
+            output = self.sampler(
+                logits=logits,
+                sampling_metadata=model_input.sampling_metadata,
+            )
+        if (self.observability_config is not None
+                and self.observability_config.collect_model_forward_time
+                and output is not None):
+            model_forward_end.synchronize()
+            model_forward_time = model_forward_start.elapsed_time(
+                model_forward_end)
+            orig_model_forward_time = 0.0
+            if intermediate_tensors is not None:
+                orig_model_forward_time = intermediate_tensors.tensors.get(
+                    "model_forward_time", torch.tensor(0.0)).item()
+            # If there are multiple workers, we are still tracking the latency
+            # from the start time of the driver worker to the end time of the
+            # driver worker. The model forward time will then end up covering
+            # the communication time as well.
+            output.model_forward_time = (orig_model_forward_time +
+                                         model_forward_time)
+ 
+        if self.return_hidden_states:
+            # we only need to pass hidden states of most recent token
+            if model_input.sampling_metadata is None:
+                raise ValueError("sampling_metadata cannot be None")
+            indices = model_input.sampling_metadata.selected_token_indices
+            if model_input.is_prompt:
+                hidden_states = hidden_or_intermediate_states.index_select(
+                    0, indices)
+                output.prefill_hidden_states = hidden_or_intermediate_states
+            elif self.enable_graph_mode:
+                hidden_states = hidden_or_intermediate_states[:len(indices)]
+            else:
+                hidden_states = hidden_or_intermediate_states
+ 
+            output.hidden_states = hidden_states
+        if simulate_flag  and _model_input_valid:
+            SimulateVllm.update_token(model_input, output, self.model.config.eos_token_id)
+        return [output]
+NPUModelRunner = NPUModelRunnerCustom

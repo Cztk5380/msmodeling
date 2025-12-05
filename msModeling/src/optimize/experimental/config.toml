@@ -1,0 +1,145 @@
+# -------------------------寻优相关参数配置------------------------------------------------
+n_particles = 10 
+iters = 5 
+ttft_penalty = 1 
+tpot_penalty = 0 
+success_rate_penalty = 5.0 
+ttft_slo = 1 
+tpot_slo = 0.05 
+service = "master"
+sample_size = 1000 
+
+
+# -------------------------mindie相关配置------------------------------------------------
+[mindie]
+[[mindie.target_field]]
+name = "max_batch_size"
+config_position = "BackendConfig.ScheduleConfig.maxBatchSize"
+min = 10
+max = 1000
+dtype = "int"
+[[mindie.target_field]]
+name = "max_prefill_batch_size"
+config_position = "BackendConfig.ScheduleConfig.maxPrefillBatchSize"  # 该值不允许大于maxBatchSize
+min = 0.1
+max = 0.7
+dtype = "ratio"
+dtype_param = "max_batch_size"
+[[mindie.target_field]]
+name = "prefill_time_ms_per_req"
+config_position = "BackendConfig.ScheduleConfig.prefillTimeMsPerReq"
+min = 0
+max = 1000
+dtype = "range"
+dtype_param = 10
+[[mindie.target_field]]
+name = "decode_time_ms_per_req"
+config_position = "BackendConfig.ScheduleConfig.decodeTimeMsPerReq"
+min = 0
+max = 1000
+dtype = "range"
+dtype_param = 10
+[[mindie.target_field]]
+name = "support_select_batch"
+config_position = "BackendConfig.ScheduleConfig.supportSelectBatch"
+min = 0
+max = 1
+dtype = "bool"
+[[mindie.target_field]]
+name = "max_queue_deloy_mircroseconds"
+config_position = "BackendConfig.ScheduleConfig.maxQueueDelayMicroseconds"
+min = 500
+max = 1000000
+dtype = "range"
+dtype_param = 100
+[[mindie.target_field]]
+name = "max_preempt_count"
+config_position = "BackendConfig.ScheduleConfig.maxPreemptCount"
+min = 0
+max = 1
+dtype = "ratio"
+dtype_param = "max_batch_size"
+[[mindie.target_field]]
+name = "CONCURRENCY"  # 支持范围0-1000
+config_position = "env"
+min = 1
+max = 1001
+dtype = "int"
+value = 100
+[[mindie.target_field]]
+name = "REQUESTRATE" # 支持范围0-10000
+config_position = "env"
+min = 1
+max = 1001
+dtype = "float"
+value = 100
+
+# -------------------------测评工具相关配置------------------------------------------------
+[benchmark.command]
+dataset_path = "dataset_path" 
+dataset_type = "dataset_type"
+model_name = "model_name"
+model_path = "model_path"
+max_output_len = "256" 
+http = "http://127.0.0.1:1025"
+management_http = "http://127.0.0.1:1025"
+request_count = 3000
+
+[ais_bench.command]
+models = "models"
+datasets = "datasets"
+mode = "perf"
+num_prompts = 3000
+
+[vllm_benchmark.command]
+serving = "serving_path"
+backend = "backend"
+host = "127.0.0.1"
+port = "port"
+model = "model_path"
+served_model_name = "model_name"
+dataset_name = "dataset_name"
+dataset_path = "dataset_path"
+num_prompts = 3000
+others = ""
+
+
+# -------------------------vllm相关配置------------------------------------------------
+[vllm]
+[vllm.command]
+host = "127.0.0.1"
+port = "port"
+model = "model_path"
+served_model_name = "model_name"
+others = ""
+[[vllm.target_field]]
+name = "MAX_NUM_BATCHED_TOKENS"
+config_position = "env"
+min = 8192
+max = 65536
+dtype = "int"
+value = 8192
+[[vllm.target_field]]
+name = "MAX_NUM_SEQS"
+config_position = "env"
+min = 32
+max = 512
+dtype = "int"
+value = 64
+[[vllm.target_field]]
+name = "CONCURRENCY" 
+config_position = "env"
+min = 1
+max = 1000
+dtype = "int"
+value = 100
+[[vllm.target_field]]
+name = "REQUESTRATE" 
+config_position = "env"
+min = 1
+max = 1000
+dtype = "float"
+value = 100
+# -------------------------kubectl相关配置------------------------------------------------
+[kubectl]
+kubectl_default_path = ""
