@@ -367,7 +367,7 @@ def main():
     parser.add_argument(
         "--o-proj-tp-size",
         type=int,
-        default=1,
+        default=None,
         help="The tp size for attn o_proj layer",
     )
     parser.add_argument(
