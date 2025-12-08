@@ -25,13 +25,13 @@ import tempfile
 import time
 from loguru import logger
 import yaml
-from msserviceprofiler.modelevalstate.config.config import MindieConfig, VllmConfig, OptimizerConfigField, KubectlConfig
-from msserviceprofiler.modelevalstate.config.base_config import simulate_flag, SIMULATE
-from msserviceprofiler.modelevalstate.config.custom_command import MindieCommand, VllmCommand
-from msserviceprofiler.modelevalstate.optimizer.custom_process import CustomProcess
-from msserviceprofiler.modelevalstate.optimizer.utils import backup, remove_file, close_file_fp
-from msserviceprofiler.msguard.security import open_s
-from msserviceprofiler.modelevalstate.optimizer.plugins.simulate import Simulator
+from experimental.config.config import MindieConfig, VllmConfig, OptimizerConfigField, KubectlConfig
+from experimental.config.base_config import simulate_flag, SIMULATE
+from experimental.config.custom_command import MindieCommand, VllmCommand
+from experimental.optimizer.custom_process import CustomProcess
+from experimental.optimizer.utils import backup, remove_file, close_file_fp
+from msguard.security import open_s
+from experimental.optimizer.plugins.simulate import Simulator
 
 
 @contextmanager

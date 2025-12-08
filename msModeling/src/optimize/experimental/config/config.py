@@ -18,11 +18,11 @@ from loguru import logger
 from pydantic import BaseModel, field_validator, Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict, PydanticBaseSettingsSource, TomlConfigSettingsSource
 
-import msserviceprofiler.modelevalstate
-from msserviceprofiler.modelevalstate.common import is_vllm, is_mindie, ais_bench_exists
-from msserviceprofiler.modelevalstate.config.custom_command import BenchmarkCommandConfig, VllmBenchmarkCommandConfig, \
+import experimental
+from experimental.common import is_vllm, is_mindie, ais_bench_exists
+from experimental.config.custom_command import BenchmarkCommandConfig, VllmBenchmarkCommandConfig, \
     MindieCommandConfig, VllmCommandConfig, AisBenchCommandConfig, KubectlCommandConfig
-from msserviceprofiler.msguard.security import open_s, mkdir_s
+from msguard.security import open_s, mkdir_s
 from .base_config import (
     INSTALL_PATH, RUN_PATH, ServiceType, CUSTOM_OUTPUT, DeployPolicy, RUN_TIME,	
     modelevalstate_config_path, MODEL_EVAL_STATE_CONFIG_PATH, AnalyzeTool, BenchMarkPolicy,

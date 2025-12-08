@@ -39,13 +39,13 @@ from loguru import logger
 from pandas import DataFrame
 from xgboost import DMatrix
 
-from msserviceprofiler.modelevalstate.config.config import get_settings
-from msserviceprofiler.modelevalstate.inference.data_format_v1 import BatchField, RequestField, ConfigPath
-from msserviceprofiler.modelevalstate.inference.dataset import InputData, DataProcessor, \
+from experimental.config.config import get_settings
+from experimental.inference.data_format_v1 import BatchField, RequestField, ConfigPath
+from experimental.inference.dataset import InputData, DataProcessor, \
     CustomLabelEncoder, preset_category_data
-from msserviceprofiler.modelevalstate.inference.file_reader import FileHanlder, StaticFile
-from msserviceprofiler.modelevalstate.common import read_csv_s
-from msserviceprofiler.modelevalstate.inference.utils import save_dataframe_to_csv
+from experimental.inference.file_reader import FileHanlder, StaticFile
+from experimental.common import read_csv_s
+from experimental.inference.utils import save_dataframe_to_csv
 
 
 sub_thread = None

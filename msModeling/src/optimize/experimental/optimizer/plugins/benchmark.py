@@ -21,13 +21,13 @@ from typing import Optional, Tuple
 import glob
 from loguru import logger
 import pandas as pd
-from msserviceprofiler.modelevalstate.config.base_config import MINDIE_BENCHMARK_PERF_COLUMNS
-from msserviceprofiler.modelevalstate.config.config import AisBenchConfig, VllmBenchmarkConfig, get_settings, \
+from experimental.config.base_config import MINDIE_BENCHMARK_PERF_COLUMNS
+from experimental.config.config import AisBenchConfig, VllmBenchmarkConfig, get_settings, \
     PerformanceIndex, OptimizerConfigField
-from msserviceprofiler.modelevalstate.config.custom_command import AisBenchCommand, VllmBenchmarkCommand
-from msserviceprofiler.modelevalstate.optimizer.interfaces.benchmark import BenchmarkInterface
-from msserviceprofiler.msguard.security import open_s, walk_s
-from msserviceprofiler.modelevalstate.optimizer.utils import backup, remove_file
+from experimental.config.custom_command import AisBenchCommand, VllmBenchmarkCommand
+from experimental.optimizer.interfaces.benchmark import BenchmarkInterface
+from msguard.security import open_s, walk_s
+from experimental.optimizer.utils import backup, remove_file
 
   
 MS_TO_S = 10 ** 3

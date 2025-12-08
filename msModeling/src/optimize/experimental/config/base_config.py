@@ -5,10 +5,10 @@ import time
 from enum import Enum
 from pathlib import Path
 
-import msserviceprofiler.modelevalstate
+import experimental
 
 RUN_TIME = time.strftime("%Y%m%d%H%M%S", time.localtime())
-INSTALL_PATH = Path(msserviceprofiler.modelevalstate.__path__[0])
+INSTALL_PATH = Path(experimental.__path__[0])
 RUN_PATH = Path(os.getcwd())
 MODEL_EVAL_STATE_CONFIG_PATH = "MODEL_EVAL_STATE_CONFIG_PATH"
 modelevalstate_config_path = os.getenv(MODEL_EVAL_STATE_CONFIG_PATH) or os.getenv(MODEL_EVAL_STATE_CONFIG_PATH.lower())

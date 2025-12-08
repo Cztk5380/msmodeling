@@ -16,8 +16,8 @@
 from pathlib import Path
  
 from loguru import logger
-from msserviceprofiler.msguard import Rule 
-from msserviceprofiler.modelevalstate.patch.patch_manager import check_flag, add_patch
+from msguard import Rule 
+from experimental.patch.patch_manager import check_flag, add_patch
 
  
 _patch_dir = Path(__file__).absolute().expanduser().parent.resolve()
