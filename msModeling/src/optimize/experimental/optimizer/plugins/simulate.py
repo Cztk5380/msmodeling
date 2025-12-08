@@ -24,12 +24,12 @@ import shutil
 from dataclasses import dataclass
 import yaml
 from loguru import logger
-from msserviceprofiler.modelevalstate.config.config import get_settings, OptimizerConfigField, VllmConfig, \
+from experimental.config.config import get_settings, OptimizerConfigField, VllmConfig, \
     MindieConfig, KubectlConfig, Stage, ProcessState
-from msserviceprofiler.modelevalstate.config.custom_command import VllmCommand, MindieCommand
-from msserviceprofiler.modelevalstate.optimizer.interfaces.simulator import SimulatorInterface
-from msserviceprofiler.modelevalstate.optimizer.utils import remove_file, close_file_fp, backup
-from msserviceprofiler.msguard.security import open_s
+from experimental.config.custom_command import VllmCommand, MindieCommand
+from experimental.optimizer.interfaces.simulator import SimulatorInterface
+from experimental.optimizer.utils import remove_file, close_file_fp, backup
+from msguard.security import open_s
 
 
 @dataclass
@@ -272,7 +272,7 @@ class VllmSimulator(SimulatorInterface):
 
 
 class DisaggregationSimulator(SimulatorInterface):
-    from msserviceprofiler.modelevalstate.config.custom_command import KubectlCommand
+    from experimental.config.custom_command import KubectlCommand
 
     def __init__(self, *args, config: Optional[KubectlConfig] = None, **kwargs):
         if config:

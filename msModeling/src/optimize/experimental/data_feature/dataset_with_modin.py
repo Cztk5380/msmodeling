@@ -18,7 +18,7 @@ import modin.pandas as pd
 from loguru import logger
 from pandas import DataFrame
 
-from msserviceprofiler.modelevalstate.data_feature.dataset_with_swifter import MyDataSetWithSwifter
+from experimental.data_feature.dataset_with_swifter import MyDataSetWithSwifter
 
 
 class MyDataSetWithModin(MyDataSetWithSwifter):

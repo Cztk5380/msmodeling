@@ -14,7 +14,7 @@
 # limitations under the License.
 from typing import List
 
-from msserviceprofiler.modelevalstate.inference.simulate import Simulate, ServiceField
+from experimental.inference.simulate import Simulate, ServiceField
 from ..plugin import Plugin
 from ....utils.log.logging import logger
 

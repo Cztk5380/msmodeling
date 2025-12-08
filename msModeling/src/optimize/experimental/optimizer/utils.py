@@ -19,8 +19,8 @@ from pathlib import Path
 import psutil
 from loguru import logger
 
-from msserviceprofiler.msguard import Rule
-from msserviceprofiler.msguard.security import walk_s
+from msguard import Rule
+from msguard.security import walk_s
 
 
 def remove_file(output_path: Path):

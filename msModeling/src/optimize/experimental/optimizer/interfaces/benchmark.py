@@ -13,8 +13,8 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 from abc import ABC, abstractmethod
-from msserviceprofiler.modelevalstate.optimizer.interfaces.custom_process import BaseDataField, CustomProcess
-from msserviceprofiler.modelevalstate.config.config import PerformanceIndex
+from experimental.optimizer.interfaces.custom_process import BaseDataField, CustomProcess
+from experimental.config.config import PerformanceIndex
 
 MS_TO_S = 10 ** 3
 US_TO_S = 10 ** 6

@@ -8,8 +8,8 @@ import os
 from pathlib import Path
 from typing import Dict
 from dataclasses import dataclass, field
-from msserviceprofiler.modelevalstate.common import StateType
-from msserviceprofiler.modelevalstate.inference.constant import OpAlgorithm
+from experimental.common import StateType
+from experimental.inference.constant import OpAlgorithm
 
 
 @dataclass

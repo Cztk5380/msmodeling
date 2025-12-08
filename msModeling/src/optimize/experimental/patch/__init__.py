@@ -15,7 +15,7 @@
 
 from loguru import logger
 
-from msserviceprofiler.modelevalstate.common import get_module_version
+from experimental.common import get_module_version
 
 MINDIE_LLM = "mindie_llm"
 VLLM_ASCEND = "vllm_ascend"
@@ -36,7 +36,7 @@ vllm_env_patch = {
 }
 
 try:
-    from msserviceprofiler.modelevalstate.patch.patch_manager import Patch2rc1
+    from experimental.patch.patch_manager import Patch2rc1
 
     simulate_patch.append(Patch2rc1)
     optimize_patch.append(Patch2rc1)
@@ -44,7 +44,7 @@ except ImportError as e:
     logger.warning(f"Failed from .patch_manager import Patch2rc1. error: {e}")
 
 try:
-    from msserviceprofiler.modelevalstate.patch.patch_vllm import PatchVllm
+    from experimental.patch.patch_vllm import PatchVllm
 
     vllm_optimize_patch.append(PatchVllm)
     vllm_simulate_patch.append(PatchVllm)

@@ -28,13 +28,13 @@ import numpy as np
 import torch
 from loguru import logger
 
-from msserviceprofiler.modelevalstate.config.config import get_settings
-from msserviceprofiler.modelevalstate.inference.constant import IS_SLEEP_FLAG, BatchStage
-from msserviceprofiler.modelevalstate.inference.data_format_v1 import BatchField, RequestField, ConfigPath
-from msserviceprofiler.modelevalstate.inference.dataset import CustomLabelEncoder, preset_category_data, DataProcessor
-from msserviceprofiler.modelevalstate.inference.file_reader import FileHanlder, StaticFile
-from msserviceprofiler.modelevalstate.inference.state_eval_v1 import predict_v1_with_cache
-from msserviceprofiler.msguard.security import open_s
+from experimental.config.config import get_settings
+from experimental.inference.constant import IS_SLEEP_FLAG, BatchStage
+from experimental.inference.data_format_v1 import BatchField, RequestField, ConfigPath
+from experimental.inference.dataset import CustomLabelEncoder, preset_category_data, DataProcessor
+from experimental.inference.file_reader import FileHanlder, StaticFile
+from experimental.inference.state_eval_v1 import predict_v1_with_cache
+from msguard.security import open_s
 
 predict_queue = queue.Queue()
 

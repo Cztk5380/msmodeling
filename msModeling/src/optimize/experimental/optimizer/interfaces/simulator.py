@@ -19,8 +19,8 @@ from typing import Tuple, Optional
 
 import requests
 
-from msserviceprofiler.modelevalstate.config.config import OptimizerConfigField, ProcessState, Stage
-from msserviceprofiler.modelevalstate.optimizer.interfaces.custom_process import BaseDataField, CustomProcess
+from experimental.config.config import OptimizerConfigField, ProcessState, Stage
+from experimental.optimizer.interfaces.custom_process import BaseDataField, CustomProcess
 
 
 class SimulatorInterface(CustomProcess, BaseDataField, ABC):
