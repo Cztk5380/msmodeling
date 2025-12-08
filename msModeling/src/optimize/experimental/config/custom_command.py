@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Optional
 from loguru import logger
 from pydantic import BaseModel, Field
-from msserviceprofiler.msguard import Rule
+from msguard import Rule
 
 
 MAX_REQUEST_NUM = 1e6

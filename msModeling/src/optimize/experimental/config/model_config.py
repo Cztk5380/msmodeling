@@ -7,9 +7,9 @@ from typing import Optional
 import numpy as np
 from loguru import logger
 
-from msserviceprofiler.modelevalstate.common import get_npu_total_memory
-from msserviceprofiler.modelevalstate.config.config import get_settings
-from msserviceprofiler.msguard.security import open_s
+from experimental.common import get_npu_total_memory
+from experimental.config.config import get_settings
+from msguard.security import open_s
 
 
 class ModelConfig:

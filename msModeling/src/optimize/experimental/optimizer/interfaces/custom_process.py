@@ -24,12 +24,12 @@ from typing import Any, Tuple, Optional, List
 import psutil
 from loguru import logger
 
-from msserviceprofiler.modelevalstate.config.base_config import CUSTOM_OUTPUT, MODEL_EVAL_STATE_CONFIG_PATH, \
+from experimental.config.base_config import CUSTOM_OUTPUT, MODEL_EVAL_STATE_CONFIG_PATH, \
     modelevalstate_config_path
-from msserviceprofiler.modelevalstate.config.config import OptimizerConfigField, get_settings, ProcessState, Stage
-from msserviceprofiler.modelevalstate.optimizer.utils import close_file_fp, remove_file, kill_children, \
+from experimental.config.config import OptimizerConfigField, get_settings, ProcessState, Stage
+from experimental.optimizer.utils import close_file_fp, remove_file, kill_children, \
     backup, kill_process
-from msserviceprofiler.msguard.security import open_s
+from msguard.security import open_s
 
 
 class CustomProcess:

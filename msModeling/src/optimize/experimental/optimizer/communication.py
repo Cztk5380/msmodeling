@@ -18,7 +18,7 @@ import time
 from pathlib import Path
 from loguru import logger
 from filelock import FileLock
-from msserviceprofiler.msguard.security import open_s
+from msguard.security import open_s
  
  
 class CustomCommand:

@@ -20,10 +20,10 @@ from pathlib import Path
 
 from loguru import logger
 
-from msserviceprofiler.modelevalstate.common import is_mindie
-from msserviceprofiler.modelevalstate.optimizer.plugins.simulate import Simulator
-from msserviceprofiler.modelevalstate.config.config import get_settings, map_param_with_value, CommunicationConfig
-from msserviceprofiler.modelevalstate.optimizer.communication import CommunicationForFile, CustomCommand
+from experimental.common import is_mindie
+from experimental.optimizer.plugins.simulate import Simulator
+from experimental.config.config import get_settings, map_param_with_value, CommunicationConfig
+from experimental.optimizer.communication import CommunicationForFile, CustomCommand
 
 
 class Scheduler:

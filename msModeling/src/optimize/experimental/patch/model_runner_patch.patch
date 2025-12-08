@@ -16,10 +16,10 @@
 # modelevalstate
 import os
  
-from msserviceprofiler.modelevalstate.inference.simulate import Simulate
-from msserviceprofiler.modelevalstate.inference.simulate_vllm import SimulateVllm
+from experimental.inference.simulate import Simulate
+from experimental.inference.simulate_vllm import SimulateVllm
 
-from msserviceprofiler.modelevalstate.config.constant import simulate_flag
+from experimental.config.constant import simulate_flag
  
  
 class NPUModelRunnerCustom(NPUModelRunner):
