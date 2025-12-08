@@ -18,9 +18,9 @@ from typing import Optional, Tuple
 
 import numpy as np
 
-from msserviceprofiler.modelevalstate.config.config import default_support_field, PerformanceIndex, \
+from experimental.config.config import default_support_field, PerformanceIndex, \
     map_param_with_value, OptimizerConfigField
-from msserviceprofiler.modelevalstate.config.base_config import REQUESTRATES, CONCURRENCYS
+from experimental.config.base_config import REQUESTRATES, CONCURRENCYS
 
 
 class StopFineTune(Exception):

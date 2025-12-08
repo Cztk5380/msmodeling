@@ -20,9 +20,9 @@ import swifter
 from loguru import logger
 from pandas import DataFrame
 
-from msserviceprofiler.modelevalstate.data_feature.dataset import MyDataSet
-from msserviceprofiler.modelevalstate.inference.constant import OpAlgorithm
-from msserviceprofiler.modelevalstate.inference.data_format_v1 import (
+from experimental.data_feature.dataset import MyDataSet
+from experimental.inference.constant import OpAlgorithm
+from experimental.inference.data_format_v1 import (
     MODEL_OP_FIELD,
     MODEL_STRUCT_FIELD,
     MODEL_CONFIG_FIELD,
@@ -30,7 +30,7 @@ from msserviceprofiler.modelevalstate.inference.data_format_v1 import (
     ENV_FIELD,
     HARDWARE_FIELD,
 )
-from msserviceprofiler.modelevalstate.inference.dataset import TOTAL_OUTPUT_LENGTH, \
+from experimental.inference.dataset import TOTAL_OUTPUT_LENGTH, \
     TOTAL_SEQ_LENGTH, TOTAL_PREFILL_TOKEN
 
 logger.debug(f'swifter version {getattr(swifter, "__version__")}')

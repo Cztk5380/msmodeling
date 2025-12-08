@@ -21,10 +21,10 @@ from typing import List, Optional
 from warnings import warn
 from loguru import logger
 import pandas as pd
-from msserviceprofiler.msguard import Rule
-from msserviceprofiler.modelevalstate.inference.common import get_bins_and_label
-from msserviceprofiler.modelevalstate.inference.file_reader import StaticFile
-from msserviceprofiler.modelevalstate.common import read_csv_s
+from msguard import Rule
+from experimental.inference.common import get_bins_and_label
+from experimental.inference.file_reader import StaticFile
+from experimental.common import read_csv_s
 
 
 HARDWARE_FIELD = ("cpu_count", "cpu_mem", "soc_name", "npu_mem")

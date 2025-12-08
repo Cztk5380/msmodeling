@@ -21,13 +21,13 @@ import numpy as np
 import pandas as pd
 from loguru import logger
 
-from msserviceprofiler.modelevalstate.inference.common import (
+from experimental.inference.common import (
     OP_EXPECTED_FIELD_MAPPING,
     model_op_size,
     HistInfo,
     get_field_bins_count
 )
-from msserviceprofiler.modelevalstate.inference.constant import (
+from experimental.inference.constant import (
     ALL_OP,
     OP_EXECUTE_DELTA_FIELD,
     DTYPE_CATEGORY,
@@ -35,7 +35,7 @@ from msserviceprofiler.modelevalstate.inference.constant import (
     ALL_ARCHITECTURE,
     ALL_ARCHITECTURE_MAPPING
 )
-from msserviceprofiler.msguard.security.io import open_s, mkdir_s
+from msguard.security.io import open_s, mkdir_s
 
 OUTPUT_LENGTH_FIELD = "output_length"
 TOTAL_OUTPUT_LENGTH = "total_output_length"

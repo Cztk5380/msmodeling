@@ -17,7 +17,7 @@ from collections import OrderedDict
 
 import numpy as np
 
-from msserviceprofiler.modelevalstate.inference.constant import ALL_OP, DTYPE_CATEGORY, \
+from experimental.inference.constant import ALL_OP, DTYPE_CATEGORY, \
     OP_EXECUTE_DELTA_FIELD, ALL_OP_PARAM_TYPE
 
 

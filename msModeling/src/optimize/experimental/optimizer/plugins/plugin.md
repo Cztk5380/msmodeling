@@ -8,7 +8,7 @@
 - 继承Settings
 settings 是通过pydantic-settings实现的，可在类里面添加 删除属性。例如
 ```
-from msserviceprofiler.modelevalstate.config.config import Settings
+from experimental.config.config import Settings
 
 
 class CusSettings(Settings):
@@ -19,18 +19,18 @@ class CusSettings(Settings):
 ```
 def register():
     from vllm_inference_optimization.settings import CusSettings
-    from msserviceprofiler.modelevalstate.config.config import register_settings
+    from experimental.config.config import register_settings
     register_settings(lambda : CusSettings())
 ```
 - 使用settings
 使用时导入get_setttings 来获取
 ```
-from msserviceprofiler.modelevalstate.config.config import get_settings
+from experimental.config.config import get_settings
 settings = get_settings()
 ```
 ### 自定义服务框架
 
-- 继承msserviceprofiler.modelevalstate.optimizer.simulator.SimulatorInterface,实现base_url 和 data_field property,实现update_command方法等。
+- 继承experimental.optimizer.simulator.SimulatorInterface,实现base_url 和 data_field property,实现update_command方法等。
 例如：
 ```
  class VllmSimulator(SimulatorInterface):
@@ -48,12 +48,12 @@ settings = get_settings()
 ```
 - 注册服务框架
 ```
- from msserviceprofiler.modelevalstate.optimizer.register import register_simulator
+ from experimental.optimizer.register import register_simulator
  register_simulator("vllm_infer", VllmSimulator)
 ```
 ### 自定义性能测试benchmark
 
-- 继承msserviceprofiler.modelevalstate.optimizer.benchmark.BenchmarkInterface,实现data_field property, get_performance_index方法等。
+- 继承experimental.optimizer.benchmark.BenchmarkInterface,实现data_field property, get_performance_index方法等。
 例如：
 ``` 
 class VllmBenchMark(BenchmarkInterface):
@@ -71,15 +71,15 @@ class VllmBenchMark(BenchmarkInterface):
 ```
 - 注册benchmark
 ```
-from msserviceprofiler.modelevalstate.optimizer.register import register_benchmarks
+from experimental.optimizer.register import register_benchmarks
 register_benchmarks("vllm_infer_benchmark", VllmBenchMark)
 ```
 ## 三. 设置插件入口点
-将自定义的内容的注册函数添加到入口组'msserviceprofiler.modelevalstate.plugins'即可。
+将自定义的内容的注册函数添加到入口组'experimental.plugins'即可。
 例如. 如下通过调用vllm_inference_optimization模块的register来注册
 pyproject.toml
 ```
-[project.entry - points.'msserviceprofiler.modelevalstate.plugins']
+[project.entry - points.'experimental.plugins']
 vllm_inference_optimization = "vllm_inference_optimization:register"
 ```
 ## 四. 使用插件
@@ -105,9 +105,9 @@ Specified benchmark to be used.
 msserviceprofiler optimizer -e vllm_infer -b vllm_infer_benchmark
 
 常用数据结构定义
-- msserviceprofiler.modelevalstate.config.config.OptimizerConfigField
+- experimental.config.config.OptimizerConfigField
 ```
-class msserviceprofiler.modelevalstate.config.config.OptimizerConfigField(*, name: str = 'max_batch_size', config_position: str = 'BackendConfig.ScheduleConfig.maxBatchSize', min: float = 0.0, max: float = 100.0, dtype: str = 'float', value: int | float | bool | None = None, dtype_param: Any = None)
+class experimental.config.config.OptimizerConfigField(*, name: str = 'max_batch_size', config_position: str = 'BackendConfig.ScheduleConfig.maxBatchSize', min: float = 0.0, max: float = 100.0, dtype: str = 'float', value: int | float | bool | None = None, dtype_param: Any = None)
     Bases: BaseModel
     寻优参数的结构定义。    
     
@@ -119,9 +119,9 @@ class msserviceprofiler.modelevalstate.config.config.OptimizerConfigField(*, nam
     name: str  # 字段命名，设置环境变量时 将其全部大写作为变量名 config_position用来区分如何更新字段的值，
     value: int | float | bool | None  # 参数值，例如将该值修改到配置文件中，或者设置为环境变量的值 dtype_param: 类型转换时 需要的转换参数
 ```
-- msserviceprofiler.modelevalstate.config.config.PerformanceIndex
+- experimental.config.config.PerformanceIndex
 ```
-class msserviceprofiler.modelevalstate.config.config.PerformanceIndex(*, generate_speed: float | None = None, time_to_first_token: float | None = None, time_per_output_token: float | None = None, success_rate: float | None = None, throughput: float | None = None)
+class experimental.config.config.PerformanceIndex(*, generate_speed: float | None = None, time_to_first_token: float | None = None, time_per_output_token: float | None = None, success_rate: float | None = None, throughput: float | None = None)
 
     Bases: BaseModel
     benchmark 获取到的性能指标。
@@ -133,9 +133,9 @@ class msserviceprofiler.modelevalstate.config.config.PerformanceIndex(*, generat
     time_to_first_token: float | None # ttft， 建议传
 ```
 ### 配置自定义
-- msserviceprofiler.modelevalstate.config.config.register_settings
+- experimental.config.config.register_settings
 ```
-msserviceprofiler.modelevalstate.config.config.register_settings(func: Callable | None = None) → None
+experimental.config.config.register_settings(func: Callable | None = None) → None
 注册自定义settings，可以提供函数生成。
  Args:
  func: 生成settings的函数。 
@@ -144,7 +144,7 @@ msserviceprofiler.modelevalstate.config.config.register_settings(func: Callable 
 ```
 ### benchmark 接口
 ```
-class msserviceprofiler.modelevalstate.optimizer.benchmark.BenchmarkInterface()
+class experimental.optimizer.benchmark.BenchmarkInterface()
     Bases: ABC
     property num_prompts: Tuple[OptimizerConfigField] | None
         获取获取数据的请求数 属性 
@@ -174,11 +174,11 @@ class msserviceprofiler.modelevalstate.optimizer.benchmark.BenchmarkInterface()
         服务启动前根据data_field更新服务启动命令。更新self.command属性。 
         Returns: None
 ```
-注册实现：msserviceprofiler.modelevalstate.optimizer.register.register_benchmarks
+注册实现：experimental.optimizer.register.register_benchmarks
 
 ### 框架服务操作接口
 ```
-class msserviceprofiler.modelevalstate.optimizer.simulator.SimulatorInterface()
+class experimental.optimizer.simulator.SimulatorInterface()
     Bases: ABC
 
     操作服务框架。用于操作服务相关功能。
@@ -207,7 +207,7 @@ class msserviceprofiler.modelevalstate.optimizer.simulator.SimulatorInterface()
         运行时，其他的准备工作。 
         Returns: None
 ```
-注册实现：msserviceprofiler.modelevalstate.optimizer.register.register_simulator
+注册实现：experimental.optimizer.register.register_simulator
 ### 插件pyproject.toml
 入口设置为modelevalstate.plugins
 例如：

@@ -21,28 +21,28 @@ from loguru import logger
 from pandas import DataFrame
 from sklearn.metrics import r2_score, mean_absolute_percentage_error
 from sklearn.model_selection import train_test_split
-from msserviceprofiler.msguard import Rule
-from msserviceprofiler.modelevalstate.analysis import AnalysisState
-from msserviceprofiler.modelevalstate.common import _DECODE, _PREFILL, State
-from msserviceprofiler.modelevalstate.common import computer_speed_with_second, get_train_sub_path, \
+from msguard import Rule
+from experimental.analysis import AnalysisState
+from experimental.common import _DECODE, _PREFILL, State
+from experimental.common import computer_speed_with_second, get_train_sub_path, \
     update_global_coefficient
 
 try:
-    from msserviceprofiler.modelevalstate.data_feature.dataset_with_modin import MyDataSetWithModin as MyDataSet
+    from experimental.data_feature.dataset_with_modin import MyDataSetWithModin as MyDataSet
 except ModuleNotFoundError:
     try:
-        from msserviceprofiler.modelevalstate.data_feature.dataset_with_swifter import MyDataSetWithSwifter as MyDataSet
+        from experimental.data_feature.dataset_with_swifter import MyDataSetWithSwifter as MyDataSet
     except ModuleNotFoundError:
-        from msserviceprofiler.modelevalstate.data_feature.dataset import MyDataSet
-from msserviceprofiler.modelevalstate.data_feature.dataset import CustomOneHotEncoder, CustomLabelEncoder, \
+        from experimental.data_feature.dataset import MyDataSet
+from experimental.data_feature.dataset import CustomOneHotEncoder, CustomLabelEncoder, \
     preset_category_data
-from msserviceprofiler.modelevalstate.data_feature.v1 import FileReader
-from msserviceprofiler.modelevalstate.inference.common import HistInfo, model_op_size, OP_EXPECTED_FIELD_MAPPING, \
+from experimental.data_feature.v1 import FileReader
+from experimental.inference.common import HistInfo, model_op_size, OP_EXPECTED_FIELD_MAPPING, \
     OP_SCALE_HIST_FIELD_MAPPING
-from msserviceprofiler.modelevalstate.inference.constant import OpAlgorithm
-from msserviceprofiler.modelevalstate.model.xgb_state_model import StateXgbModel
-from msserviceprofiler.modelevalstate.train.state_param import StateParam
-from msserviceprofiler.modelevalstate.inference.utils import save_dataframe_to_csv
+from experimental.inference.constant import OpAlgorithm
+from experimental.model.xgb_state_model import StateXgbModel
+from experimental.train.state_param import StateParam
+from experimental.inference.utils import save_dataframe_to_csv
 
 
 @dataclass

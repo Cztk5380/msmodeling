@@ -22,13 +22,13 @@ import numpy as np
 import torch
 from loguru import logger
 
-import msserviceprofiler.modelevalstate.inference.simulate as simulate
-from msserviceprofiler.modelevalstate.inference.constant import BatchStage
-from msserviceprofiler.modelevalstate.inference.data_format_v1 import BatchField, RequestField
-from msserviceprofiler.modelevalstate.inference.dataset import CustomLabelEncoder, preset_category_data, DataProcessor
-from msserviceprofiler.modelevalstate.inference.file_reader import FileHanlder, StaticFile
-from msserviceprofiler.modelevalstate.inference.simulate import ServiceField, write_file, file_log
-from msserviceprofiler.msguard.security import open_s
+import experimental.inference.simulate as simulate
+from experimental.inference.constant import BatchStage
+from experimental.inference.data_format_v1 import BatchField, RequestField
+from experimental.inference.dataset import CustomLabelEncoder, preset_category_data, DataProcessor
+from experimental.inference.file_reader import FileHanlder, StaticFile
+from experimental.inference.simulate import ServiceField, write_file, file_log
+from msguard.security import open_s
 
 
 class SimulateVllm:

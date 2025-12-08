@@ -24,10 +24,10 @@ from typing import Dict, List, Tuple, Any
 
 import pandas as pd
 from loguru import logger
-from msserviceprofiler.msguard.security import open_s
-from msserviceprofiler.msguard import Rule
-from msserviceprofiler.modelevalstate.common import read_csv_s
-from msserviceprofiler.modelevalstate.optimizer.utils import is_root
+from msguard.security import open_s
+from msguard import Rule
+from experimental.common import read_csv_s
+from experimental.optimizer.utils import is_root
 
 
 def fetch_rids_from_db(db_path):
@@ -476,7 +476,7 @@ def arg_parse(subparsers):
 
 
 def main(args):
-    from msserviceprofiler.modelevalstate.train.pretrain import pretrain
+    from experimental.train.pretrain import pretrain
     if is_root():
         logger.warning(
             "Security Warning: Do not run this tool as root. "

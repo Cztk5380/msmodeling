@@ -11,7 +11,7 @@ from typing import Dict, Tuple
 import shutil
 import pandas as pd
 from loguru import logger
-from msserviceprofiler.msguard import validate_params, Rule
+from msguard import validate_params, Rule
 
 
 _PREFILL = "prefill"

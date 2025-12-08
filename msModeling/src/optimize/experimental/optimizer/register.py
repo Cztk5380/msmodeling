@@ -16,8 +16,8 @@ from typing import Type
 
 from loguru import logger
 
-from msserviceprofiler.modelevalstate.optimizer.interfaces.benchmark import BenchmarkInterface
-from msserviceprofiler.modelevalstate.optimizer.interfaces.simulator import SimulatorInterface
+from experimental.optimizer.interfaces.benchmark import BenchmarkInterface
+from experimental.optimizer.interfaces.simulator import SimulatorInterface
 
 simulates = {}
 benchmarks = {}
@@ -76,8 +76,8 @@ def register_benchmarks(model_arch: str,
 
 
 def register_ori_functions():
-    from msserviceprofiler.modelevalstate.optimizer.plugins.benchmark import VllmBenchMark, AisBench
-    from msserviceprofiler.modelevalstate.optimizer.plugins.simulate import VllmSimulator, Simulator
+    from experimental.optimizer.plugins.benchmark import VllmBenchMark, AisBench
+    from experimental.optimizer.plugins.simulate import VllmSimulator, Simulator
 
     register_benchmarks("vllm_benchmark", VllmBenchMark)
     register_benchmarks("ais_bench", AisBench)

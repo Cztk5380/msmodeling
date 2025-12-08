@@ -29,7 +29,7 @@ MODEL_EVAL_STATE_ALL = "MODEL_EVAL_STATE_ALL"
 def dispatch(target_env):
     target_flag = os.getenv(target_env) or os.getenv(target_env.lower())
     if target_flag and (target_flag.lower() == "true" or target_flag.lower() != "false"):
-        from msserviceprofiler.modelevalstate.patch import enable_patch
+        from experimental.patch import enable_patch
         if enable_patch(target_env):
             logger.info("The collected patch is successfully installed.")
     else:
