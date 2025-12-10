@@ -76,7 +76,7 @@ class SimulatePlugin(Plugin):
             logger.error(f"Failed in simulate init. error {e}")
             raise e
 
-    def model_inputs_update(self, model_inputs, input_metadata, cache_ids, input_len_mask, **kwargs):
+    def model_inputs_update(self, model_inputs, input_metadata, sampling_metadata, cache_ids, input_len_mask, **kwargs):
         try:
             Simulate.generate_features(self, input_metadata, cache_ids)
             self.input_metadata = input_metadata

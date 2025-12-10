@@ -29,7 +29,6 @@ from experimental.config.base_config import (
     ServiceType, BenchMarkPolicy, PDPolicy, REQUESTRATES,
     simulate_flag, CONCURRENCYS
 )
-from experimental.optimizer.register import benchmarks, simulates
 from experimental.optimizer.performance_tunner import PerformanceTuner
 from experimental.optimizer.utils import get_required_field_from_json, is_root
 
@@ -485,11 +484,12 @@ def enable_simulate(scheduler):
     
     
 def plugin_main(args: argparse.Namespace):
+    from experimental.optimizer.register import benchmarks, simulates
     from experimental.optimizer.server import main as slave_server
     from experimental.optimizer.store import DataStorage
     from experimental.config.config import get_settings
     from experimental.optimizer.experience_fine_tunning import FineTune
-    from experimental.optimizer.scheduler import Scheduler
+    from experimental.optimizer.scheduler import Scheduler, ScheduleWithMultiMachine
     from experimental.optimizer.plugins.simulate import DisaggregationSimulator
     from experimental.optimizer.register import register_ori_functions
     register_ori_functions()
@@ -526,7 +526,17 @@ def plugin_main(args: argparse.Namespace):
     # 存储结果，只在主节点存储结果
     data_storage = DataStorage(settings.data_storage, _simu, _bench)
     # 初始化调度模块，支持单机和多机
-    scheduler = Scheduler(_simu, _bench, data_storage, bak_path=bak_path)
+    if settings.service == ServiceType.slave.value:
+        slave_server(engine=args.engine)
+        return
+    if args.deploy_policy == DeployPolicy.multiple.value:
+        if settings.service == ServiceType.slave.value:
+            slave_server(engine=args.engine)
+            return
+        else:
+            scheduler = ScheduleWithMultiMachine(settings.communication, _simu, _bench, data_storage, bak_path=bak_path)
+    else:
+        scheduler = Scheduler(_simu, _bench, data_storage, bak_path=bak_path)
     fine_tune = FineTune(ttft_penalty=settings.ttft_penalty,
                          tpot_penalty=settings.tpot_penalty,
                          target_field=_target_field,
@@ -563,6 +573,7 @@ def plugin_main(args: argparse.Namespace):
 
 def arg_parse(subparsers):
     from experimental.plugins import load_general_plugins
+    from experimental.optimizer.register import benchmarks, simulates
     plugin = load_general_plugins()
     sims = ["vllm", "mindie"]
     benches = ["ais_bench", "vllm_benchmark"]
@@ -584,4 +595,3 @@ def arg_parse(subparsers):
     parser.add_argument("-e", "--engine", default='mindie', choices=list(simulates.keys()) + sims,
                         help="The engine used for model evaluation.")
     parser.set_defaults(func=plugin_main)
-
