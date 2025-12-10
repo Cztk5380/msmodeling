@@ -8,11 +8,11 @@
 - `MindIE`、`VLLM`：服务化框架，支持对模型进行服务化部署。
 - `Aisbench`、`VLLM_Benchmark`：推理性能评测工具，支持对服务化进行推理性能评测。
 
-**版本配套关系**：
+**仿真模式版本配套关系**：
 
 | 版本配套关系 |     CANN     |     框架     |
 |:-------------:|:------------:|:--------------:|
-|     MindIE当前版本      | CANN 8.1.RC1 | MindIE 2.0.RC1 |
+|     MindIE当前版本      | CANN 8.3.RC2 | MindIE 2.2.RC1 |
 |     VLLM当前版本      | CANN 8.2.RC1 | VLLM 0.8.4 |
 
 ## 使用前准备
@@ -200,7 +200,7 @@ others = ""
 
 
 ## pd分离
-当前工具只支持mindie的A2单机pd分离，且需要k8s部署。需保证能正常使用k8s拉起mindie服务。
+当前工具只支持mindie的A2单机pd分离（轻量化模式），且需要k8s部署。需保证能正常使用k8s拉起mindie服务。
 需要在`config.toml`中配置kubectl_default_path字段，将该字段配置为k8s安装脚本解压后的单机执行目录，目录结构需要为：
 ```
 K8s_v1.23_MindCluster.7.1.RC1.B098.aarch/
