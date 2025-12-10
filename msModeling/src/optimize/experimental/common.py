@@ -102,24 +102,6 @@ def get_module_version(module_name):
     except (ImportError):
         pass
 
-    # # 方法4：最后尝试 pip show
-    _flag = "MODEL_EVAL_STATE_GET_MODULE_VERSION_FLAG"
-    try:
-        if os.getenv(_flag) == "true":
-            raise ValueError
-        pip_path = shutil.which("pip3")
-        if pip_path is not None:
-            output = subprocess.check_output(
-                [pip_path, "show", module_name],
-                universal_newlines=True,
-                env={"MODEL_EVAL_STATE_GET_MODULE_VERSION_FLAG": "true"}
-            )
-            for line in output.splitlines():
-                if line.startswith("Version:"):
-                    return line.split(":")[1].strip()
-    except (subprocess.CalledProcessError, FileNotFoundError):
-        pass
-
     raise ValueError("模块未安装或无法获取版本")
 
 

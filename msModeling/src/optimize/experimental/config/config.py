@@ -62,7 +62,7 @@ class OptimizerConfigField(BaseModel):
     min: float = 0.0
     max: float = 100.0
     dtype: str = "float"
-    value: Union[int, float, bool] = 0.0
+    value: Union[int, float, bool, None] = None
     dtype_param: Any = None
     constant: Optional[float] = None  # 识别是否是常量
 
@@ -341,24 +341,6 @@ class BenchMarkConfig(BaseModel):
         return path
 
 
-class ProfileConfig(BaseModel):
-    output: Path = Path("benchmark")
-    profile_input_path: Path = Field(
-        default_factory=lambda data: data["output"].joinpath("profile_input_path").resolve(),
-        validate_default=True
-    )
-    profile_output_path: Path = Field(
-        default_factory=lambda data: data["output"].joinpath("profile_output_path").resolve(),
-        validate_default=True
-    )
-
-    @field_validator("profile_input_path", "profile_output_path")
-    @classmethod
-    def create_path(cls, path: Path) -> Path:
-        mkdir_s(path)
-        return path
-
-
 class CommunicationConfig(BaseModel):
     base_path: Path = Path("communication")
     cmd_file: Optional[Path] = Field(
@@ -512,7 +494,6 @@ class Settings(BaseSettings):
     communication: CommunicationConfig = Field(
         default_factory=lambda data: CommunicationConfig(base_path=data["output"].joinpath("communication")),
         validate_default=True)
-    kubectl: KubectlConfig = KubectlConfig()
     latency_model: LatencyModel = Field(
         default_factory=lambda data: LatencyModel(base_path=data["output"].joinpath("latency_model")),
         validate_default=True)
@@ -526,7 +507,6 @@ class Settings(BaseSettings):
     benchmark: BenchMarkConfig = BenchMarkConfig()
 
     vllm_benchmark: VllmBenchmarkConfig = VllmBenchmarkConfig()
-    profile: ProfileConfig = ProfileConfig()
 
 
     data_storage: DataStorageConfig = Field(
@@ -625,8 +605,6 @@ class Settings(BaseSettings):
         if not self.benchmark.command.save_path:
             self.benchmark.command.save_path = str(self.benchmark.output_path.joinpath("instance"))
         mkdir_s(Path(self.benchmark.command.save_path)) 
-        if self.profile.output == ProfileConfig.model_fields["output"].default:
-            self.profile = ProfileConfig(output=self.output.joinpath("profile"))
         return self
 
 

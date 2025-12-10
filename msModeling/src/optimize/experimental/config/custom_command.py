@@ -115,18 +115,13 @@ class VllmBenchmarkCommand:
  
     @property
     def command(self):
-        if not Rule.input_file_read.is_satisfied_by(self.benchmark_command_config.dataset_path):
-            logger.error("the file of dataset_path is not safe, please check")
-            return None
         cmd = [self.process, 
                 "bench", "serve",
-                "--backend", self.benchmark_command_config.backend,
                 "--host", self.benchmark_command_config.host,
                 "--port", self.benchmark_command_config.port,
                 "--model", self.benchmark_command_config.model,
                 "--served-model-name", self.benchmark_command_config.served_model_name,
                 "--dataset-name", self.benchmark_command_config.dataset_name,
-                "--dataset-path", self.benchmark_command_config.dataset_path,
                 "--num-prompts", str(self.benchmark_command_config.num_prompts),
                 "--max-concurrency", "$CONCURRENCY",
                 "--request-rate", "$REQUESTRATE",

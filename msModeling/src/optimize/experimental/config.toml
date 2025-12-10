@@ -92,14 +92,11 @@ mode = "perf"
 num_prompts = 3000
 
 [vllm_benchmark.command]
-serving = "serving_path"
-backend = "backend"
 host = "127.0.0.1"
 port = "port"
 model = "model_path"
 served_model_name = "model_name"
 dataset_name = "dataset_name"
-dataset_path = "dataset_path"
 num_prompts = 3000
 others = ""
 

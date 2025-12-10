@@ -105,7 +105,7 @@ class CommunicationForFile:
                 data = f.read()
         return data
  
-    def clear_command(self, command):
+    def clear_cmd(self, command):
         # 确认命令是否完成，进行清理相关命令。
         st = time.perf_counter()
         while True:
