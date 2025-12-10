@@ -13,21 +13,24 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import ast
+import json
 import sys
 import time
-from typing import Tuple
 from pathlib import Path
 
+import numpy as np
 from loguru import logger
 
-from experimental.common import is_mindie
-from experimental.optimizer.plugins.simulate import Simulator
-from experimental.config.config import get_settings, map_param_with_value, CommunicationConfig
+from experimental.optimizer.register import simulates
+from experimental.config.config import get_settings, map_param_with_value, CommunicationConfig, Stage, \
+    OptimizerConfigField
 from experimental.optimizer.communication import CommunicationForFile, CustomCommand
 
 
 class Scheduler:
-    def __init__(self, communication_config: CommunicationConfig, ):
+    def __init__(self, engine: str, communication_config: CommunicationConfig):
+        self.engine = engine
+        self.simulator_class = simulates[engine]
         self.simulator = None
         self.communication_config = communication_config
         self.communication = CommunicationForFile(self.communication_config.res_file,
@@ -43,14 +46,13 @@ class Scheduler:
         self.communication.clear_res()
  
     def start(self, params):
-        d = ast.literal_eval(params)
-        if is_mindie():
-            self.simulator = Simulator(get_settings().mindie)
-            _simulate_run_info = map_param_with_value(d, get_settings().mindie.target_field)
-        else:
-            self.simulator = Simulator(get_settings().vllm)
-            _simulate_run_info = map_param_with_value(d, get_settings().vllm.target_field)
-        logger.info(f"simulate run info {_simulate_run_info}")
+        d = json.loads(params)
+        self.simulator = self.simulator_class()
+        _params = np.array(d["params"])
+        _params_field = tuple([OptimizerConfigField(**_item) for _item in d["params_field"]])
+        # 注意因为当前设计是simulator 参数在调优参数的前一部分，所以下面的才会对应上。
+        _simulate_run_info = map_param_with_value(_params, _params_field)
+        logger.debug(f"simulate run info {_simulate_run_info}")
         self.simulator.run(tuple(_simulate_run_info))
         _result = f"{self.cmd.history[-1]}:done"
         self.communication.send_command(_result)
@@ -60,11 +62,13 @@ class Scheduler:
         if not self.simulator:
             return
         flag = False
-        for _ in range(10):
-            if self.simulator.check_success():
+        for _ in range(30):
+            res = self.simulator.health()
+            if res.stage == Stage.running:
                 flag = True
                 break
-            time.sleep(10)
+ 
+            time.sleep(1)
         _result = f"{self.cmd.history[-1]}:{flag}"
         self.communication.send_command(_result)
         self.communication.clear_res()
@@ -98,16 +102,23 @@ class Scheduler:
     def process_poll(self):
         flag = None
         if self.simulator:
-            flag = self.simulator.process.poll()
+            res = self.simulator.health()
+            if res.stage == Stage.running:
+                flag = None
+            elif res.stage == Stage.error:
+                flag = f"error. info {res.info}"
+            else:
+                flag = f"stage: {res.stage}, info: {res.info}"
         _result = f"{self.cmd.history[-1]}:{flag}"
         self.communication.send_command(_result)
         self.communication.clear_res()
  
     def init(self):
-        _cmd, _ = self.get_cmd_param()
+        _cmd, _param = self.get_cmd_param()
+        logger.debug("params {}", _param)
         if not _cmd:
             return False
-        logger.debug("cmd {}", _cmd)
+        logger.info("cmd {}", _cmd)
         if _cmd.strip().lower() == "init":
             _result = f"{self.cmd.history[-1]}:done"
             self.communication.send_command(_result)
@@ -117,20 +128,23 @@ class Scheduler:
  
     def run(self):
         _cmd, _param = self.get_cmd_param()
+ 
         if not _cmd:
             return ''
         if not hasattr(self, _cmd):
             logger.error("Unknown command found, {}.", _cmd)
             return ''
+        logger.debug("cmd {}, params {}", _cmd, _param)
         if _param:
             res = getattr(self, _cmd)(_param)
         else:
             res = getattr(self, _cmd)()
         return res
-
-
-def main():
-    schduler = Scheduler(get_settings().communication)
+ 
+ 
+def main(engine: str):
+    # 创建服务器
+    schduler = Scheduler(engine, get_settings().communication)
     _init_flag = True
     for _ in range(60):
         if schduler.init():
@@ -140,10 +154,11 @@ def main():
     if _init_flag:
         raise ValueError("Verification of communication failed within 60 seconds ")
     while True:
+        # 运行服务器的主循环
         try:
+            # 接收命令执行命令
             schduler.run()
             time.sleep(1)
         except KeyboardInterrupt:
             logger.info("Keyboard interrupt received, exiting.")
             break
- 
