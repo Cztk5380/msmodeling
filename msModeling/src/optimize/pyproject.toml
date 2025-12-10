@@ -1,5 +1,5 @@
 [tool.poetry]
-name = "msmodeling"
+name = "experimental"
 version = "0.1.0"
 description = ""
 readme = "README.md"
@@ -10,7 +10,7 @@ pandas = "*"
 psutil = "^6.0.0"
 loguru = "^0.7.3"
 scipy = "^1.3.2"
-msguard
+msguard = "^0.0.8"
 filelock = { version = "^3.13.1", optional = true }
 pydantic-settings = { version = "^2.2.1", optional = true }
 pydantic = { version = "^2.10.5", optional = true }

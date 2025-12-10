@@ -88,7 +88,15 @@ class DatabaseConnector:
 def read_batch_exec_data(cursor) -> pd.DataFrame:
     """读取 batch_exec 表中的数据，并返回包含列名的 DataFrame"""
     try:
-        cursor.execute("SELECT * FROM batch_exec WHERE event = 'forward';")
+        cursor.execute("PRAGMA table_info(batch_exec);")
+        columns_info = cursor.fetchall()
+        column_names = [col[1] for col in columns_info]  # col[1] 是列名
+        
+        # 根据列名决定使用哪个字段进行筛选
+        if 'name' in column_names:
+            cursor.execute("SELECT * FROM batch_exec WHERE name = 'forward';")
+        else:
+            cursor.execute("SELECT * FROM batch_exec WHERE event = 'forward';")
         data = cursor.fetchall()
         # 获取列名
         columns = [col[0] for col in cursor.description]
