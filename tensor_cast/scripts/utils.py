@@ -10,7 +10,6 @@ from typing import List
 import torch
 
 from .. import device_profiles  # noqa: F401
-
 from ..compilation import get_backend
 from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
@@ -30,6 +29,7 @@ from ..model_config import (
 from ..performance_model.utils import bytes_of_tensor
 from ..transformers.model import TransformerModel
 from ..transformers.utils import (
+    AutoModelConfigLoader,
     get_attention_quant_config,
     model_id_to_json,
     model_id_to_mla_module_name,
@@ -67,10 +67,10 @@ def get_available_memory_gb(device_profile, runtime, reserved_memory_size_gb=0):
     :param reserved_memory_size_gb: The reserved memory size on top of the consumption of the models.
     :return: The minimum available memory during execution.
     """
-    total_device_memory_gb = device_profile.memory_size_bytes / 1024**3
-    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
+    total_device_memory_gb = device_profile.memory_size_bytes / 1024 ** 3
+    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024 ** 3
     device_memory_available_gb = (
-        total_device_memory_gb - peak_memory_usage_gb - reserved_memory_size_gb
+            total_device_memory_gb - peak_memory_usage_gb - reserved_memory_size_gb
     )
     return device_memory_available_gb
 
@@ -135,10 +135,10 @@ def create_attention_quant_config(quantize_attention_action: QuantizeAttentionAc
 
 
 def create_quant_config(
-    quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.DISABLED,
-    quantize_lmhead: bool = False,
-    quantize_attention_action: QuantizeAttentionAction = QuantizeAttentionAction.DISABLED,
-    **kwargs,
+        quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.DISABLED,
+        quantize_lmhead: bool = False,
+        quantize_attention_action: QuantizeAttentionAction = QuantizeAttentionAction.DISABLED,
+        **kwargs,
 ):
     quant_config = QuantConfig()
     if quantize_linear_action != QuantizeLinearAction.DISABLED:
@@ -165,18 +165,18 @@ def create_quant_config(
 
 
 def build_model(
-    model_id: str,
-    parallel_config: ParallelConfig,
-    quant_config: QuantConfig,
-    enable_lmhead: bool = True,
-    num_mtp_tokens: int = 0,
-    compile: bool = False,
-    allow_graph_break: bool = True,
-    enable_repetition: bool = True,
-    num_hidden_layers_override: int = 0,
-    enable_redundant_experts: bool = False,
-    enable_external_shared_experts: bool = False,
-    host_external_shared_experts: bool = False,
+        model_id: str,
+        parallel_config: ParallelConfig,
+        quant_config: QuantConfig,
+        enable_lmhead: bool = True,
+        num_mtp_tokens: int = 0,
+        compile: bool = False,
+        allow_graph_break: bool = True,
+        enable_repetition: bool = True,
+        num_hidden_layers_override: int = 0,
+        enable_redundant_experts: bool = False,
+        enable_external_shared_experts: bool = False,
+        host_external_shared_experts: bool = False,
 ) -> TransformerModel:
     """
     Build a transformer model based on the given args
@@ -191,6 +191,8 @@ def build_model(
                               loading and execution performance.
     :return: The loaded (and possibly compiled) Transformer model.
     """
+    auto_loader = AutoModelConfigLoader()
+    hf_config = auto_loader.load_config(model_id)
     model_config = ModelConfig(
         parallel_config,
         quant_config,
@@ -199,14 +201,17 @@ def build_model(
         hf_config_json=model_id_to_json(model_id),
         enable_lmhead=enable_lmhead,
     )
-    moe_config = model_id_to_moe_config(model_id)
+    model_config.hf_config = hf_config
+    model_config.trust_remote_code = not auto_loader.is_transformers_natively_supported
+
+    moe_config = model_id_to_moe_config(model_id, hf_config.model_type)
     if moe_config is not None:
         moe_config.enable_redundant_experts = enable_redundant_experts
         moe_config.enable_external_shared_experts = enable_external_shared_experts
         moe_config.host_external_shared_experts = host_external_shared_experts
     model_config.moe_config = moe_config
 
-    mla_module_name = model_id_to_mla_module_name(model_id)
+    mla_module_name = model_id_to_mla_module_name(model_id, hf_config.model_type)
     if mla_module_name is not None:
         mla_config = MlaConfig(
             module_name=mla_module_name,
@@ -216,12 +221,11 @@ def build_model(
     if num_mtp_tokens > 0:
         mtp_config = MtpConfig(
             num_mtp_layers=num_mtp_tokens,
-            mtp_block_module_name=model_id_to_mtp_block_module_name(model_id),
+            mtp_block_module_name=model_id_to_mtp_block_module_name(model_id, hf_config.model_type),
         )
         model_config.mtp_config = mtp_config
     model_config.enable_repetition = enable_repetition
-    if num_hidden_layers_override > 0:
-        model_config.num_hidden_layers_override = num_hidden_layers_override
+    model_config.num_hidden_layers_override = num_hidden_layers_override
     model = TransformerModel(model_id, model_config)
     if compile:
         model = torch.compile(

@@ -2,45 +2,37 @@ import contextlib
 import copy
 import dataclasses
 import fnmatch
-import importlib
-import json
 import logging
 import math
-import os
-import re
 import typing
 from typing import Dict, Optional, Union
 
 import torch
-from transformers import AutoConfig, AutoModel, PretrainedConfig
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
+from .utils import (
+    init_on_device_without_buffers,
+    model_id_to_moe_config, model_id_to_mla_module_name,
+    strip_module_name,
+    AutoModelConfigLoader
+)
 from ..layers import (
     COLWISE_LINEAR,
     PARALLEL_EMBEDDING,
     PARALLEL_MODULE_CLS,
     ROWWISE_LINEAR,
 )
-
 from ..layers.attention import flash_attention_forward
 from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
-
-from ..layers.mla import MultiheadLatentAttentionBase
+from ..layers.mla import MultiheadLatentAttentionBase, MultiheadLatentAttentionTensorCast
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
-
 from ..layers.quant_linear import QuantLinearBase
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
-from ..model_config import ModelConfig, MoEConfig
+from ..model_config import ModelConfig, MoEConfig, MlaConfig
 from ..parallel_group import ParallelGroupManager
-
 from ..performance_model.utils import bytes_of_tensor
-from .utils import (
-    init_on_device_without_buffers,
-    model_id_to_moe_config,
-    strip_module_name,
-)
 
 if typing.TYPE_CHECKING:
     from ..layers.sampler import SamplingMetadata
@@ -127,52 +119,29 @@ class TransformerModel(ModelWrapperBase):
         it into a model according to the given model configuration.
 
         Args:
-            model_id: transformer model id
+            model_id: transformer model id, (`str` or `os.PathLike`)
             model_config: specify how we should load and convert the transformer model
         """
         super().__init__(None)
         self.model_id = model_id
         self.model_config = model_config
-        hf_config_json = self.model_config.hf_config_json
-        disable_auto_map = self.model_config.disable_auto_map
         with init_on_device_without_buffers("meta"), no_init_weights():
-            if hf_config_json is not None:
-                if not os.path.isabs(hf_config_json):
-                    hf_config_json = os.path.join(
-                        os.path.dirname(os.path.abspath(__file__)),
-                        "conf",
-                        hf_config_json,
-                    )
-                self.hf_config = self.load_hf_config_from_json(hf_config_json)
-                if disable_auto_map is not None and not disable_auto_map:
-                    raise ValueError(
-                        "When hf_config_json is specified, `disable_auto_map` should not be set to False."
-                    )
-                disable_auto_map = True
+            auto_loader = AutoModelConfigLoader()
+            if self.model_config.hf_config is not None:
+                self.hf_config = self.model_config.hf_config
+                if self.model_config.num_hidden_layers_override:
+                    self.hf_config.num_hidden_layers = model_config.num_hidden_layers_override
+                self._inner = auto_loader.load_model(self.hf_config, self.model_config.dtype,
+                                                     self.model_config.trust_remote_code)
             else:
-                self.hf_config = AutoConfig.from_pretrained(model_id)
-            if model_config.num_hidden_layers_override is not None:
-                self.hf_config.num_hidden_layers = (
-                    model_config.num_hidden_layers_override
-                )
+                self.hf_config, self._inner = auto_loader.auto_load_model_and_config(self.model_id, self.model_config)
+            logger.info("origin model and config are loaded successfully")
+
             self.text_config = self.hf_config.get_text_config()
-            if (
-                self.model_config.attention_cls
-                and self.model_config.attention_cls.attn_implmentation
-            ):
-                self.text_config._attn_implementation = (
-                    self.model_config.attention_cls.attn_implmentation
-                )
-            if disable_auto_map and hasattr(self.hf_config, "auto_map"):
-                delattr(self.hf_config, "auto_map")
-            self._inner = AutoModel.from_config(
-                self.hf_config,
-                dtype=self.model_config.dtype,
-                trust_remote_code=self.model_config.trust_remote_code,
-            )
-            self.parallel_group_manager = ParallelGroupManager(
-                self.model_config.parallel_config
-            )
+            if self.model_config.attention_cls and self.model_config.attention_cls.attn_implmentation:
+                self.text_config._attn_implementation = self.model_config.attention_cls.attn_implmentation
+
+            self.parallel_group_manager = ParallelGroupManager(self.model_config.parallel_config)
             # the order of these functions matters!
             with self.set_default_dtype():
                 self.wrap_model()
@@ -192,26 +161,6 @@ class TransformerModel(ModelWrapperBase):
         finally:
             torch.set_default_dtype(orig_dtype)
 
-    def load_hf_config_from_json(self, hf_config_json: str) -> PretrainedConfig:
-        with open(hf_config_json) as f:
-            data = json.load(f)
-        if "auto_map" not in data or "AutoConfig" not in data["auto_map"]:
-            raise ValueError(f"Missing auto_map/AutoConfig in {hf_config_json}")
-        autoconfig_name: str = data["auto_map"]["AutoConfig"]
-        match = re.match(
-            r"configuration_([a-zA-Z0-9_]+)\.([a-zA-Z0-9_]+)", autoconfig_name
-        )
-        if not match:
-            raise ValueError(
-                f"Unable to find model name or class name according to pattern"
-                f"'configuration_<model_name>.<class_name>' from the value of {autoconfig_name}"
-            )
-        model_name = match.group(1)
-        class_name = match.group(2)
-        module = importlib.import_module(f"transformers.models.{model_name}")
-        config_cls = getattr(module, class_name)
-        return config_cls.from_json_file(hf_config_json)
-
     def wrap_model(self):
         """
         Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
@@ -219,11 +168,12 @@ class TransformerModel(ModelWrapperBase):
         2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
         This makes other wrappers' life simpler.
         """
-        self.enable_lmhead = self.model_config.enable_lmhead is True
-        if self.model_config.mtp_config and not self.enable_lmhead:
-            assert self.model_config.enable_lmhead is None, "MTP on but lmhead is off"
-            self.enable_lmhead = True
-        if self.enable_lmhead:
+        # 不管有没有lmhead，都按照加上lmhead处理.
+        # todo MTP的逻辑再看下
+        has_lmhead = hasattr(self._inner, "lmhead")  # 如果加载上来的模型没有lmhead，我们就给他加上一个
+        if self.model_config.mtp_config and not has_lmhead:
+            logger.warning("MTP on but lmhead is off,auto add lmhead")
+        if not has_lmhead:
             self._inner = CausalLmWrapper(
                 hf_config=self.hf_config,
                 model=self._inner,
@@ -242,12 +192,8 @@ class TransformerModel(ModelWrapperBase):
             decoder_cls_name = type(unwrapped.layers[-1]).__name__
             mtp_config.mtp_block_module_name = decoder_cls_name
             # expand the layer_types used by Qwen model
-            if hasattr(self.hf_config, "layer_types") and isinstance(
-                self.hf_config.layer_types, list
-            ):
-                self.hf_config.layer_types.extend(
-                    [self.hf_config.layer_types] * mtp_config.num_mtp_layers
-                )
+            if hasattr(self.hf_config, "layer_types") and isinstance(self.hf_config.layer_types, list):
+                self.hf_config.layer_types.extend([self.hf_config.layer_types] * mtp_config.num_mtp_layers)
             logger.info("Automatic MTP mode using decoder class: %s", decoder_cls_name)
 
         orig_dtype = torch.get_default_dtype()
@@ -303,9 +249,7 @@ class TransformerModel(ModelWrapperBase):
         """
         # cache rotary embedding to avoid computing it each time per forward
         unwrapped = self.unwrap()
-        if self.model_config.cache_rotary_embedding and hasattr(
-            unwrapped, "rotary_emb"
-        ):
+        if self.model_config.cache_rotary_embedding and hasattr(unwrapped, "rotary_emb"):
             unwrapped.rotary_emb = CachingRotaryEmb(
                 unwrapped.rotary_emb,
                 act_dtype=self.model_config.dtype,
@@ -343,7 +287,7 @@ class TransformerModel(ModelWrapperBase):
 
         for field in dataclasses.fields(field_names):
             if not is_optional(
-                type(field_names).__annotations__[field.name]
+                    type(field_names).__annotations__[field.name]
             ) and not hasattr(module, getattr(field_names, field.name)):
                 logger.warning(
                     "Field %s not found in module %s",
@@ -354,24 +298,28 @@ class TransformerModel(ModelWrapperBase):
         return True
 
     def patch_mla(self):
-        if self.model_config.mla_config:
-            mla_config = self.model_config.mla_config
-            named_modules = list(self._inner.named_modules())
-            for name, module in named_modules:
-                if type(module).__name__ == mla_config.module_name:
-                    # check if all the required fields exist
-                    if not self._all_required_fields_exist(
-                        module, mla_config.field_names
-                    ):
-                        continue
-                    mla = mla_config.mla_cls(
-                        mla_config, module, self.parallel_group_manager.tp_group
-                    )
-                    self._replace_module(name, mla)
+        if not self.model_config.mla_config:
+            mla_module_name = model_id_to_mla_module_name(self.hf_config.model_type)
+            mla_config = MlaConfig(
+                module_name=mla_module_name,
+                mla_cls=MultiheadLatentAttentionTensorCast,
+            )
+            self.model_config.mla_config = mla_config
+        mla_config = self.model_config.mla_config
+        if not mla_config:
+            return
+        named_modules = list(self._inner.named_modules())
+        for name, module in named_modules:
+            if type(module).__name__ == mla_config.module_name:
+                # check if all the required fields exist
+                if not self._all_required_fields_exist(module, mla_config.field_names):
+                    continue
+                mla = mla_config.mla_cls(mla_config, module, self.parallel_group_manager.tp_group)
+                self._replace_module(name, mla)
 
     def get_moe_config(self):
         if not self.model_config.moe_config:
-            return model_id_to_moe_config(self.model_id)
+            return model_id_to_moe_config(self.model_id, self.hf_config.model_type)
         return self.model_config.moe_config
 
     def patch_moe(self, moe_config: Optional[MoEConfig]):
