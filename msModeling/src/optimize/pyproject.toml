@@ -1,8 +1,10 @@
 [tool.poetry]
-name = "experimental"
+name = "msserviceprofiler"
 version = "0.1.0"
 description = ""
-readme = "README.md"
+packages = [
+{ include = "experimental" },
+]
 
 [tool.poetry.dependencies]
 python = "^3.9"
@@ -33,7 +35,7 @@ speed = [
 ]
 
 [tool.poetry.scripts]
-msmodeling = "experimental.__main__:main"
+msserviceprofiler = "experimental.__main__:main"
 
 [build-system]
 requires = ["poetry-core"]
