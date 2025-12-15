@@ -64,7 +64,7 @@ class SimulatorInterface(CustomProcess, BaseDataField, ABC):
         Returns:
 
         """
-        pass
+        super().stop(del_log)   
 
 
     def health(self) -> ProcessState:
