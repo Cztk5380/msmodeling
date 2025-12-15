@@ -10,12 +10,6 @@ from typing import Dict, Optional, Union
 import torch
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
-from .utils import (
-    init_on_device_without_buffers,
-    model_id_to_moe_config, model_id_to_mla_module_name,
-    strip_module_name,
-    AutoModelConfigLoader
-)
 from ..layers import (
     COLWISE_LINEAR,
     PARALLEL_EMBEDDING,
@@ -24,15 +18,25 @@ from ..layers import (
 )
 from ..layers.attention import flash_attention_forward
 from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
-from ..layers.mla import MultiheadLatentAttentionBase, MultiheadLatentAttentionTensorCast
+from ..layers.mla import (
+    MultiheadLatentAttentionBase,
+    MultiheadLatentAttentionTensorCast,
+)
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 from ..layers.quant_linear import QuantLinearBase
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
-from ..model_config import ModelConfig, MoEConfig, MlaConfig
+from ..model_config import MlaConfig, ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
+from .utils import (
+    AutoModelConfigLoader,
+    init_on_device_without_buffers,
+    model_id_to_mla_module_name,
+    model_id_to_moe_config,
+    strip_module_name,
+)
 
 if typing.TYPE_CHECKING:
     from ..layers.sampler import SamplingMetadata
@@ -130,18 +134,32 @@ class TransformerModel(ModelWrapperBase):
             if self.model_config.hf_config is not None:
                 self.hf_config = self.model_config.hf_config
                 if self.model_config.num_hidden_layers_override:
-                    self.hf_config.num_hidden_layers = model_config.num_hidden_layers_override
-                self._inner = auto_loader.load_model(self.hf_config, self.model_config.dtype,
-                                                     self.model_config.trust_remote_code)
+                    self.hf_config.num_hidden_layers = (
+                        model_config.num_hidden_layers_override
+                    )
+                self._inner = auto_loader.load_model(
+                    self.hf_config,
+                    self.model_config.dtype,
+                    self.model_config.trust_remote_code,
+                )
             else:
-                self.hf_config, self._inner = auto_loader.auto_load_model_and_config(self.model_id, self.model_config)
+                self.hf_config, self._inner = auto_loader.auto_load_model_and_config(
+                    self.model_id, self.model_config
+                )
             logger.info("origin model and config are loaded successfully")
 
             self.text_config = self.hf_config.get_text_config()
-            if self.model_config.attention_cls and self.model_config.attention_cls.attn_implmentation:
-                self.text_config._attn_implementation = self.model_config.attention_cls.attn_implmentation
+            if (
+                self.model_config.attention_cls
+                and self.model_config.attention_cls.attn_implmentation
+            ):
+                self.text_config._attn_implementation = (
+                    self.model_config.attention_cls.attn_implmentation
+                )
 
-            self.parallel_group_manager = ParallelGroupManager(self.model_config.parallel_config)
+            self.parallel_group_manager = ParallelGroupManager(
+                self.model_config.parallel_config
+            )
             # the order of these functions matters!
             with self.set_default_dtype():
                 self.wrap_model()
@@ -168,11 +186,7 @@ class TransformerModel(ModelWrapperBase):
         2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
         This makes other wrappers' life simpler.
         """
-        # 不管有没有lmhead，都按照加上lmhead处理.
-        # todo MTP的逻辑再看下
-        has_lmhead = hasattr(self._inner, "lmhead")  # 如果加载上来的模型没有lmhead，我们就给他加上一个
-        if self.model_config.mtp_config and not has_lmhead:
-            logger.warning("MTP on but lmhead is off,auto add lmhead")
+        has_lmhead = hasattr(self._inner, "lmhead")
         if not has_lmhead:
             self._inner = CausalLmWrapper(
                 hf_config=self.hf_config,
@@ -192,8 +206,12 @@ class TransformerModel(ModelWrapperBase):
             decoder_cls_name = type(unwrapped.layers[-1]).__name__
             mtp_config.mtp_block_module_name = decoder_cls_name
             # expand the layer_types used by Qwen model
-            if hasattr(self.hf_config, "layer_types") and isinstance(self.hf_config.layer_types, list):
-                self.hf_config.layer_types.extend([self.hf_config.layer_types] * mtp_config.num_mtp_layers)
+            if hasattr(self.hf_config, "layer_types") and isinstance(
+                self.hf_config.layer_types, list
+            ):
+                self.hf_config.layer_types.extend(
+                    [self.hf_config.layer_types] * mtp_config.num_mtp_layers
+                )
             logger.info("Automatic MTP mode using decoder class: %s", decoder_cls_name)
 
         orig_dtype = torch.get_default_dtype()
@@ -249,7 +267,9 @@ class TransformerModel(ModelWrapperBase):
         """
         # cache rotary embedding to avoid computing it each time per forward
         unwrapped = self.unwrap()
-        if self.model_config.cache_rotary_embedding and hasattr(unwrapped, "rotary_emb"):
+        if self.model_config.cache_rotary_embedding and hasattr(
+            unwrapped, "rotary_emb"
+        ):
             unwrapped.rotary_emb = CachingRotaryEmb(
                 unwrapped.rotary_emb,
                 act_dtype=self.model_config.dtype,
@@ -287,7 +307,7 @@ class TransformerModel(ModelWrapperBase):
 
         for field in dataclasses.fields(field_names):
             if not is_optional(
-                    type(field_names).__annotations__[field.name]
+                type(field_names).__annotations__[field.name]
             ) and not hasattr(module, getattr(field_names, field.name)):
                 logger.warning(
                     "Field %s not found in module %s",
@@ -298,23 +318,26 @@ class TransformerModel(ModelWrapperBase):
         return True
 
     def patch_mla(self):
-        if not self.model_config.mla_config:
+        mla_config = self.model_config.mla_config
+        if not mla_config:
             mla_module_name = model_id_to_mla_module_name(self.hf_config.model_type)
+            if not mla_module_name:
+                return
             mla_config = MlaConfig(
                 module_name=mla_module_name,
                 mla_cls=MultiheadLatentAttentionTensorCast,
             )
             self.model_config.mla_config = mla_config
-        mla_config = self.model_config.mla_config
-        if not mla_config:
-            return
+
         named_modules = list(self._inner.named_modules())
         for name, module in named_modules:
             if type(module).__name__ == mla_config.module_name:
                 # check if all the required fields exist
                 if not self._all_required_fields_exist(module, mla_config.field_names):
                     continue
-                mla = mla_config.mla_cls(mla_config, module, self.parallel_group_manager.tp_group)
+                mla = mla_config.mla_cls(
+                    mla_config, module, self.parallel_group_manager.tp_group
+                )
                 self._replace_module(name, mla)
 
     def get_moe_config(self):
