@@ -51,7 +51,7 @@
 2. 安装自动寻优工具，命令如下：
     ```
     git clone https://gitcode.com/Ascend/msmodeling.git
-    cd msmodeling/msModeling/src/optimize
+    cd msmodeling/src/optimize
     pip install -e .[real] 
     ```
     使用轻量化的方式进行寻优则只需安装最少的依赖即可，仿真模式需要额外的依赖。
@@ -76,7 +76,7 @@
 ## 快速入门
 1. 完成[使用前准备](#使用前准备)章节要求。
 
-2. 修改配置文件：启动寻优前需用户按照实际情况配置[`config.toml`](../../msModeling/src/optimize/experimental/config.toml)，包括寻优参数、测评工具参数、服务化参数。参考[配置文件说明](#配置文件说明)章节完成配置。
+2. 修改配置文件：启动寻优前需用户按照实际情况配置[`config.toml`](../../src/optimize/experimental/config.toml)，包括寻优参数、测评工具参数、服务化参数。参考[配置文件说明](#配置文件说明)章节完成配置。
 
 3. 启动寻优：完成上述步骤后，执行以下命令，一键启动轻量化自动寻优：
     ```
@@ -112,7 +112,7 @@ msmodeling optimizer [options]
 
 **使用示例（mindie服务化参数寻优）**
 
-1. 修改配置文件：启动寻优前需用户按照实际情况配置[`config.toml`](../../msModeling/src/optimize/experimental/config.toml)，包括寻优参数、测评工具参数、服务化参数。参考[配置文件说明](#配置文件说明)章节完成配置。
+1. 修改配置文件：启动寻优前需用户按照实际情况配置[`config.toml`](../../src/optimize/experimental/config.toml)，包括寻优参数、测评工具参数、服务化参数。参考[配置文件说明](#配置文件说明)章节完成配置。
 
 2. 如果需要设置环境变量作用于mindie/vllm服务，只需在运行工具前设置环境变量即可，例如：
     ```
@@ -126,7 +126,7 @@ msmodeling optimizer [options]
     ```
 **使用示例（vllm服务化参数寻优）**
 
-1. 修改配置文件：启动寻优前需用户按照实际情况配置[`config.toml`](../../msModeling/src/optimize/experimental/config.toml)，包括寻优参数、测评工具参数、服务化参数。参考[配置文件说明](#配置文件说明)章节完成配置。
+1. 修改配置文件：启动寻优前需用户按照实际情况配置[`config.toml`](../../src/optimize/experimental/config.toml)，包括寻优参数、测评工具参数、服务化参数。参考[配置文件说明](#配置文件说明)章节完成配置。
 2. 如果需要设置环境变量作用于mindie/vllm服务，只需在运行工具前设置环境变量即可，例如：
     ```
     export ASCEND_RT_VISIBLE_DEVICES=0
@@ -184,7 +184,7 @@ msmodeling optimizer [options]
 
 **使用示例**
 
-1. 修改配置文件：启动寻优前需用户按照实际情况配置[`config.toml`](../../msModeling/src/optimize/experimental/config.toml)，包括寻优参数、测评工具参数、服务化参数。参考[配置文件说明](#配置文件说明)章节完成配置。
+1. 修改配置文件：启动寻优前需用户按照实际情况配置[`config.toml`](../../src/optimize/experimental/config.toml)，包括寻优参数、测评工具参数、服务化参数。参考[配置文件说明](#配置文件说明)章节完成配置。
 
 2. 训练模型
     ```
@@ -194,7 +194,7 @@ msmodeling optimizer [options]
     ```
     export MODEL_EVAL_STATE_ALL=True
     export MODEL_EVAL_STATE_IS_SLEEP_FLAG=True
-    export PYTHONPATH=../../msModeling/src/optimize:$PYTHONPATH #需根据实际路径修改
+    export PYTHONPATH=../../src/optimize:$PYTHONPATH #需根据实际路径修改
     ```
 4. 启动仿真模式寻优
     ```
@@ -363,7 +363,7 @@ max = 3
 dtype = "share"    # 表明该参数与default_p_rate相关，两者之和为定值
 dtype_param = "default_p_rate"
 ```
-## [插件模式](../../msModeling/src/optimize/experimental/optimizer/plugins/plugin.md)
+## [插件模式](../../src/optimize/experimental/optimizer/plugins/plugin.md)
 现在寻优工具支持用户自定义推理框架以及测试工具，用户可以根据自己的需求配置。只需适配我们的插件模式，注册对应的插件即可
 
 ### 日志说明
