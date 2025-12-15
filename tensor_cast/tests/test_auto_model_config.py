@@ -8,12 +8,15 @@ Three types of test scenarios:
 2. Two cases for the code: either in the Transformers library or in the same directory as the config file.
 3. A special scenario: the code exists both in a remote directory and in the Transformers library.
 
+Whenever needed, you can execute the following code before importing transformers to configure the HuggingFace proxy.
+```
+import os
+
+os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
+```
 """
 
 import os
-
-os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"  # 要在导入任何transformers库之前
-
 import unittest
 from enum import Enum
 
