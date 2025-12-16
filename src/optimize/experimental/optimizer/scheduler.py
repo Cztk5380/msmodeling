@@ -269,7 +269,7 @@ class ScheduleWithMultiMachine(Scheduler):
         self.cmd = CustomCommand()
         _cmd = self.cmd.init
         self.communication.send_command(_cmd)
-        self.communication.clear_command(_cmd)
+        self.communication.clear_cmd(_cmd)
 
     def set_back_up_path(self):
         if self.bak_path:
@@ -282,14 +282,14 @@ class ScheduleWithMultiMachine(Scheduler):
                 self.benchmark.bak_path = _cur_bak_path
                 _cmd = f"{self.cmd.backup} params:{_cur_bak_path}"
                 self.communication.send_command(_cmd)
-                self.communication.clear_command(_cmd)
+                self.communication.clear_cmd(_cmd)
 
     def monitoring_status(self):
         logger.debug("Start monitoring")
         while True:
             _cmd = self.cmd.process_poll
             self.communication.send_command(_cmd)
-            all_poll = [self.simulator.process.poll(), self.communication.clear_command(_cmd)]
+            all_poll = [self.simulator.process.poll(), self.communication.clear_cmd(_cmd)]
             if any([_i is not None for _i in all_poll]):
                 self.stop_target_server(del_log=False)
                 raise subprocess.SubprocessError(
@@ -303,19 +303,19 @@ class ScheduleWithMultiMachine(Scheduler):
         _cmd = f"{self.cmd.start} params:{params.tolist()}"
         self.cmd.history = _cmd
         self.communication.send_command(_cmd)
-        self.communication.clear_command(_cmd)
+        self.communication.clear_cmd(_cmd)
         self.simulator.run(tuple(self.simulate_run_info))
         self.wait_simulate()
         # wait 其他服务器上的服务成功。
         _cmd = self.cmd.check_success
         self.cmd.history = _cmd
         self.communication.send_command(_cmd)
-        self.communication.clear_command(_cmd)
+        self.communication.clear_cmd(_cmd)
 
     def stop_target_server(self, del_log: bool = True):
         super(ScheduleWithMultiMachine, self).stop_target_server(del_log)
         # wait 其他服务器上的服务成功。
         _cmd = f"{self.cmd.stop} params:{del_log}"
         self.communication.send_command(_cmd)
-        self.communication.clear_command(_cmd)
+        self.communication.clear_cmd(_cmd)
         self.cmd.history = _cmd
