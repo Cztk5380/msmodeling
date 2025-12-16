@@ -6,3 +6,5 @@ overrides
 optree
 pyyaml
 strenum
+prettytable
+pandas
