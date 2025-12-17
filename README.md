@@ -15,9 +15,8 @@
 ├── docs/                            # 文档目录
 │   ├── images/                      # 图片资源
 │   └── zh/                          # 中文文档
-└── msModeling/                      # 主要代码目录
-    └── src/                         # 源代码目录
-        └── optimize/                # 自动寻优相关模块
+└── src/                             # 源代码目录
+    └── optimize/                    # 自动寻优相关模块
 ```
  
 ## 🏷️[版本说明](docs/zh/release_notes.md)
