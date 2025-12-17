@@ -179,6 +179,24 @@ class TransformerModel(ModelWrapperBase):
         finally:
             torch.set_default_dtype(orig_dtype)
 
+    def wrap_model_v2(self):
+        """
+        Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
+        1. We already return torch.Tensor or a tuple of tensors when intermediates are needed
+        2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
+        This makes other wrappers' life simpler.
+        # TODO: Using this func instead of the wrap_model to add lmhead as default,
+        # TODO: modify the dt at the same time
+        """
+        has_lmhead = hasattr(self._inner, "lmhead")
+        if not has_lmhead:
+            self._inner = CausalLmWrapper(
+                hf_config=self.hf_config,
+                model=self._inner,
+            )
+        else:
+            self._inner = ModelWrapper(self._inner)
+
     def wrap_model(self):
         """
         Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
@@ -186,8 +204,11 @@ class TransformerModel(ModelWrapperBase):
         2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
         This makes other wrappers' life simpler.
         """
-        has_lmhead = hasattr(self._inner, "lmhead")
-        if not has_lmhead:
+        self.enable_lmhead = self.model_config.enable_lmhead is True
+        if self.model_config.mtp_config and not self.enable_lmhead:
+            assert self.model_config.enable_lmhead is None, "MTP on but lmhead is off"
+            self.enable_lmhead = True
+        if self.enable_lmhead:
             self._inner = CausalLmWrapper(
                 hf_config=self.hf_config,
                 model=self._inner,
