@@ -366,10 +366,11 @@ class PSOOptimizer(PerformanceTuner):
                             _field.value = _field.max = _field.min
                         else:
                             _field.value = _field.max
-        self.default_run_param = field_to_param(self.target_field)
-        self.default_res = self.scheduler.run(self.default_run_param, self.target_field)
-        self.default_fitness = self.minimum_algorithm(self.default_res)
-        self.scheduler.save_result(fitness=self.default_fitness)
+        else:
+            self.default_run_param = field_to_param(self.target_field)
+            self.default_res = self.scheduler.run(self.default_run_param, self.target_field)
+            self.default_fitness = self.minimum_algorithm(self.default_res)
+            self.scheduler.save_result(fitness=self.default_fitness)
         
         if self.scheduler.error_info:
             raise ValueError(f"Failed to start the default service. "
