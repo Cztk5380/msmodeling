@@ -24,13 +24,16 @@ from collections.abc import Callable
 from typing import Optional, Union
 
 import torch
+import torch.functional as F
 from torch import nn
-
 from transformers.activations import ACT2FN
 from transformers.cache_utils import Cache, DynamicCache
 from transformers.generation import GenerationMixin
 from transformers.integrations import use_kernel_forward_from_hub
-from transformers.masking_utils import create_causal_mask, create_sliding_window_causal_mask
+from transformers.masking_utils import (
+    create_causal_mask,
+    create_sliding_window_causal_mask,
+)
 from transformers.modeling_flash_attention_utils import FlashAttentionKwargs
 from transformers.modeling_layers import (
     GenericForQuestionAnswering,
@@ -38,14 +41,19 @@ from transformers.modeling_layers import (
     GenericForTokenClassification,
     GradientCheckpointingLayer,
 )
-from transformers.modeling_outputs import MoeCausalLMOutputWithPast, MoeModelOutputWithPast
-from transformers.modeling_rope_utils import ROPE_INIT_FUNCTIONS, dynamic_rope_update
+from transformers.modeling_outputs import (
+    MoeCausalLMOutputWithPast,
+    MoeModelOutputWithPast,
+)
+from transformers.modeling_rope_utils import dynamic_rope_update, ROPE_INIT_FUNCTIONS
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, PreTrainedModel
 from transformers.processing_utils import Unpack
-from transformers.utils import TransformersKwargs, auto_docstring, can_return_tuple
+from transformers.utils import auto_docstring, can_return_tuple, TransformersKwargs
 from transformers.utils.deprecation import deprecate_kwarg
-from transformers.utils.generic import OutputRecorder, check_model_inputs
+from transformers.utils.generic import check_model_inputs, OutputRecorder
+
 from .configuration_minimax_m2 import MiniMaxM2Config
+
 
 def rotate_half(x):
     """Rotates half the hidden dims of the input."""
@@ -145,33 +153,97 @@ class MiniMaxM2Experts(nn.ModuleList):
         return final_hidden_states
 
 
+# class MiniMaxM2SparseMoeBlock(nn.Module):
+#     def __init__(self, config):
+#         super().__init__()
+#         self.top_k = config.num_experts_per_tok
+#         self.jitter_noise = config.router_jitter_noise
+#         self.gate = nn.Linear(config.hidden_size, config.num_local_experts, bias=False)
+#         self.experts = MiniMaxM2Experts(config)
+#         self.register_buffer("e_score_correction_bias", torch.zeros(config.num_local_experts))
+#
+#     def route_tokens_to_experts(self, router_logits):
+#         routing_weights = torch.nn.functional.sigmoid(router_logits.float())
+#         scores_for_choice = routing_weights + self.e_score_correction_bias
+#         _, top_k_index = torch.topk(scores_for_choice, self.top_k, dim=-1, sorted=False)
+#         top_k_weights = routing_weights.gather(1, top_k_index)
+#         top_k_weights /= top_k_weights.sum(dim=-1, keepdim=True)
+#         return top_k_index, top_k_weights.to(router_logits.dtype)
+#
+#     def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+#         batch_size, sequence_length, hidden_dim = hidden_states.shape
+#         if self.training and self.jitter_noise > 0:
+#             hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
+#         hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
+#         router_logits = self.gate(hidden_states)
+#         top_k_index, top_k_weights = self.route_tokens_to_experts(router_logits)
+#         hidden_states = self.experts(hidden_states, top_k_index, top_k_weights.to(hidden_states.dtype))
+#         hidden_states = hidden_states.reshape(batch_size, sequence_length, hidden_dim)
+#         return hidden_states, router_logits
+
+
 class MiniMaxM2SparseMoeBlock(nn.Module):
     def __init__(self, config):
         super().__init__()
+        self.num_experts = config.num_local_experts
         self.top_k = config.num_experts_per_tok
-        self.jitter_noise = config.router_jitter_noise
-        self.gate = nn.Linear(config.hidden_size, config.num_local_experts, bias=False)
-        self.experts = MiniMaxM2Experts(config)
-        self.register_buffer("e_score_correction_bias", torch.zeros(config.num_local_experts))
+        self.norm_topk_prob = getattr(config, "norm_topk_prob", False)
 
-    def route_tokens_to_experts(self, router_logits):
-        routing_weights = torch.nn.functional.sigmoid(router_logits.float())
-        scores_for_choice = routing_weights + self.e_score_correction_bias
-        _, top_k_index = torch.topk(scores_for_choice, self.top_k, dim=-1, sorted=False)
-        top_k_weights = routing_weights.gather(1, top_k_index)
-        top_k_weights /= top_k_weights.sum(dim=-1, keepdim=True)
-        return top_k_index, top_k_weights.to(router_logits.dtype)
+        self.gate = nn.Linear(config.hidden_size, self.num_experts, bias=False)
+        self.experts = nn.ModuleList(
+            [MiniMaxM2MLP(config) for _ in range(self.num_experts)]
+        )
 
-    def forward(self, hidden_states: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor]:
+    def forward(self, hidden_states: torch.Tensor) -> torch.Tensor:
         batch_size, sequence_length, hidden_dim = hidden_states.shape
-        if self.training and self.jitter_noise > 0:
-            hidden_states *= torch.empty_like(hidden_states).uniform_(1.0 - self.jitter_noise, 1.0 + self.jitter_noise)
-        hidden_states = hidden_states.view(-1, hidden_states.shape[-1])
+        hidden_states = hidden_states.view(-1, hidden_dim)
+        # router_logits: (batch * sequence_length, n_experts)
         router_logits = self.gate(hidden_states)
-        top_k_index, top_k_weights = self.route_tokens_to_experts(router_logits)
-        hidden_states = self.experts(hidden_states, top_k_index, top_k_weights.to(hidden_states.dtype))
-        hidden_states = hidden_states.reshape(batch_size, sequence_length, hidden_dim)
-        return hidden_states, router_logits
+
+        routing_weights = F.softmax(router_logits, dim=1, dtype=torch.float)
+        routing_weights, selected_experts = torch.topk(
+            routing_weights, self.top_k, dim=-1
+        )
+        if self.norm_topk_prob:
+            routing_weights /= routing_weights.sum(dim=-1, keepdim=True)
+        # we cast back to the input dtype
+        routing_weights = routing_weights.to(hidden_states.dtype)
+
+        final_hidden_states = torch.zeros(
+            (batch_size * sequence_length, hidden_dim),
+            dtype=hidden_states.dtype,
+            device=hidden_states.device,
+        )
+
+        # One hot encode the selected experts to create an expert mask
+        # this will be used to easily index which expert is going to be sollicitated
+        expert_mask = torch.nn.functional.one_hot(
+            selected_experts, num_classes=self.num_experts
+        ).permute(2, 1, 0)
+
+        # Loop over all available experts in the model and perform the computation on each expert
+        expert_hit = torch.greater(expert_mask.sum(dim=(-1, -2)), 0).nonzero()
+        for expert_idx in expert_hit:
+            expert_layer = self.experts[expert_idx]
+            idx, top_x = torch.where(expert_mask[expert_idx].squeeze(0))
+
+            # Index the correct hidden states and compute the expert hidden state for
+            # the current expert. We need to make sure to multiply the output hidden
+            # states by `routing_weights` on the corresponding tokens (top-1 and top-2)
+            current_state = hidden_states[None, top_x].reshape(-1, hidden_dim)
+            current_hidden_states = (
+                expert_layer(current_state) * routing_weights[top_x, idx, None]
+            )
+
+            # However `index_add_` only support torch tensors for indexing so we'll use
+            # the `top_x` tensor here.
+            final_hidden_states.index_add_(
+                0, top_x, current_hidden_states.to(hidden_states.dtype)
+            )
+        final_hidden_states = final_hidden_states.reshape(
+            batch_size, sequence_length, hidden_dim
+        )
+        return final_hidden_states, router_logits
 
 
 @use_kernel_forward_from_hub("RMSNorm")
@@ -353,7 +425,10 @@ class MiniMaxM2DecoderLayer(GradientCheckpointingLayer):
         # Fully Connected
         residual = hidden_states
         hidden_states = self.post_attention_layernorm(hidden_states)
-        hidden_states, _ = self.block_sparse_moe(hidden_states)
+        hidden_states = self.block_sparse_moe(hidden_states)
+        # For the MoE layers, we need to unpack
+        if isinstance(hidden_states, tuple):
+            hidden_states, _ = hidden_states
         hidden_states = residual + hidden_states
 
         return hidden_states
