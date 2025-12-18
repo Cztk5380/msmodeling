@@ -188,8 +188,8 @@ class TransformerModel(ModelWrapperBase):
         # TODO: Using this func instead of the wrap_model to add lmhead as default,
         # TODO: modify the dt at the same time
         """
-        has_lmhead = hasattr(self._inner, "lmhead")
-        if not has_lmhead:
+        has_lm_head = hasattr(self._inner, "lm_head") or hasattr(self._inner, "lmhead")
+        if not has_lm_head:
             self._inner = CausalLmWrapper(
                 hf_config=self.hf_config,
                 model=self._inner,
