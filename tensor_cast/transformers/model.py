@@ -129,6 +129,7 @@ class TransformerModel(ModelWrapperBase):
         super().__init__(None)
         self.model_id = model_id
         self.model_config = model_config
+        self.wrapped_after_load = False
         with init_on_device_without_buffers("meta"), no_init_weights():
             auto_loader = AutoModelConfigLoader()
             if self.model_config.hf_config is not None:
@@ -179,24 +180,6 @@ class TransformerModel(ModelWrapperBase):
         finally:
             torch.set_default_dtype(orig_dtype)
 
-    def wrap_model_v2(self):
-        """
-        Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
-        1. We already return torch.Tensor or a tuple of tensors when intermediates are needed
-        2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
-        This makes other wrappers' life simpler.
-        # TODO: Using this func instead of the wrap_model to add lmhead as default,
-        # TODO: modify the dt at the same time
-        """
-        has_lm_head = hasattr(self._inner, "lm_head") or hasattr(self._inner, "lmhead")
-        if not has_lm_head:
-            self._inner = CausalLmWrapper(
-                hf_config=self.hf_config,
-                model=self._inner,
-            )
-        else:
-            self._inner = ModelWrapper(self._inner)
-
     def wrap_model(self):
         """
         Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
@@ -204,15 +187,13 @@ class TransformerModel(ModelWrapperBase):
         2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
         This makes other wrappers' life simpler.
         """
-        self.enable_lmhead = self.model_config.enable_lmhead is True
-        if self.model_config.mtp_config and not self.enable_lmhead:
-            assert self.model_config.enable_lmhead is None, "MTP on but lmhead is off"
-            self.enable_lmhead = True
-        if self.enable_lmhead:
+        has_lm_head = hasattr(self._inner, "lm_head") or hasattr(self._inner, "lmhead")
+        if not has_lm_head:
             self._inner = CausalLmWrapper(
                 hf_config=self.hf_config,
                 model=self._inner,
             )
+            self.wrapped_after_load = True
         else:
             self._inner = ModelWrapper(self._inner)
 
@@ -583,6 +564,10 @@ class TransformerModel(ModelWrapperBase):
         if self.model_config.quant_linear_cls is None:
             return
 
+        # TODO: Read quantization config from config.json
+        # Do not quantize lmhead unless lmhead quantization is explicitly specified.
+        lm_head_quantized = False
+
         # get all the wildcard names from the configuration
         wildcard_linear_configs = {}
         for name in self.model_config.quant_config.linear_configs:
@@ -590,6 +575,8 @@ class TransformerModel(ModelWrapperBase):
                 wildcard_linear_configs[name] = (
                     self.model_config.quant_config.linear_configs[name]
                 )
+            if "lm_head" in name or "lmhead" in name:
+                lm_head_quantized = True
 
         def get_quant_config(name):
             quant_config = None
@@ -604,6 +591,8 @@ class TransformerModel(ModelWrapperBase):
             return quant_config
 
         for name, module in self._inner.named_modules():
+            if not lm_head_quantized and ("lm_head" in name or "lmhead" in name):
+                continue
             # We need to find the parent module to replace the child
             if isinstance(module, torch.nn.Linear):
                 # remove "_inner" from the module path since we may wrap original

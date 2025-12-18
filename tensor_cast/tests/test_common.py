@@ -161,8 +161,12 @@ def get_quant_config(model=None, quant_type=LinearQuantType.W4A8, **kwargs):
         )
         return quant_config
     for name, module in model.named_modules():
+        if "lm_head" in name or "lmhead" in name:
+            continue
         if isinstance(module, torch.nn.Linear):
-            quant_config.linear_configs[strip_module_name(name)] = (
+            strip_name = strip_module_name(name)
+            print(strip_name)
+            quant_config.linear_configs[strip_name] = (
                 get_linear_quant_config(
                     quant_type,
                     module.weight.data,

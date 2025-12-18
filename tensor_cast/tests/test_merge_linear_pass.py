@@ -52,8 +52,8 @@ class MergeLinearPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
-        self.assertEqual(count_events(runtime, torch.ops.aten.mm.default), 4)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        self.assertEqual(count_events(runtime, torch.ops.aten.mm.default), 5)
         self.assertEqual(
             count_events(runtime, torch.ops.aten.split_with_sizes.default), 2
         )
@@ -86,9 +86,9 @@ class MergeLinearPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertEqual(
-            count_events(runtime, torch.ops.tensor_cast.static_quant_linear.default), 4
+            count_events(runtime, torch.ops.tensor_cast.static_quant_linear.default), 5
         )
         self.assertEqual(
             count_events(runtime, torch.ops.aten.split_with_sizes.default), 2
@@ -131,7 +131,7 @@ class MergeLinearPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         expected_op = None
         if quant_type == LinearQuantType.W8A8:
             expected_op = torch.ops.tensor_cast.static_quant_linear.default
@@ -141,7 +141,7 @@ class MergeLinearPassTestCase(unittest.TestCase):
             expected_op = torch.ops.tensor_cast.fp8_linear.default
         elif quant_type == LinearQuantType.MXFP4:
             expected_op = torch.ops.tensor_cast.mxfp4_linear.default
-        self.assertEqual(count_events(runtime, expected_op), 4)
+        self.assertEqual(count_events(runtime, expected_op), 5)
         self.assertEqual(
             count_events(runtime, torch.ops.aten.split_with_sizes.default), 2
         )

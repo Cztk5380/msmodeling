@@ -24,7 +24,7 @@ from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 
 from .test_common import count_events, get_quant_config
-
+# ok
 
 class GmmPassTestCase(unittest.TestCase):
     def setUp(self):
@@ -52,7 +52,7 @@ class GmmPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertEqual(
             count_events(runtime, torch.ops.tensor_cast.grouped_matmul.default), 2
         )
@@ -83,7 +83,7 @@ class GmmPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertEqual(
             count_events(runtime, torch.ops.tensor_cast.grouped_matmul_quant.default), 2
         )
@@ -125,7 +125,7 @@ class GmmPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         expected_op = None
         if quant_type == LinearQuantType.W8A8:
             expected_op = torch.ops.tensor_cast.grouped_matmul_quant.default

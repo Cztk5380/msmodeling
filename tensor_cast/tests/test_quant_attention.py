@@ -104,7 +104,7 @@ class TestQuantAttention(unittest.TestCase):
                 attention_meta=attn_meta,
                 kv_cache_by_layers=kv_cache_by_layers,
             )
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
         self.assertIn("quantize.default", result)
         self.assertIn("reshape_and_cache.default", result)

@@ -55,7 +55,7 @@ class ModelLoadTestCase(unittest.TestCase):
         position_ids = torch.empty([2, num_tokens], dtype=torch.long, device="meta")
         with torch.no_grad(), patch_torch():
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (2, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (2, num_tokens, model.vocab_size))
 
     @parameterized.expand(
         [
@@ -93,7 +93,7 @@ class ModelLoadTestCase(unittest.TestCase):
         position_ids = torch.empty([2, num_tokens], dtype=torch.long, device="meta")
         with torch.no_grad(), patch_torch():
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (2, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (2, num_tokens, model.vocab_size))
 
     @parameterized.expand(
         [
@@ -138,7 +138,7 @@ class ModelLoadTestCase(unittest.TestCase):
                 attention_meta=attn_meta,
                 kv_cache_by_layers=kv_cache_by_layers,
             )
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
 
     @parameterized.expand(
         [
@@ -167,7 +167,7 @@ class ModelLoadTestCase(unittest.TestCase):
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         with torch.no_grad(), patch_torch():
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
 
     @parameterized.expand(
         [
@@ -203,7 +203,7 @@ class ModelLoadTestCase(unittest.TestCase):
                 attention_meta=attn_meta,
                 kv_cache_by_layers=kv_cache_by_layers,
             )
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
 
     @parameterized.expand(
         [
@@ -242,4 +242,4 @@ class ModelLoadTestCase(unittest.TestCase):
                     0, num_tokens, dtype=torch.long, device="cpu"
                 ),
             )
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))

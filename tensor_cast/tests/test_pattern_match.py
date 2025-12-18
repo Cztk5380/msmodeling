@@ -21,7 +21,7 @@ from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 
 from .test_common import get_quant_config
-
+# nok
 
 class PatternReplaceTestCase(unittest.TestCase):
     def setUp(self):
@@ -50,7 +50,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.rms_norm.default", result)
         self.assertIn("tensor_cast.add_rms_norm.default", result)
@@ -79,7 +79,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.rms_norm.default", result)
         self.assertIn("tensor_cast.add_rms_norm.default", result)
@@ -112,7 +112,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.rms_norm.default", result)
         self.assertIn("tensor_cast.add_rms_norm.default", result)
@@ -146,7 +146,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.rms_norm.default", result)
         self.assertIn("tensor_cast.add_rms_norm.default", result)
@@ -183,7 +183,7 @@ class PatternReplaceTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.rms_norm.default", result)
         self.assertIn("tensor_cast.add_rms_norm.default", result)
@@ -214,6 +214,6 @@ class PatternReplaceTestCase(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = model.forward(self.inputs, self.position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.apply_rope.default", result)
