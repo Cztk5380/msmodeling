@@ -10,7 +10,6 @@ from typing import List
 import torch
 
 from .. import device_profiles  # noqa: F401
-
 from ..compilation import get_backend
 from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
@@ -30,6 +29,7 @@ from ..model_config import (
 from ..performance_model.utils import bytes_of_tensor
 from ..transformers.model import TransformerModel
 from ..transformers.utils import (
+    AutoModelConfigLoader,
     get_attention_quant_config,
     model_id_to_json,
     model_id_to_mla_module_name,
@@ -191,6 +191,8 @@ def build_model(
                               loading and execution performance.
     :return: The loaded (and possibly compiled) Transformer model.
     """
+    auto_loader = AutoModelConfigLoader()
+    hf_config = auto_loader.load_config(model_id)
     model_config = ModelConfig(
         parallel_config,
         quant_config,
@@ -199,14 +201,17 @@ def build_model(
         hf_config_json=model_id_to_json(model_id),
         enable_lmhead=enable_lmhead,
     )
-    moe_config = model_id_to_moe_config(model_id)
+    model_config.hf_config = hf_config
+    model_config.trust_remote_code = not auto_loader.is_transformers_natively_supported
+
+    moe_config = model_id_to_moe_config(model_id, hf_config.model_type)
     if moe_config is not None:
         moe_config.enable_redundant_experts = enable_redundant_experts
         moe_config.enable_external_shared_experts = enable_external_shared_experts
         moe_config.host_external_shared_experts = host_external_shared_experts
     model_config.moe_config = moe_config
 
-    mla_module_name = model_id_to_mla_module_name(model_id)
+    mla_module_name = model_id_to_mla_module_name(model_id, hf_config.model_type)
     if mla_module_name is not None:
         mla_config = MlaConfig(
             module_name=mla_module_name,
@@ -216,12 +221,13 @@ def build_model(
     if num_mtp_tokens > 0:
         mtp_config = MtpConfig(
             num_mtp_layers=num_mtp_tokens,
-            mtp_block_module_name=model_id_to_mtp_block_module_name(model_id),
+            mtp_block_module_name=model_id_to_mtp_block_module_name(
+                model_id, hf_config.model_type
+            ),
         )
         model_config.mtp_config = mtp_config
     model_config.enable_repetition = enable_repetition
-    if num_hidden_layers_override > 0:
-        model_config.num_hidden_layers_override = num_hidden_layers_override
+    model_config.num_hidden_layers_override = num_hidden_layers_override
     model = TransformerModel(model_id, model_config)
     if compile:
         model = torch.compile(
@@ -421,8 +427,6 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     model_config = model.model_config
     mtp = getattr(model_config, "mtp_config", None)
     num_mtp_tokens = mtp.num_mtp_layers if mtp else 0
-    parallel_cfg = model_config.parallel_config
-    tp_size = parallel_cfg.tensor_parallel_size
 
     batch_size = len(requests)
     if batch_size == 0:
@@ -461,7 +465,9 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     input_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
     position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
 
-    kv_cache_by_layers, kv_cache_per_token = get_kv_cache_info(model, num_blocks, block_size)
+    kv_cache_by_layers, kv_cache_per_token = get_kv_cache_info(
+        model, num_blocks, block_size
+    )
 
     sampling_meta = SamplingMetadata(query_start_loc=query_start_loc)
     selected_token_indices = []
@@ -498,17 +504,15 @@ def get_inputs_num_bytes(model, requests: List[RequestInfo], block_size: int) ->
     """
     Get the number of bytes of the input tensors.
     """
-    input_kwargs = generate_inputs_varlen(
-        model,
-        requests,
-        block_size
-    )
+    input_kwargs = generate_inputs_varlen(model, requests, block_size)
     inputs_num_bytes = 0
     inputs_num_bytes += bytes_of_tensor(input_kwargs["input_ids"])
     inputs_num_bytes += bytes_of_tensor(input_kwargs["position_ids"])
     inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].query_start_loc)
     inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].seq_lens)
     inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].query_lens)
-    inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].block_table_tensor)
+    inputs_num_bytes += bytes_of_tensor(
+        input_kwargs["attention_meta"].block_table_tensor
+    )
     inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].slot_mapping)
     return inputs_num_bytes

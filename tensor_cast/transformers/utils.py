@@ -1,14 +1,24 @@
 import contextlib
+import logging
+import os
 from typing import Dict, Optional
 
 import torch
+from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, PretrainedConfig
 
 from ..layers.mla import MultiheadLatentAttentionBase
+from ..model_config import AttentionQuantConfig, ModelConfig, MoEConfig, MoEFieldNames
 
-from ..model_config import AttentionQuantConfig, MoEConfig, MoEFieldNames
+logger = logging.getLogger(__name__)
 
 # TODO: Allow users to extend these default configurations from config.py
 
+# TODO: Using model_type as the key to load the Moe and Attention Config，
+
+# TODO: The model initialization logic needs to be optimized:
+#  first load the base config, then load other configs,
+#  parse the user's custom inputs,
+#  override the corresponding fields in the initialized config, and finally load the model.
 
 _model_id_to_json_tbl: dict[str, str] = {
     "moonshotai/Kimi-K2-Base": "kimi_k2.json",
@@ -22,8 +32,18 @@ def model_id_to_json(model_id: str) -> Optional[str]:
 
 # model_id -> MoEConfig
 _model_id_to_moe_config: Dict[str, MoEConfig] = {
+    "deepseek_v3": MoEConfig(
+        module_name="DeepseekV3MoE",
+    ),
     "zai-org/GLM-4.5": MoEConfig(
         module_name="Glm4MoeMoE",
+    ),
+    "glm4_moe": MoEConfig(
+        module_name="Glm4MoeMoE",
+    ),
+    "minimax_m2": MoEConfig(
+        module_name="MiniMaxM2SparseMoeBlock",
+        gate_returns_raw_logits=True,
     ),
     "Qwen/Qwen3-235B-A22B": MoEConfig(
         module_name="Qwen3MoeSparseMoeBlock",
@@ -62,28 +82,37 @@ _model_id_to_moe_config: Dict[str, MoEConfig] = {
 }
 
 
-def model_id_to_moe_config(model_id: str) -> Optional[MoEConfig]:
-    return _model_id_to_moe_config.get(model_id)
+def model_id_to_moe_config(model_id: str, model_type: str = "") -> Optional[MoEConfig]:
+    return _model_id_to_moe_config.get(model_id) or _model_id_to_moe_config.get(
+        model_type
+    )
 
 
 _model_id_to_mla_module_name: Dict[str, str] = {
     "deepseek-ai/DeepSeek-V3.1": "DeepseekV3Attention",
     "moonshotai/Kimi-K2-Base": "DeepseekV3Attention",
+    "deepseek_v3": "DeepseekV3Attention",
 }
 
 
-def model_id_to_mla_module_name(model_id: str):
-    return _model_id_to_mla_module_name.get(model_id)
+def model_id_to_mla_module_name(model_id: str, model_type: str = ""):
+    return _model_id_to_mla_module_name.get(
+        model_id
+    ) or _model_id_to_mla_module_name.get(model_type)
 
 
 _model_id_to_mtp_block_module_name: Dict[str, str] = {
     "deepseek-ai/DeepSeek-V3.1": "DeepseekV3DecoderLayer",
     "moonshotai/Kimi-K2-Base": "DeepseekV3DecoderLayer",
+    "deepseek_v3": "DeepseekV3DecoderLayer",
+    "glm4_moe": "Glm4MoeDecoderLayer",
 }
 
 
-def model_id_to_mtp_block_module_name(model_id: str) -> str:
-    return _model_id_to_mtp_block_module_name.get(model_id)
+def model_id_to_mtp_block_module_name(model_id: str, model_type: str = "") -> str:
+    return _model_id_to_mtp_block_module_name.get(
+        model_id
+    ) or _model_id_to_mtp_block_module_name.get(model_type)
 
 
 def strip_module_name(name: str) -> str:
@@ -178,3 +207,133 @@ def init_on_device_without_buffers(device: torch.device):
         torch.nn.Module.register_parameter = old_register_parameter
         for torch_function_name, old_torch_function in old_tensor_constructors.items():
             setattr(torch, torch_function_name, old_torch_function)
+
+
+class AutoModelConfigLoader:
+    def __init__(self):
+        self.is_transformers_natively_supported = False
+
+    @staticmethod
+    def is_model_type_different(config: PretrainedConfig):
+        """
+        Check whether the model type has changed.
+        for example: kimi_k2's real model_type is deepseek_v3
+
+        Args:
+            config: hf_config.
+
+        Returns:
+            tuple: (is_different, type)
+                - (False, original_type) if the types are the same
+                - (True, current_type) if the types are different
+        """
+        if config.model_type == config.to_dict()["model_type"]:
+            return False, config.model_type
+        return True, config.to_dict()["model_type"]
+
+    @staticmethod
+    def check_model_path(path):
+        """
+        Check whether a config.json file and Python files starting with 'configuration' exist in the specified path.
+
+        Args:
+            path (str): The directory path to check.
+
+        Returns:
+            dict: A dictionary containing the check results:
+                - has_config_json (bool): Whether config.json exists.
+                - has_configuration_py (bool): Whether any Python file starting with 'configuration' exists.
+                - configuration_py_files (list[str]): List of Python files starting with 'configuration'.
+        """
+
+        result = {
+            "has_config_json": False,
+            "has_configuration_py": False,
+            "configuration_py_files": [],
+        }
+
+        if not os.path.exists(path) or not os.path.isdir(path):
+            return result
+
+        for file in os.listdir(path):
+            if file == "config.json":
+                result["has_config_json"] = True
+            elif file.startswith("configuration") and file.endswith(".py"):
+                result["has_configuration_py"] = True
+                result["configuration_py_files"].append(file)
+
+        return result
+
+    def load_config(self, model_id: str) -> Optional[PretrainedConfig]:
+        """
+        load config
+        """
+        check_model_path_res = self.check_model_path(model_id)
+        if (
+            check_model_path_res["has_config_json"]
+            and not check_model_path_res["has_configuration_py"]
+        ):
+            model_id = os.path.join(
+                model_id, "config.json"
+            )  # When there's only one configuration file, you should pass the path to the configuration file itself.
+
+        # First, try loading with the native Transformers code; if it's not supported, fall back to using remote code.
+        try:
+            hf_config = AutoConfig.from_pretrained(model_id)
+            self.is_transformers_natively_supported = True
+        except Exception:
+            hf_config = AutoConfig.from_pretrained(model_id, trust_remote_code=True)
+
+            # TODO: Maybe add a config for user to set model_type
+            is_diff, real_type = self.is_model_type_different(hf_config)
+            if is_diff:
+                # Using the real config class to load again
+                # for example: use native deepseek_v3 to load kimi-k2`s config.json
+                logging.warning(
+                    f"Using a model of type {real_type} to instantiate again."
+                )
+                hf_config = AutoConfig.for_model(real_type).from_dict(
+                    hf_config.to_dict()
+                )
+                self.is_transformers_natively_supported = True
+
+        logger.info(
+            f"is_transformers_natively_supported = {self.is_transformers_natively_supported}"
+        )
+        return hf_config
+
+    def load_model(
+        self,
+        hf_config: PretrainedConfig,
+        dtype: torch.dtype,
+        trust_remote_code: Optional[bool] = None,
+    ):
+        if trust_remote_code is None:
+            trust_remote_code = not self.is_transformers_natively_supported
+
+        # AutoModelForCausalLM means AutoModelWithLmhead Usually
+        auto_map = getattr(hf_config, "auto_map", {})
+        # TODO Using AutoModelForCausalLM as default to load model
+        if not auto_map or "AutoModel" in auto_map:
+            hf_model = AutoModel.from_config(
+                hf_config, dtype=dtype, trust_remote_code=trust_remote_code
+            )
+        elif "AutoModelForCausalLM" in hf_config.auto_map:
+            hf_model = AutoModelForCausalLM.from_config(
+                hf_config, dtype=dtype, trust_remote_code=trust_remote_code
+            )
+        else:
+            raise RuntimeError(
+                "Can not load model by one of [AutoModel,AutoModelForCausalLM]."
+            )
+        return hf_model
+
+    def auto_load_model_and_config(self, model_id: str, model_config: ModelConfig):
+        """
+        Load the model and config using model_id and model_config.
+        """
+        hf_config = self.load_config(model_id)
+        if model_config.num_hidden_layers_override:
+            hf_config.num_hidden_layers = model_config.num_hidden_layers_override
+        hf_model = self.load_model(hf_config, model_config.dtype)
+        return hf_config, hf_model

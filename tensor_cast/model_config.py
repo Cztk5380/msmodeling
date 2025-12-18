@@ -3,6 +3,7 @@ from enum import auto, Enum
 from typing import Dict, Optional, Type
 
 import torch
+from transformers import PretrainedConfig
 
 
 class LinearQuantType(Enum):
@@ -407,18 +408,24 @@ class ModelConfig:
     mtp_config: Optional[MtpConfig] = None
     attention_cls: Optional[Type["AttentionBase"]] = None  # noqa: F821
     quant_linear_cls: Optional[Type["QuantLinearBase"]] = None  # noqa: F821
+    hf_config: Optional[PretrainedConfig] = None
     trust_remote_code: bool = True
-    hf_config_json: Optional[str] = None
+    hf_config_json: Optional[str] = None  # TODO to be removed
     """load transformer configuration from a local json file. When this is specified,
     `disable_auto_map` is assumed to be True."""
-    disable_auto_map: Optional[bool] = None
+    disable_auto_map: Optional[bool] = None  # TODO to be removed
     """set it to True if we want to use a local model definition, not
     loading it from remote. Useful when the local transformer model is preferred."""
-    enable_lmhead: Optional[bool] = None
-    num_hidden_layers_override: Optional[int] = None
+    enable_lmhead: Optional[bool] = None  # TODO to be removed
+    num_hidden_layers_override: int = 0
     """Override hf_config.num_hidden_layers, useful for speeding up sanity tests
     with small overrides for very large models."""
     enable_repetition: bool = False
     """Transformer models have repetitive patterns. This configuration flag tells TensorCast
     whether to automatically detect and leverage the repetition patterns to reduce the
     performance estimation cost. This is especially helpful for large models."""
+
+    def __post_init__(self):
+        # TODO: Use Pydantic to add data validation.
+        if self.num_hidden_layers_override < 0:
+            self.num_hidden_layers_override = 0
