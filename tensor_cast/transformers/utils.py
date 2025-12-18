@@ -70,6 +70,9 @@ _model_id_to_moe_config: Dict[str, MoEConfig] = {
     "deepseek-ai/DeepSeek-V3.1": MoEConfig(
         module_name="DeepseekV3MoE",
     ),
+    "mimo_v2_flash": MoEConfig(
+        module_name="MiMoV2MoE",
+    ),
     "baidu/ERNIE-4.5-300B-A47B-PT": MoEConfig(
         # This is not a strict mapping to ERNIE MoE which has bias correction
         # and minimal routing weights normalization factor introducing additional
@@ -106,6 +109,7 @@ _model_id_to_mtp_block_module_name: Dict[str, str] = {
     "moonshotai/Kimi-K2-Base": "DeepseekV3DecoderLayer",
     "deepseek_v3": "DeepseekV3DecoderLayer",
     "glm4_moe": "Glm4MoeDecoderLayer",
+    "mimo_v2_flash": "MiMoV2DecoderLayer",
 }
 
 
@@ -211,7 +215,7 @@ def init_on_device_without_buffers(device: torch.device):
 
 class AutoModelConfigLoader:
     def __init__(self):
-        self.is_transformers_natively_supported = False
+        self.is_transformers_natively_supported: bool = False
 
     @staticmethod
     def is_model_type_different(config: PretrainedConfig):
@@ -227,9 +231,11 @@ class AutoModelConfigLoader:
                 - (False, original_type) if the types are the same
                 - (True, current_type) if the types are different
         """
-        if config.model_type == config.to_dict()["model_type"]:
-            return False, config.model_type
-        return True, config.to_dict()["model_type"]
+        # Some model config instances do not have a model_type, for example, mimo_v2_flash
+        maybe_real_type = config.to_dict()["model_type"]
+        if maybe_real_type and config.model_type != maybe_real_type:
+            return True, maybe_real_type
+        return False, config.model_type
 
     @staticmethod
     def check_model_path(path):
@@ -289,7 +295,7 @@ class AutoModelConfigLoader:
             if is_diff:
                 # Using the real config class to load again
                 # for example: use native deepseek_v3 to load kimi-k2`s config.json
-                logging.warning(
+                logger.warning(
                     f"Using a model of type {real_type} to instantiate again."
                 )
                 hf_config = AutoConfig.for_model(real_type).from_dict(
@@ -302,31 +308,14 @@ class AutoModelConfigLoader:
         )
         return hf_config
 
-    def load_model(
-        self,
-        hf_config: PretrainedConfig,
-        dtype: torch.dtype,
-        trust_remote_code: Optional[bool] = None,
-    ):
-        if trust_remote_code is None:
-            trust_remote_code = not self.is_transformers_natively_supported
+    def load_model(self, hf_config: PretrainedConfig, dtype: torch.dtype, **kwargs):
+        trust_remote_code = not self.is_transformers_natively_supported
+        if "trust_remote_code" in kwargs:
+            trust_remote_code = kwargs.pop("trust_remote_code")
 
-        # AutoModelForCausalLM means AutoModelWithLmhead Usually
-        auto_map = getattr(hf_config, "auto_map", {})
-        # TODO Using AutoModelForCausalLM as default to load model
-        if not auto_map or "AutoModel" in auto_map:
-            hf_model = AutoModel.from_config(
-                hf_config, dtype=dtype, trust_remote_code=trust_remote_code
-            )
-        elif "AutoModelForCausalLM" in hf_config.auto_map:
-            hf_model = AutoModelForCausalLM.from_config(
-                hf_config, dtype=dtype, trust_remote_code=trust_remote_code
-            )
-        else:
-            raise RuntimeError(
-                "Can not load model by one of [AutoModel,AutoModelForCausalLM]."
-            )
-        return hf_model
+        return self.try_to_load_model(
+            hf_config, dtype=dtype, trust_remote_code=trust_remote_code
+        )
 
     def auto_load_model_and_config(self, model_id: str, model_config: ModelConfig):
         """
@@ -337,3 +326,11 @@ class AutoModelConfigLoader:
             hf_config.num_hidden_layers = model_config.num_hidden_layers_override
         hf_model = self.load_model(hf_config, model_config.dtype)
         return hf_config, hf_model
+
+    @staticmethod
+    def try_to_load_model(*args, **kwarg):
+        try:
+            hf_model = AutoModel.from_config(*args, **kwarg)
+        except Exception:
+            hf_model = AutoModelForCausalLM.from_config(*args, **kwarg)
+        return hf_model

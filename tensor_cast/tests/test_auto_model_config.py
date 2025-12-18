@@ -63,6 +63,8 @@ class AutoModelAndConfigTestCase(unittest.TestCase):
             ["MiniMaxAI/MiniMax-M2", ConfigMode.remote, CodeMode.local],
             # model_type is k2,but real type is deepseek
             ["moonshotai/Kimi-K2-Base", ConfigMode.remote, CodeMode.local],
+            # model config's model_type is "" and AutoModel in auto_map can not be found in the modeling.
+            ["XiaomiMiMo/MiMo-V2-Flash", ConfigMode.remote, CodeMode.local],
         ]
     )
     def test_auto_model_config(self, model_name_or_path, config_mode, code_mode):
