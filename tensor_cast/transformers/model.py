@@ -129,7 +129,6 @@ class TransformerModel(ModelWrapperBase):
         super().__init__(None)
         self.model_id = model_id
         self.model_config = model_config
-        self.wrapped_after_load = False
         with init_on_device_without_buffers("meta"), no_init_weights():
             auto_loader = AutoModelConfigLoader()
             if self.model_config.hf_config is not None:
@@ -193,7 +192,6 @@ class TransformerModel(ModelWrapperBase):
                 hf_config=self.hf_config,
                 model=self._inner,
             )
-            self.wrapped_after_load = True
         else:
             self._inner = ModelWrapper(self._inner)
 
