@@ -141,7 +141,7 @@ class TransformerModel(ModelWrapperBase):
                 self._inner = auto_loader.load_model(
                     self.hf_config,
                     self.model_config.dtype,
-                    self.model_config.trust_remote_code,
+                    trust_remote_code=self.model_config.trust_remote_code,
                 )
             else:
                 self.hf_config, self._inner = auto_loader.auto_load_model_and_config(

@@ -296,7 +296,7 @@ class AutoModelConfigLoader:
                 # Using the real config class to load again
                 # for example: use native deepseek_v3 to load kimi-k2`s config.json
                 logger.warning(
-                    f"Using a model of type {real_type} to instantiate again."
+                    "Using a model of type %s to instantiate again.", real_type
                 )
                 hf_config = AutoConfig.for_model(real_type).from_dict(
                     hf_config.to_dict()
@@ -304,7 +304,8 @@ class AutoModelConfigLoader:
                 self.is_transformers_natively_supported = True
 
         logger.info(
-            f"is_transformers_natively_supported = {self.is_transformers_natively_supported}"
+            "is_transformers_natively_supported = %s",
+            self.is_transformers_natively_supported,
         )
         return hf_config
 
