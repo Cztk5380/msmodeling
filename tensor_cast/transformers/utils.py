@@ -1,10 +1,22 @@
 import contextlib
 import logging
 import os
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 
 import torch
-from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, PretrainedConfig, PreTrainedModel
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoModelForCausalLM,
+    PretrainedConfig,
+    PreTrainedModel,
+)
+from transformers.quantizers.auto import AutoQuantizationConfig
+from transformers.utils.quantization_config import (
+    CompressedTensorsConfig,
+    FineGrainedFP8Config,
+    QuantizationConfigMixin,
+)
 
 from ..layers.mla import MultiheadLatentAttentionBase
 from ..model_config import AttentionQuantConfig, ModelConfig, MoEConfig, MoEFieldNames
@@ -214,6 +226,15 @@ def init_on_device_without_buffers(device: torch.device):
 
 
 class AutoModelConfigLoader:
+    modules_to_not_convert_map = {
+        # The list of modules to not quantize, useful for quantizing models that explicitly require to have
+        #   some modules left in their original precision.
+        "fp8": "modules_to_not_convert",
+        "fp_quant": "modules_to_not_convert",
+        # layer names or types to not quantize, supports regex prefixed by 're:'
+        "compressed-tensors": "ignore",
+    }
+
     def __init__(self):
         self.is_transformers_natively_supported: bool = False
 
@@ -319,6 +340,22 @@ class AutoModelConfigLoader:
         return self.try_to_load_model(
             hf_config, dtype=dtype, trust_remote_code=trust_remote_code
         )
+
+    def load_quant_config(
+        self, hf_config: PretrainedConfig
+    ) -> Tuple[QuantizationConfigMixin, List[Optional[str]]]:
+        quant_config = AutoQuantizationConfig.from_dict(hf_config.quantization_config)
+        modules_to_not_convert = self.get_modules_to_not_convert(quant_config)
+        return quant_config, modules_to_not_convert
+
+    @staticmethod
+    def get_modules_to_not_convert(quant_config) -> List[Optional[str]]:
+        modules_to_not_convert = []
+        if isinstance(quant_config, FineGrainedFP8Config):
+            modules_to_not_convert = quant_config.modules_to_not_convert
+        elif isinstance(quant_config, CompressedTensorsConfig):
+            modules_to_not_convert = quant_config.quantization_config.ignore
+        return modules_to_not_convert
 
     def auto_load_model_and_config(
         self, model_id: str, model_config: ModelConfig
