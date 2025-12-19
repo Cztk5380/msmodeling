@@ -1,10 +1,10 @@
 import contextlib
 import logging
 import os
-from typing import Dict, Optional
+from typing import Dict, Optional, Tuple
 
 import torch
-from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, PretrainedConfig
+from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, PretrainedConfig, PreTrainedModel
 
 from ..layers.mla import MultiheadLatentAttentionBase
 from ..model_config import AttentionQuantConfig, ModelConfig, MoEConfig, MoEFieldNames
@@ -218,7 +218,7 @@ class AutoModelConfigLoader:
         self.is_transformers_natively_supported: bool = False
 
     @staticmethod
-    def is_model_type_different(config: PretrainedConfig):
+    def is_model_type_different(config: PretrainedConfig) -> Tuple[bool, str]:
         """
         Check whether the model type has changed.
         for example: kimi_k2's real model_type is deepseek_v3
@@ -309,7 +309,9 @@ class AutoModelConfigLoader:
         )
         return hf_config
 
-    def load_model(self, hf_config: PretrainedConfig, dtype: torch.dtype, **kwargs):
+    def load_model(
+        self, hf_config: PretrainedConfig, dtype: torch.dtype, **kwargs
+    ) -> Optional[PreTrainedModel]:
         trust_remote_code = not self.is_transformers_natively_supported
         if "trust_remote_code" in kwargs:
             trust_remote_code = kwargs.pop("trust_remote_code")
@@ -318,7 +320,9 @@ class AutoModelConfigLoader:
             hf_config, dtype=dtype, trust_remote_code=trust_remote_code
         )
 
-    def auto_load_model_and_config(self, model_id: str, model_config: ModelConfig):
+    def auto_load_model_and_config(
+        self, model_id: str, model_config: ModelConfig
+    ) -> Tuple[PretrainedConfig, PreTrainedModel]:
         """
         Load the model and config using model_id and model_config.
         """

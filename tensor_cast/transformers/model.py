@@ -186,8 +186,7 @@ class TransformerModel(ModelWrapperBase):
         2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
         This makes other wrappers' life simpler.
         """
-        has_lm_head = hasattr(self._inner, "lm_head") or hasattr(self._inner, "lmhead")
-        if not has_lm_head:
+        if not self._inner.get_output_embeddings():
             self._inner = CausalLmWrapper(
                 hf_config=self.hf_config,
                 model=self._inner,
