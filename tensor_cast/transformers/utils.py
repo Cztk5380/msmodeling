@@ -341,12 +341,10 @@ class AutoModelConfigLoader:
             hf_config, dtype=dtype, trust_remote_code=trust_remote_code
         )
 
-    def load_quant_config(
-        self, hf_config: PretrainedConfig
-    ) -> Tuple[QuantizationConfigMixin, List[Optional[str]]]:
+    @staticmethod
+    def load_quant_config(hf_config: PretrainedConfig) -> QuantizationConfigMixin:
         quant_config = AutoQuantizationConfig.from_dict(hf_config.quantization_config)
-        modules_to_not_convert = self.get_modules_to_not_convert(quant_config)
-        return quant_config, modules_to_not_convert
+        return quant_config
 
     @staticmethod
     def get_modules_to_not_convert(quant_config) -> List[Optional[str]]:

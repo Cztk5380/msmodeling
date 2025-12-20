@@ -30,6 +30,7 @@ from ..layers.utils import ModelWrapperBase
 from ..model_config import MlaConfig, ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
+from ..utils import pattern_match
 from .utils import (
     AutoModelConfigLoader,
     init_on_device_without_buffers,
@@ -561,10 +562,6 @@ class TransformerModel(ModelWrapperBase):
         if self.model_config.quant_linear_cls is None:
             return
 
-        # TODO: Read quantization config from config.json
-        # Do not quantize lmhead unless lmhead quantization is explicitly specified.
-        lm_head_quantized = False
-
         # get all the wildcard names from the configuration
         wildcard_linear_configs = {}
         for name in self.model_config.quant_config.linear_configs:
@@ -572,8 +569,6 @@ class TransformerModel(ModelWrapperBase):
                 wildcard_linear_configs[name] = (
                     self.model_config.quant_config.linear_configs[name]
                 )
-            if "lm_head" in name or "lmhead" in name:
-                lm_head_quantized = True
 
         def get_quant_config(name):
             quant_config = None
@@ -588,7 +583,9 @@ class TransformerModel(ModelWrapperBase):
             return quant_config
 
         for name, module in self._inner.named_modules():
-            if not lm_head_quantized and ("lm_head" in name or "lmhead" in name):
+            if pattern_match(
+                name, self.model_config.quant_config.modules_to_not_convert
+            ):
                 continue
             # We need to find the parent module to replace the child
             if isinstance(module, torch.nn.Linear):

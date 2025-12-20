@@ -7,24 +7,14 @@ from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
-
 from ..layers.quant_linear import TensorCastQuantLinear
-from ..model_config import (
-    LinearQuantType,
-    MlaConfig,
-    ModelConfig,
-    ParallelConfig,
-    QuantConfig,
-    QuantGranularity,
-    QuantScheme,
-)
-
+from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
+from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_json
 from .test_common import create_mla_metadata_and_kv_cache
-
 from .test_quant_linear import get_quant_config
 
 

@@ -16,9 +16,7 @@ from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
 from ..model_config import (
-    AttentionQuantType,
     LinearQuantConfig,
-    LinearQuantType,
     MlaConfig,
     ModelConfig,
     MtpConfig,
@@ -27,6 +25,7 @@ from ..model_config import (
     QuantConfig,
 )
 from ..performance_model.utils import bytes_of_tensor
+from ..quantize_utils import AttentionQuantType, LinearQuantType
 from ..transformers.model import TransformerModel
 from ..transformers.utils import (
     AutoModelConfigLoader,

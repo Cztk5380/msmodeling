@@ -4,7 +4,6 @@ import torch
 
 from ..device import TEST_DEVICE
 from ..performance_model.memory_tracker import MemoryTracker
-
 from ..runtime import Runtime
 
 

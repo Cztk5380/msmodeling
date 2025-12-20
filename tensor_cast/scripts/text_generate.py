@@ -7,14 +7,12 @@ import torch
 
 from .. import config, device_profiles  # noqa: F401
 from ..device import DeviceProfile
-
-from ..model_config import ParallelConfig, QuantConfig, QuantGranularity
+from ..model_config import ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
-
 from ..performance_model.utils import bytes_of_tensor
+from ..quantize_utils import QuantGranularity
 from ..runtime import Runtime
-
 from .utils import (
     build_model,
     create_quant_config,

@@ -1,8 +1,13 @@
-from typing import Optional
+import fnmatch
+import re
+from typing import List, Optional
 
 import torch
-
-from .model_config import LinearQuantType
+from transformers.utils.quantization_config import (
+    CompressedTensorsConfig,
+    FineGrainedFP8Config,
+    QuantizationConfigMixin,
+)
 
 # placeholder for FP8, don't hard-code specific fp8 format
 DTYPE_FP8 = torch.float8_e5m2
@@ -34,31 +39,35 @@ def exact_division(numerator, denominator):
     return numerator // denominator
 
 
-def quant_type_to_dynamic_quant_dtype(
-    quant_type: LinearQuantType,
-) -> Optional[torch.dtype]:
-    if quant_type in (LinearQuantType.W8A8, LinearQuantType.W4A8):
-        return torch.int8
-    elif quant_type == LinearQuantType.FP8:
-        return DTYPE_FP8
-    elif quant_type == LinearQuantType.MXFP4:
-        return DTYPE_FP4
-    elif quant_type == LinearQuantType.W8A16:
-        return None
-    else:
-        raise ValueError(f"Unsupported quant_type for dynamic quant: {quant_type}")
+def pattern_match(name: str, pattern_list: List[Optional[str]]) -> bool:
+    """
+    three ways to match:fnmatch/re/real_name
+    example of names:
+    # ['lm_head', 're:.*self_attn.*', 're:.*shared_experts.*', 're:.*mlp\\.(gate|up|gate_up|down)_proj.*']
+    # ["gate","e_score_correction_bias","lm_head"]
+    """
+    matched = False
+    if not pattern_list:
+        return matched
+    for pattern in pattern_list:
+        if pattern.startswith("re:"):
+            pattern = pattern.replace("re:", "")
+            matched = bool(re.match(pattern, name))
+        elif pattern in name:
+            matched = True
+        else:
+            matched = fnmatch.fnmatch(name, pattern)
+        if matched:
+            break
+    return matched
 
 
-def quant_type_to_weight_dtype(quant_type: LinearQuantType) -> torch.dtype:
-    if quant_type in (
-        LinearQuantType.W8A8,
-        LinearQuantType.W4A8,
-        LinearQuantType.W8A16,
-    ):
-        return torch.int8
-    elif quant_type == LinearQuantType.FP8:
-        return DTYPE_FP8
-    elif quant_type == LinearQuantType.MXFP4:
-        return DTYPE_FP4
-    else:
-        raise ValueError(f"Unsupported quant_type for weight quant: {quant_type}")
+def get_modules_to_not_convert(
+    quant_config: QuantizationConfigMixin,
+) -> List[Optional[str]]:
+    modules_to_not_convert = []
+    if isinstance(quant_config, FineGrainedFP8Config):
+        modules_to_not_convert = quant_config.modules_to_not_convert
+    elif isinstance(quant_config, CompressedTensorsConfig):
+        modules_to_not_convert = quant_config.quantization_config.ignore
+    return modules_to_not_convert

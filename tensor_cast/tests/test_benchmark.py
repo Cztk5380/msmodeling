@@ -1,8 +1,7 @@
 import unittest
 
 from ..device import DeviceProfile
-
-from ..model_config import QuantGranularity
+from ..quantize_utils import QuantGranularity
 from ..scripts.benchmark import find_best_throughput, get_benchmark_query_and_seq_length
 from ..scripts.utils import (
     build_model,

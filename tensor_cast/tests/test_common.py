@@ -3,8 +3,8 @@ import random
 import torch
 
 from ..layers.attention import AttentionMetadataTensorCast
-from ..model_config import LinearQuantConfig, LinearQuantType, ModelConfig, QuantConfig
-
+from ..model_config import LinearQuantConfig, ModelConfig, QuantConfig
+from ..quantize_utils import LinearQuantType
 from ..transformers.utils import get_attention_quant_config, strip_module_name
 from ..utils import exact_division
 
@@ -161,15 +161,11 @@ def get_quant_config(model=None, quant_type=LinearQuantType.W4A8, **kwargs):
         )
         return quant_config
     for name, module in model.named_modules():
-        if "lm_head" in name or "lmhead" in name:
-            continue
         if isinstance(module, torch.nn.Linear):
             strip_name = strip_module_name(name)
-            quant_config.linear_configs[strip_name] = (
-                get_linear_quant_config(
-                    quant_type,
-                    module.weight.data,
-                    **kwargs,
-                )
+            quant_config.linear_configs[strip_name] = get_linear_quant_config(
+                quant_type,
+                module.weight.data,
+                **kwargs,
             )
     return quant_config

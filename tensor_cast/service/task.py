@@ -8,7 +8,8 @@ import torch
 
 from tensor_cast.device import DeviceProfile
 
-from tensor_cast.model_config import ParallelConfig, QuantGranularity
+from tensor_cast.model_config import ParallelConfig
+from tensor_cast.quantize_utils import QuantGranularity
 from tensor_cast.scripts.utils import (
     build_model,
     create_quant_config,

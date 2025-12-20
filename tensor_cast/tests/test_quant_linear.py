@@ -6,28 +6,23 @@ from parameterized import parameterized
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
-
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
 from ..model_config import (
     LinearQuantConfig,
-    LinearQuantType,
     MlaConfig,
     ModelConfig,
     MtpConfig,
     ParallelConfig,
     QuantConfig,
-    QuantGranularity,
-    QuantScheme,
 )
 from ..patch_torch import patch_torch
 from ..performance_model.analytic import AnalyticPerformanceModel
+from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
-
 from ..utils import DTYPE_FP8
-
 from .test_common import (
     create_mla_metadata_and_kv_cache,
     get_linear_quant_config,
@@ -234,7 +229,6 @@ class TestQuantLinear(unittest.TestCase):
         )
         # lm_head will never be quantized
         self.assertEqual(num_qlinear_modules + 1, num_linear_modules)
-
 
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
