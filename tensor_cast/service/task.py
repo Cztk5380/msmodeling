@@ -124,7 +124,6 @@ class TaskRunner:
                 self.model_id,
                 parallel_config,
                 quant_config,
-                enable_lmhead=True,
                 num_mtp_tokens=self.num_mtp_tokens,
                 compile=self.compile,
                 allow_graph_break=self.compile_allow_graph_break,

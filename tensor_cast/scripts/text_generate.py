@@ -136,7 +136,6 @@ def run_inference(
         model_id,
         parallel_config,
         quant_config,
-        enable_lmhead=True,
         num_mtp_tokens=num_mtp_tokens,
         compile=do_compile,
         allow_graph_break=allow_graph_break,

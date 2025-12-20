@@ -399,7 +399,6 @@ class TestQuantLinear(unittest.TestCase):
             quant_config,
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
-            enable_lmhead=True,
         )
         model = TransformerModel(model_id, model_config)
 
@@ -430,7 +429,6 @@ class TestQuantLinear(unittest.TestCase):
             hf_config_json=hf_config_json,
             quant_linear_cls=TensorCastQuantLinear,
             enable_repetition=True,
-            enable_lmhead=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",

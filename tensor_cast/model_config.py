@@ -410,12 +410,7 @@ class ModelConfig:
     hf_config: Optional[PretrainedConfig] = None
     trust_remote_code: bool = True
     hf_config_json: Optional[str] = None  # TODO to be removed
-    """load transformer configuration from a local json file. When this is specified,
-    `disable_auto_map` is assumed to be True."""
-    disable_auto_map: Optional[bool] = None  # TODO to be removed
-    """set it to True if we want to use a local model definition, not
-    loading it from remote. Useful when the local transformer model is preferred."""
-    enable_lmhead: Optional[bool] = None  # TODO to be removed
+
     num_hidden_layers_override: int = 0
     """Override hf_config.num_hidden_layers, useful for speeding up sanity tests
     with small overrides for very large models."""

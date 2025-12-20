@@ -376,7 +376,6 @@ models:
                             model_id,
                             parallel_config,
                             quant_config,
-                            enable_lmhead=True,
                             num_mtp_tokens=mtp,
                             compile=compile,
                             allow_graph_break=allow_graph_break,

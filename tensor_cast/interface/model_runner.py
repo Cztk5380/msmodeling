@@ -100,7 +100,6 @@ class ModelRunner:
             model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=num_mtp_tokens,
             compile=do_compile,
             allow_graph_break=allow_graph_break,

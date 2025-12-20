@@ -99,7 +99,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             attention_cls=AttentionTensorCast,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
@@ -132,7 +131,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -178,7 +176,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             attention_cls=AttentionTensorCast,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
@@ -219,7 +216,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -277,7 +273,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             mxfp4_quant_config,
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
-            enable_lmhead=True,
         )
         qmodel = TransformerModel(model_id, model_config_with_mxfp4)
 

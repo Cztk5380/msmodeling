@@ -61,7 +61,6 @@ class ParallelMoETestCase(unittest.TestCase):
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            enable_lmhead=True,
             enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
@@ -101,7 +100,6 @@ class ParallelMoETestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -166,7 +164,6 @@ class ParallelMoETestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
