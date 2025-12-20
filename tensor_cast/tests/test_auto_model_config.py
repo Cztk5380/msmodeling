@@ -29,20 +29,11 @@ from ..transformers.utils import AutoModelConfigLoader, init_on_device_without_b
 
 class ConfigMode(Enum):
     """
-    配置文件位置
+    location of config file
     """
 
     local = 0  # The configuration file is in a local directory.
     remote = 1  # The configuration file is in a remote directory
-
-
-class CodeMode(Enum):
-    """
-    代码位置
-    """
-
-    local = 0  # The code is in a local directory.
-    inner = 1  # The code is in the Transformers library.
 
 
 class AutoModelAndConfigTestCase(unittest.TestCase):
@@ -52,22 +43,22 @@ class AutoModelAndConfigTestCase(unittest.TestCase):
     @parameterized.expand(
         [
             # new config of deepseek
-            ["deepseek_new", ConfigMode.local, CodeMode.inner],
+            ["deepseek_new", ConfigMode.local],
             # old deepseek configuration + old code
-            ["deepseekv3.1_remote", ConfigMode.local, CodeMode.local],
+            ["deepseekv3.1_remote", ConfigMode.local],
             # only the old deepseek configuration
-            ["deepseekv3.1_remote_json_only", ConfigMode.local, CodeMode.inner],
-            ["deepseek-ai/DeepSeek-V3.1", ConfigMode.remote, CodeMode.inner],
-            ["zai-org/GLM-4.6", ConfigMode.remote, CodeMode.inner],
-            ["minimax_m2", ConfigMode.local, CodeMode.local],
-            ["MiniMaxAI/MiniMax-M2", ConfigMode.remote, CodeMode.local],
+            ["deepseekv3.1_remote_json_only", ConfigMode.local],
+            ["deepseek-ai/DeepSeek-V3.1", ConfigMode.remote],
+            ["zai-org/GLM-4.6", ConfigMode.remote],
+            ["minimax_m2", ConfigMode.local],
+            ["MiniMaxAI/MiniMax-M2", ConfigMode.remote],
             # model_type is k2,but real type is deepseek
-            ["moonshotai/Kimi-K2-Base", ConfigMode.remote, CodeMode.local],
+            ["moonshotai/Kimi-K2-Base", ConfigMode.remote],
             # model config's model_type is "" and AutoModel in auto_map can not be found in the modeling.
-            ["XiaomiMiMo/MiMo-V2-Flash", ConfigMode.remote, CodeMode.local],
+            ["XiaomiMiMo/MiMo-V2-Flash", ConfigMode.remote],
         ]
     )
-    def test_auto_model_config(self, model_name_or_path, config_mode, code_mode):
+    def test_auto_model_config(self, model_name_or_path, config_mode):
         if config_mode == ConfigMode.local:
             model_name_or_path = os.path.join(self.model_config_dir, model_name_or_path)
         model_config = ModelConfig(

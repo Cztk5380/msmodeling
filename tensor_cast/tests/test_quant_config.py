@@ -22,7 +22,7 @@ from ..utils import get_modules_to_not_convert, pattern_match
 
 class ConfigMode(Enum):
     """
-    配置文件位置
+    location of config file
     """
 
     local = 0  # The configuration file is in a local directory.

@@ -199,7 +199,9 @@ class QuantConfig:
     """Per-layer configs: attn_layer_id -> AttentionQuantConfig"""
 
     modules_to_not_convert: Optional[List[str]] = None
-    # the quant config instance from config.json
+
+    # TODO: our quant config should be compatible with multiple scenarios.
+    #  Get some attr from the quant config instance from config.json
     ori_quant_config: QuantizationConfigMixin = None
 
     def __post_init__(self):
