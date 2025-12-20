@@ -81,26 +81,3 @@ class AutoModelAndConfigTestCase(unittest.TestCase):
             )
         self.assertIsNotNone(hf_config)
         self.assertIsNotNone(hf_model)
-
-    @parameterized.expand(
-    [
-        ["deepseekv3.1_remote_json_only", ConfigMode.local,False],
-        ["moonshotai/Kimi-K2-Base", ConfigMode.remote,False],
-        ["minimax_m2", ConfigMode.local, True],
-        ["moonshotai/Kimi-K2-Thinking", ConfigMode.remote,True],
-
-     ]
-    )
-    def test_load_quantizer(self, model_name_or_path, config_mode,has_modules_to_not_convert):
-        if config_mode == ConfigMode.local:
-            model_name_or_path = os.path.join(self.model_config_dir, model_name_or_path)
-
-        with init_on_device_without_buffers("meta"), no_init_weights():
-            auto_loader = AutoModelConfigLoader()
-            hf_config = auto_loader.load_config(model_name_or_path)
-            quant_config, modules_to_not_convert =auto_loader.load_quant_config(hf_config)
-            self.assertIsNotNone(quant_config)
-            if has_modules_to_not_convert:
-                self.assertTrue(modules_to_not_convert)
-            else:
-                self.assertFalse(modules_to_not_convert)

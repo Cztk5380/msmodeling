@@ -393,6 +393,7 @@ class TestQuantLinear(unittest.TestCase):
         )
         quant_config = QuantConfig()
         quant_config.linear_configs["lm_head"] = linear_quant_config
+        quant_config.modules_to_not_convert = []
         model_config = ModelConfig(
             ParallelConfig(),
             quant_config,
@@ -422,6 +423,7 @@ class TestQuantLinear(unittest.TestCase):
         )
         quant_config = QuantConfig()
         quant_config.linear_configs["*.lm_head"] = linear_quant_config
+        quant_config.modules_to_not_convert = []
         model_config = ModelConfig(
             ParallelConfig(),
             quant_config,

@@ -6,7 +6,7 @@ from typing import Optional
 
 import torch
 
-from tensor_cast.utils import DTYPE_FP4, DTYPE_FP8
+from .utils import DTYPE_FP4, DTYPE_FP8
 
 
 class LinearQuantType(Enum):
