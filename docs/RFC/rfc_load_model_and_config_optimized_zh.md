@@ -228,11 +228,12 @@ flowchart TD
 
 -[x] 抽取一个模型加载类，职责分离
 -[x] 支持各种场景的模型加载
+-[ ] 使用model_type而非model_id作为模型结构映射字典的key
 
 ### 通用量化系统改造
 
 -[x] 支持读取开源的量化配置
-- [ ] 抽取一个 Quantizer类 和 TensorCastQuantConfig 类
+-[ ] 抽取一个 Quantizer类 和 TensorCastQuantConfig 类
 -[ ] 对接现有系统，修改逻辑
 
 ### ModelConfig重构
