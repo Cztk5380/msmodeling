@@ -11,13 +11,13 @@
 
 ---
 
-## 1. Overview（概述）
-[Summarize the proposal concisely in 1-2 sentences. / 用一两句话清晰概括整个提案。
+## 1. Problem Statement（概述）
+[Explain background and the problems to address. Summarize the proposal concisely in 1-2 sentences. / 解释问题背景，并用一两句话清晰概括整个提案。
 e.g.: Resolve the inconsistency of xx configurations and consolidate the access entries of xx and xx into xx. / 例：解决xx配置不归一的问题，使xx和xx的入口收编至xx。]
 
-## 2. Detailed Design（详细设计）
+## 2. Proposals（方案设计）
 
-### 2.1 Implementation（实现方案）
+### 2.1 Proposed solution（推荐方案）
 [Combine text and diagrams if needed. Clarify the following key details of the solution: which modules need to be added/modified, the definition of interfaces (input and output parameters), and the interaction logic with existing modules. / 可以图文结合，请重点澄清以下方案细节：需要在哪里添加什么模块，接口是什么（输入输出），和已有模块的关系是什么（交互）]
 
 ### 2.2 Alternatives Considered（替代方案）
