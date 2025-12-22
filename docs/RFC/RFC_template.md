@@ -18,7 +18,7 @@ e.g.: Resolve the inconsistency of xx configurations and consolidate the access 
 ## 2. Proposals（方案设计）
 
 ### 2.1 Proposed solution（推荐方案）
-[Combine text and diagrams if needed. Clarify the following key details of the solution: which modules need to be added/modified, the definition of interfaces (input and output parameters), and the interaction logic with existing modules. / 可以图文结合，请重点澄清以下方案细节：需要在哪里添加什么模块，接口是什么（输入输出），和已有模块的关系是什么（交互）]
+[Combine text and diagrams if needed. Clarify the following key details of the solution: which modules need to be added/modified, the definition of interfaces (input and output parameters), the interaction logic with existing modules, and the key algorithms if applicable. / 可以图文结合，请重点澄清以下方案细节：需要在哪里添加什么模块，接口是什么（输入输出），和已有模块的关系是什么（交互），以及核心算法（如有）。]
 
 ### 2.2 Alternatives Considered（替代方案）
 [List other alternative solutions that have been evaluated. These alternatives may become viable options if future conditions change. / 你考虑过哪些其他方案？当未来条件变化时，可能这些替代方案会成为新的选择。]
