@@ -16,9 +16,7 @@ from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
 from ..model_config import (
-    AttentionQuantType,
     LinearQuantConfig,
-    LinearQuantType,
     MlaConfig,
     ModelConfig,
     MtpConfig,
@@ -27,6 +25,7 @@ from ..model_config import (
     QuantConfig,
 )
 from ..performance_model.utils import bytes_of_tensor
+from ..quantize_utils import AttentionQuantType, LinearQuantType
 from ..transformers.model import TransformerModel
 from ..transformers.utils import (
     AutoModelConfigLoader,
@@ -168,7 +167,6 @@ def build_model(
     model_id: str,
     parallel_config: ParallelConfig,
     quant_config: QuantConfig,
-    enable_lmhead: bool = True,
     num_mtp_tokens: int = 0,
     compile: bool = False,
     allow_graph_break: bool = True,
@@ -199,7 +197,6 @@ def build_model(
         attention_cls=AttentionTensorCast,
         quant_linear_cls=TensorCastQuantLinear,
         hf_config_json=model_id_to_json(model_id),
-        enable_lmhead=enable_lmhead,
     )
     model_config.hf_config = hf_config
     model_config.trust_remote_code = not auto_loader.is_transformers_natively_supported

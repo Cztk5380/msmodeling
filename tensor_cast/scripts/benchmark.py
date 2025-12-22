@@ -7,16 +7,14 @@ import torch
 import yaml
 
 from .. import device_profiles  # noqa: F401
-
 from ..device import DeviceProfile
-
-from ..model_config import QuantConfig, QuantGranularity
+from ..model_config import QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
+from ..quantize_utils import QuantGranularity
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_moe_config
-
 from .utils import (
     build_model,
     create_quant_config,
@@ -378,7 +376,6 @@ models:
                             model_id,
                             parallel_config,
                             quant_config,
-                            enable_lmhead=True,
                             num_mtp_tokens=mtp,
                             compile=compile,
                             allow_graph_break=allow_graph_break,

@@ -1,8 +1,7 @@
 import unittest
 
 from ..device import DeviceProfile
-
-from ..model_config import QuantGranularity
+from ..quantize_utils import QuantGranularity
 from ..scripts.benchmark import find_best_throughput, get_benchmark_query_and_seq_length
 from ..scripts.utils import (
     build_model,
@@ -68,12 +67,11 @@ class TestBenchmark(unittest.TestCase):
         self.assertEqual(query_len, 4)
 
     def test_find_best_throughput_decode_basic(self):
-        """Test finding best throughput for decode mode."""
+        """Test finding the best throughput for decode mode."""
         model = build_model(
             self.model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -99,7 +97,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -126,7 +123,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -151,7 +147,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -176,7 +171,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -202,7 +196,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -232,7 +225,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -262,7 +254,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -291,7 +282,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -320,7 +310,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -349,7 +338,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -375,7 +363,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -402,7 +389,6 @@ class TestBenchmark(unittest.TestCase):
             "deepseek-ai/DeepSeek-V3.1",
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=2,
             compile=False,
         )
@@ -427,7 +413,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -452,7 +437,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -477,7 +461,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -502,7 +485,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -527,7 +509,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )
@@ -596,7 +577,6 @@ class TestBenchmark(unittest.TestCase):
                 self.model_id,
                 self.parallel_config,
                 self.quant_config,
-                enable_lmhead=True,
                 num_mtp_tokens=0,
                 compile=False,
             )
@@ -620,7 +600,6 @@ class TestBenchmark(unittest.TestCase):
             self.model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=0,
             compile=False,
         )

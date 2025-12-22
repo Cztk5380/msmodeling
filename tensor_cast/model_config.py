@@ -1,35 +1,17 @@
 import dataclasses
-from enum import auto, Enum
-from typing import Dict, Optional, Type
+from typing import Dict, List, Optional, Type
 
 import torch
 from transformers import PretrainedConfig
+from transformers.utils.quantization_config import QuantizationConfigMixin
 
-
-class LinearQuantType(Enum):
-    W8A16 = auto()  # Weight in int8, activation in bfloat16 or half
-    W8A8 = auto()  # Weight in int8, activation in int8
-    W4A8 = auto()  # Weight in int4, activation in int8
-    FP8 = auto()  # Weight in float8, activation in float8
-    MXFP4 = auto()  # both weight and activation in MXFP4
-
-
-class AttentionQuantType(Enum):
-    INT8 = auto()
-    # TODO(jgong5): support FP8
-
-
-class QuantGranularity(Enum):
-    PER_TENSOR = auto()  # use a single quant param for the entire tensor
-    PER_SAMPLE = (
-        auto()
-    )  # use quant param per sample in the batch (e.g. per-token for LLM)
-    PER_GROUP = auto()  # use quant param per channel group
-
-
-class QuantScheme(Enum):
-    SYMMETRIC = auto()
-    ASYMMETRIC = auto()
+from .quantize_utils import (
+    AttentionQuantType,
+    LinearQuantType,
+    QuantGranularity,
+    QuantScheme,
+)
+from .utils import get_modules_to_not_convert
 
 
 @dataclasses.dataclass
@@ -200,6 +182,10 @@ class MultiheadLatentAttentionQuantConfig(AttentionQuantConfig):
     out_offset: Optional[torch.Tensor] = None
 
 
+# TODO: Implement a quantizer that is compatible with
+#  both open-source ecosystems and Ascend, referencing the quantizer in Transformers.
+
+
 @dataclasses.dataclass
 class QuantConfig:
     linear_configs: Dict[str, LinearQuantConfig] = dataclasses.field(
@@ -211,6 +197,19 @@ class QuantConfig:
         default_factory=dict
     )
     """Per-layer configs: attn_layer_id -> AttentionQuantConfig"""
+
+    modules_to_not_convert: Optional[List[str]] = None
+
+    # TODO: our quant config should be compatible with multiple scenarios.
+    #  Get some attr from the quant config instance from config.json
+    ori_quant_config: QuantizationConfigMixin = None
+
+    def __post_init__(self):
+        if self.modules_to_not_convert is None:
+            self.modules_to_not_convert = ["lm_head"]
+
+    def update_modules_to_not_convert(self, quant_config: QuantizationConfigMixin):
+        self.modules_to_not_convert = get_modules_to_not_convert(quant_config)
 
 
 @dataclasses.dataclass
@@ -411,12 +410,7 @@ class ModelConfig:
     hf_config: Optional[PretrainedConfig] = None
     trust_remote_code: bool = True
     hf_config_json: Optional[str] = None  # TODO to be removed
-    """load transformer configuration from a local json file. When this is specified,
-    `disable_auto_map` is assumed to be True."""
-    disable_auto_map: Optional[bool] = None  # TODO to be removed
-    """set it to True if we want to use a local model definition, not
-    loading it from remote. Useful when the local transformer model is preferred."""
-    enable_lmhead: Optional[bool] = None  # TODO to be removed
+
     num_hidden_layers_override: int = 0
     """Override hf_config.num_hidden_layers, useful for speeding up sanity tests
     with small overrides for very large models."""

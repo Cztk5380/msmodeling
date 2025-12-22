@@ -1,29 +1,20 @@
 import unittest
 
 import torch
-
 from parameterized import parameterized
 
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
-
 from ..layers.attention import AttentionTensorCast
-
 from ..layers.quant_linear import TensorCastQuantLinear
-from ..model_config import (
-    LinearQuantType,
-    ModelConfig,
-    ParallelConfig,
-    QuantConfig,
-    QuantGranularity,
-)
+from ..model_config import ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
-
 from ..performance_model.memory_tracker import MemoryTracker
+from ..quantize_utils import LinearQuantType, QuantGranularity
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-
 from .test_common import count_events, get_quant_config
+# ok
 
 
 class GmmPassTestCase(unittest.TestCase):
@@ -52,7 +43,7 @@ class GmmPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertEqual(
             count_events(runtime, torch.ops.tensor_cast.grouped_matmul.default), 2
         )
@@ -83,7 +74,7 @@ class GmmPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertEqual(
             count_events(runtime, torch.ops.tensor_cast.grouped_matmul_quant.default), 2
         )
@@ -125,7 +116,7 @@ class GmmPassTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         expected_op = None
         if quant_type == LinearQuantType.W8A8:
             expected_op = torch.ops.tensor_cast.grouped_matmul_quant.default

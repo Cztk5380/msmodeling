@@ -3,19 +3,15 @@ from typing import Optional
 import torch
 
 from .. import ops  # noqa: F401
-from ..model_config import (
-    LinearQuantConfig,
+from ..model_config import LinearQuantConfig
+from ..quantize_utils import (
     LinearQuantType,
+    quant_type_to_dynamic_quant_dtype,
+    quant_type_to_weight_dtype,
     QuantGranularity,
     QuantScheme,
 )
-
-from ..utils import (
-    DTYPE_FP4,
-    DTYPE_FP8,
-    quant_type_to_dynamic_quant_dtype,
-    quant_type_to_weight_dtype,
-)
+from ..utils import DTYPE_FP4, DTYPE_FP8
 
 
 class QuantLinearBase(torch.nn.Module):

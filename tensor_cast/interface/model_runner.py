@@ -1,30 +1,29 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from __future__ import annotations
-import time
+
 from dataclasses import dataclass, field
-from typing import Optional, Dict, Any, List
+from typing import Dict, List, Optional
 
 import torch
 
-from tensor_cast import config, device_profiles
 from tensor_cast.device import DeviceProfile
-from tensor_cast.model_config import ParallelConfig, QuantConfig, QuantGranularity
+from tensor_cast.layers.sampler import Sampler
+from tensor_cast.model_config import ParallelConfig, QuantConfig
 from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
 from tensor_cast.performance_model.memory_tracker import MemoryTracker
 from tensor_cast.performance_model.utils import bytes_of_tensor
+from tensor_cast.quantize_utils import QuantGranularity
 from tensor_cast.runtime import Runtime
 from tensor_cast.scripts.utils import (
     build_model,
     create_quant_config,
-    generate_inputs,
-    QuantizeAttentionAction,
-    QuantizeLinearAction,
     generate_inputs_varlen,
-    RequestInfo,
     get_inputs_num_bytes,
     get_kv_cache_info,
+    QuantizeAttentionAction,
+    QuantizeLinearAction,
+    RequestInfo,
 )
-from tensor_cast.layers.sampler import Sampler
 
 
 @dataclass
@@ -101,7 +100,6 @@ class ModelRunner:
             model_id,
             self.parallel_config,
             self.quant_config,
-            enable_lmhead=True,
             num_mtp_tokens=num_mtp_tokens,
             compile=do_compile,
             allow_graph_break=allow_graph_break,
@@ -116,8 +114,8 @@ class ModelRunner:
         self.dump_input_shapes = dump_input_shapes
         self.chrome_trace = chrome_trace
 
-        self.total_device_memory_gb = self.device_profile.memory_size_bytes / 1024 ** 3
-        self.model_weight_size_gb = self.model.weight_size / 1024 ** 3
+        self.total_device_memory_gb = self.device_profile.memory_size_bytes / 1024**3
+        self.model_weight_size_gb = self.model.weight_size / 1024**3
         self.reserved_memory_gb = reserved_memory_gb
         self.block_size = block_size
 
@@ -133,7 +131,10 @@ class ModelRunner:
         attn_action: QuantizeAttentionAction,
         group_size: int,
     ) -> QuantConfig:
-        if linear_action == QuantizeLinearAction.DISABLED and attn_action == QuantizeAttentionAction.DISABLED:
+        if (
+            linear_action == QuantizeLinearAction.DISABLED
+            and attn_action == QuantizeAttentionAction.DISABLED
+        ):
             return QuantConfig()
         extra = {}
         if linear_action == QuantizeLinearAction.MXFP4:
@@ -151,43 +152,44 @@ class ModelRunner:
     # -----------------------------------------------------
     # public API
     # -----------------------------------------------------
-    def run_inference(self, requests: List[RequestInfo]) -> InferenceMetrics:
+    def run_inference(self, requests: List[RequestInfo]) -> InferenceMetrics:  # noqa: F821
         input_kwargs = generate_inputs_varlen(
             self.model,
             requests,
             block_size=self.block_size,
         )
 
-        run_start = time.perf_counter()
-        with Runtime(
-            self.perf_model,
-            self.device_profile,
-            memory_tracker=MemoryTracker(self.device_profile),
-        ) as runtime, torch.no_grad():
+        with (
+            Runtime(
+                self.perf_model,
+                self.device_profile,
+                memory_tracker=MemoryTracker(self.device_profile),
+            ) as runtime,
+            torch.no_grad(),
+        ):
             logits = self.model.forward(**input_kwargs)
-            _ = self.sampler(logits, input_kwargs['sampling_metadata'])
-        run_end = time.perf_counter()
+            _ = self.sampler(logits, input_kwargs["sampling_metadata"])
         execution_time_s = runtime.total_execution_time_s()[self.perf_model.name]
 
-        peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024 ** 3
+        peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
         kv_cache_size_gb = (
             sum(
                 bytes_of_tensor(kv_cache)
                 for kv_cache in input_kwargs["kv_cache_by_layers"].values()
             )
-            / 1024 ** 3
+            / 1024**3
         )
-        kv_cache_per_token_gb = input_kwargs["kv_cache_per_token"] / 1024 ** 3
+        kv_cache_per_token_gb = input_kwargs["kv_cache_per_token"] / 1024**3
         model_activation_size_gb = (
             peak_memory_usage_gb - kv_cache_size_gb - self.model_weight_size_gb
         )
         device_memory_available_gb = (
-            self.total_device_memory_gb
-            - peak_memory_usage_gb
-            - self.reserved_memory_gb
+            self.total_device_memory_gb - peak_memory_usage_gb - self.reserved_memory_gb
         )
 
-        table_result = runtime.table_averages(group_by_input_shapes=self.dump_input_shapes)
+        table_result = runtime.table_averages(
+            group_by_input_shapes=self.dump_input_shapes
+        )
         if self.chrome_trace:
             runtime.export_chrome_trace(self.chrome_trace)
 
@@ -205,7 +207,7 @@ class ModelRunner:
             breakdowns=runtime.get_breakdowns(),
         )
 
-    def get_inputs_num_bytes(self, requests: List[Request]) -> int:
+    def get_inputs_num_bytes(self, requests: List[Request]) -> int:  # noqa: F821
         return get_inputs_num_bytes(self.model, requests, self.block_size)
 
     def get_kv_cache_num_bytes(self, num_tokens: int) -> int:

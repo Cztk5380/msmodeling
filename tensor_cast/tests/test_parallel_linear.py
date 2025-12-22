@@ -7,24 +7,14 @@ from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
-
 from ..layers.quant_linear import TensorCastQuantLinear
-from ..model_config import (
-    LinearQuantType,
-    MlaConfig,
-    ModelConfig,
-    ParallelConfig,
-    QuantConfig,
-    QuantGranularity,
-    QuantScheme,
-)
-
+from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
+from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_json
 from .test_common import create_mla_metadata_and_kv_cache
-
 from .test_quant_linear import get_quant_config
 
 
@@ -109,7 +99,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             attention_cls=AttentionTensorCast,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
@@ -142,7 +131,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -188,7 +176,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             attention_cls=AttentionTensorCast,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         model = TransformerModel(model_id, model_config)
@@ -229,7 +216,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             parallel_config,
             QuantConfig(),
             hf_config_json=hf_config_json,
-            enable_lmhead=True,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -287,7 +273,6 @@ class ParallelLinearTestCase(unittest.TestCase):
             mxfp4_quant_config,
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
-            enable_lmhead=True,
         )
         qmodel = TransformerModel(model_id, model_config_with_mxfp4)
 

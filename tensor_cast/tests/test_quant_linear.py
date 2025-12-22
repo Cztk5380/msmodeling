@@ -6,28 +6,23 @@ from parameterized import parameterized
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
-
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
 from ..model_config import (
     LinearQuantConfig,
-    LinearQuantType,
     MlaConfig,
     ModelConfig,
     MtpConfig,
     ParallelConfig,
     QuantConfig,
-    QuantGranularity,
-    QuantScheme,
 )
 from ..patch_torch import patch_torch
 from ..performance_model.analytic import AnalyticPerformanceModel
+from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
-
 from ..utils import DTYPE_FP8
-
 from .test_common import (
     create_mla_metadata_and_kv_cache,
     get_linear_quant_config,
@@ -190,14 +185,15 @@ class TestQuantLinear(unittest.TestCase):
             for _, module in qmodel.named_modules()
             if isinstance(module, torch.nn.Linear)
         )
-        self.assertEqual(num_linear_modules, 0)
+        # lm_head will never be quantized
+        self.assertEqual(num_linear_modules, 1)
 
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         with torch.no_grad(), patch_torch():
             outputs = qmodel.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
 
     @parameterized.expand(
         [
@@ -231,14 +227,15 @@ class TestQuantLinear(unittest.TestCase):
             for _, module in qmodel.named_modules()
             if isinstance(module, QuantLinearBase)
         )
-        self.assertEqual(num_qlinear_modules, num_linear_modules)
+        # lm_head will never be quantized
+        self.assertEqual(num_qlinear_modules + 1, num_linear_modules)
 
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         with torch.no_grad(), patch_torch():
             outputs = qmodel.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
 
     @parameterized.expand(
         [
@@ -276,7 +273,7 @@ class TestQuantLinear(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = qmodel.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
         result = runtime.table_averages()
         if symmetric:
             self.assertIn("tensor_cast.dynamic_quantize_symmetric.default", result)
@@ -316,7 +313,7 @@ class TestQuantLinear(unittest.TestCase):
         perf_model = AnalyticPerformanceModel(machine_config)
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = qmodel.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.quantize.default", result)
         self.assertIn("tensor_cast.static_quant_linear.default", result)
@@ -396,12 +393,12 @@ class TestQuantLinear(unittest.TestCase):
         )
         quant_config = QuantConfig()
         quant_config.linear_configs["lm_head"] = linear_quant_config
+        quant_config.modules_to_not_convert = []
         model_config = ModelConfig(
             ParallelConfig(),
             quant_config,
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
-            enable_lmhead=True,
         )
         model = TransformerModel(model_id, model_config)
 
@@ -425,13 +422,13 @@ class TestQuantLinear(unittest.TestCase):
         )
         quant_config = QuantConfig()
         quant_config.linear_configs["*.lm_head"] = linear_quant_config
+        quant_config.modules_to_not_convert = []
         model_config = ModelConfig(
             ParallelConfig(),
             quant_config,
             hf_config_json=hf_config_json,
             quant_linear_cls=TensorCastQuantLinear,
             enable_repetition=True,
-            enable_lmhead=True,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -594,7 +591,7 @@ class TestQuantLinear(unittest.TestCase):
 
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = qmodel.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
 
         result = runtime.table_averages()
         # Check that FP8 operations are being used
@@ -636,7 +633,7 @@ class TestQuantLinear(unittest.TestCase):
 
         with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
             outputs = qmodel.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
 
         result = runtime.table_averages()
         # Check that MXFP4 operations are being used

@@ -1,10 +1,22 @@
 import contextlib
 import logging
 import os
-from typing import Dict, Optional
+from typing import Dict, List, Optional, Tuple
 
 import torch
-from transformers import AutoConfig, AutoModel, AutoModelForCausalLM, PretrainedConfig
+from transformers import (
+    AutoConfig,
+    AutoModel,
+    AutoModelForCausalLM,
+    PretrainedConfig,
+    PreTrainedModel,
+)
+from transformers.quantizers.auto import AutoQuantizationConfig
+from transformers.utils.quantization_config import (
+    CompressedTensorsConfig,
+    FineGrainedFP8Config,
+    QuantizationConfigMixin,
+)
 
 from ..layers.mla import MultiheadLatentAttentionBase
 from ..model_config import AttentionQuantConfig, ModelConfig, MoEConfig, MoEFieldNames
@@ -70,6 +82,9 @@ _model_id_to_moe_config: Dict[str, MoEConfig] = {
     "deepseek-ai/DeepSeek-V3.1": MoEConfig(
         module_name="DeepseekV3MoE",
     ),
+    "mimo_v2_flash": MoEConfig(
+        module_name="MiMoV2MoE",
+    ),
     "baidu/ERNIE-4.5-300B-A47B-PT": MoEConfig(
         # This is not a strict mapping to ERNIE MoE which has bias correction
         # and minimal routing weights normalization factor introducing additional
@@ -106,6 +121,7 @@ _model_id_to_mtp_block_module_name: Dict[str, str] = {
     "moonshotai/Kimi-K2-Base": "DeepseekV3DecoderLayer",
     "deepseek_v3": "DeepseekV3DecoderLayer",
     "glm4_moe": "Glm4MoeDecoderLayer",
+    "mimo_v2_flash": "MiMoV2DecoderLayer",
 }
 
 
@@ -210,11 +226,20 @@ def init_on_device_without_buffers(device: torch.device):
 
 
 class AutoModelConfigLoader:
+    modules_to_not_convert_map = {
+        # The list of modules to not quantize, useful for quantizing models that explicitly require to have
+        #   some modules left in their original precision.
+        "fp8": "modules_to_not_convert",
+        "fp_quant": "modules_to_not_convert",
+        # layer names or types to not quantize, supports regex prefixed by 're:'
+        "compressed-tensors": "ignore",
+    }
+
     def __init__(self):
-        self.is_transformers_natively_supported = False
+        self.is_transformers_natively_supported: bool = False
 
     @staticmethod
-    def is_model_type_different(config: PretrainedConfig):
+    def is_model_type_different(config: PretrainedConfig) -> Tuple[bool, str]:
         """
         Check whether the model type has changed.
         for example: kimi_k2's real model_type is deepseek_v3
@@ -227,9 +252,11 @@ class AutoModelConfigLoader:
                 - (False, original_type) if the types are the same
                 - (True, current_type) if the types are different
         """
-        if config.model_type == config.to_dict()["model_type"]:
-            return False, config.model_type
-        return True, config.to_dict()["model_type"]
+        # Some model config instances do not have a model_type, for example, mimo_v2_flash
+        maybe_real_type = config.to_dict()["model_type"]
+        if maybe_real_type and config.model_type != maybe_real_type:
+            return True, maybe_real_type
+        return False, config.model_type
 
     @staticmethod
     def check_model_path(path):
@@ -289,8 +316,8 @@ class AutoModelConfigLoader:
             if is_diff:
                 # Using the real config class to load again
                 # for example: use native deepseek_v3 to load kimi-k2`s config.json
-                logging.warning(
-                    f"Using a model of type {real_type} to instantiate again."
+                logger.warning(
+                    "Using a model of type %s to instantiate again.", real_type
                 )
                 hf_config = AutoConfig.for_model(real_type).from_dict(
                     hf_config.to_dict()
@@ -298,37 +325,39 @@ class AutoModelConfigLoader:
                 self.is_transformers_natively_supported = True
 
         logger.info(
-            f"is_transformers_natively_supported = {self.is_transformers_natively_supported}"
+            "is_transformers_natively_supported = %s",
+            self.is_transformers_natively_supported,
         )
         return hf_config
 
     def load_model(
-        self,
-        hf_config: PretrainedConfig,
-        dtype: torch.dtype,
-        trust_remote_code: Optional[bool] = None,
-    ):
-        if trust_remote_code is None:
-            trust_remote_code = not self.is_transformers_natively_supported
+        self, hf_config: PretrainedConfig, dtype: torch.dtype, **kwargs
+    ) -> Optional[PreTrainedModel]:
+        trust_remote_code = not self.is_transformers_natively_supported
+        if "trust_remote_code" in kwargs:
+            trust_remote_code = kwargs.pop("trust_remote_code")
 
-        # AutoModelForCausalLM means AutoModelWithLmhead Usually
-        auto_map = getattr(hf_config, "auto_map", {})
-        # TODO Using AutoModelForCausalLM as default to load model
-        if not auto_map or "AutoModel" in auto_map:
-            hf_model = AutoModel.from_config(
-                hf_config, dtype=dtype, trust_remote_code=trust_remote_code
-            )
-        elif "AutoModelForCausalLM" in hf_config.auto_map:
-            hf_model = AutoModelForCausalLM.from_config(
-                hf_config, dtype=dtype, trust_remote_code=trust_remote_code
-            )
-        else:
-            raise RuntimeError(
-                "Can not load model by one of [AutoModel,AutoModelForCausalLM]."
-            )
-        return hf_model
+        return self.try_to_load_model(
+            hf_config, dtype=dtype, trust_remote_code=trust_remote_code
+        )
 
-    def auto_load_model_and_config(self, model_id: str, model_config: ModelConfig):
+    @staticmethod
+    def load_quant_config(hf_config: PretrainedConfig) -> QuantizationConfigMixin:
+        quant_config = AutoQuantizationConfig.from_dict(hf_config.quantization_config)
+        return quant_config
+
+    @staticmethod
+    def get_modules_to_not_convert(quant_config) -> List[Optional[str]]:
+        modules_to_not_convert = []
+        if isinstance(quant_config, FineGrainedFP8Config):
+            modules_to_not_convert = quant_config.modules_to_not_convert
+        elif isinstance(quant_config, CompressedTensorsConfig):
+            modules_to_not_convert = quant_config.quantization_config.ignore
+        return modules_to_not_convert
+
+    def auto_load_model_and_config(
+        self, model_id: str, model_config: ModelConfig
+    ) -> Tuple[PretrainedConfig, PreTrainedModel]:
         """
         Load the model and config using model_id and model_config.
         """
@@ -337,3 +366,11 @@ class AutoModelConfigLoader:
             hf_config.num_hidden_layers = model_config.num_hidden_layers_override
         hf_model = self.load_model(hf_config, model_config.dtype)
         return hf_config, hf_model
+
+    @staticmethod
+    def try_to_load_model(*args, **kwarg):
+        try:
+            hf_model = AutoModel.from_config(*args, **kwarg)
+        except Exception:
+            hf_model = AutoModelForCausalLM.from_config(*args, **kwarg)
+        return hf_model

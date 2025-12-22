@@ -30,6 +30,7 @@ from ..layers.utils import ModelWrapperBase
 from ..model_config import MlaConfig, ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
+from ..utils import pattern_match
 from .utils import (
     AutoModelConfigLoader,
     init_on_device_without_buffers,
@@ -140,7 +141,7 @@ class TransformerModel(ModelWrapperBase):
                 self._inner = auto_loader.load_model(
                     self.hf_config,
                     self.model_config.dtype,
-                    self.model_config.trust_remote_code,
+                    trust_remote_code=self.model_config.trust_remote_code,
                 )
             else:
                 self.hf_config, self._inner = auto_loader.auto_load_model_and_config(
@@ -179,24 +180,6 @@ class TransformerModel(ModelWrapperBase):
         finally:
             torch.set_default_dtype(orig_dtype)
 
-    def wrap_model_v2(self):
-        """
-        Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
-        1. We already return torch.Tensor or a tuple of tensors when intermediates are needed
-        2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
-        This makes other wrappers' life simpler.
-        # TODO: Using this func instead of the wrap_model to add lmhead as default,
-        # TODO: modify the dt at the same time
-        """
-        has_lm_head = hasattr(self._inner, "lm_head") or hasattr(self._inner, "lmhead")
-        if not has_lm_head:
-            self._inner = CausalLmWrapper(
-                hf_config=self.hf_config,
-                model=self._inner,
-            )
-        else:
-            self._inner = ModelWrapper(self._inner)
-
     def wrap_model(self):
         """
         Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
@@ -204,11 +187,7 @@ class TransformerModel(ModelWrapperBase):
         2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
         This makes other wrappers' life simpler.
         """
-        self.enable_lmhead = self.model_config.enable_lmhead is True
-        if self.model_config.mtp_config and not self.enable_lmhead:
-            assert self.model_config.enable_lmhead is None, "MTP on but lmhead is off"
-            self.enable_lmhead = True
-        if self.enable_lmhead:
+        if not self._inner.get_output_embeddings():
             self._inner = CausalLmWrapper(
                 hf_config=self.hf_config,
                 model=self._inner,
@@ -604,6 +583,10 @@ class TransformerModel(ModelWrapperBase):
             return quant_config
 
         for name, module in self._inner.named_modules():
+            if pattern_match(
+                name, self.model_config.quant_config.modules_to_not_convert
+            ):
+                continue
             # We need to find the parent module to replace the child
             if isinstance(module, torch.nn.Linear):
                 # remove "_inner" from the module path since we may wrap original

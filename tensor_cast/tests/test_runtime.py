@@ -87,7 +87,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertIn("tensor_cast.", runtime.table_averages())
 
     @parameterized.expand(
@@ -138,7 +138,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
                 attention_meta=attn_meta,
                 kv_cache_by_layers=kv_cache_by_layers,
             )
-            self.assertEqual(outputs.shape, (1, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
         self.assertIn("tensor_cast.permute_tokens", result)
         self.assertIn("tensor_cast.concat_and_cache_mla", result)

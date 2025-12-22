@@ -86,7 +86,7 @@ class RepetitionTestCase(unittest.TestCase):
             torch.no_grad(),
         ):
             outputs = model.forward(inputs, position_ids)
-            self.assertEqual(outputs.shape, (2, num_tokens, model.hidden_size))
+            self.assertEqual(outputs.shape, (2, num_tokens, model.vocab_size))
 
         with (
             Runtime(
@@ -96,7 +96,7 @@ class RepetitionTestCase(unittest.TestCase):
         ):
             outputs = model_with_repeats.forward(inputs, position_ids)
             self.assertEqual(
-                outputs.shape, (2, num_tokens, model_with_repeats.hidden_size)
+                outputs.shape, (2, num_tokens, model_with_repeats.vocab_size)
             )
 
         # NOTE: we might miss some cross-layer fusion patterns with repetitions
