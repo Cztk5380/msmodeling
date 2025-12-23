@@ -3,8 +3,6 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from .test_common import create_mla_metadata_and_kv_cache
-from .test_quant_linear import get_quant_config
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
@@ -15,6 +13,8 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
+from .test_common import create_mla_metadata_and_kv_cache
+from .test_quant_linear import get_quant_config
 
 
 def get_parallel_config(parallel_configuration: tuple):
@@ -62,13 +62,13 @@ class ParallelLinearTestCase(unittest.TestCase):
         self.assertGreater(count, 0)
 
     def _validate_comm_result(
-            self, result: dict, runtime: Runtime, parallel_config: ParallelConfig
+        self, result: dict, runtime: Runtime, parallel_config: ParallelConfig
     ):
         comm_op_name = "tensor_cast.all_reduce.default"
         if (
-                parallel_config.has_attn_tp()
-                or parallel_config.has_o_proj_tp()
-                or parallel_config.has_mlp_tp()
+            parallel_config.has_attn_tp()
+            or parallel_config.has_o_proj_tp()
+            or parallel_config.has_mlp_tp()
         ):
             self.assertIn(comm_op_name, result)
             self._check_comm_analytic(runtime.get_trace_events(), comm_op_name)

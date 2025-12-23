@@ -4,7 +4,6 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
@@ -15,6 +14,7 @@ from ..performance_model.empirical import EmpiricalPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
+from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 
 
 class PerfAnalysisTestCase(unittest.TestCase):

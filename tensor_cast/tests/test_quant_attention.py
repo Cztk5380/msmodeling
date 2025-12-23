@@ -3,11 +3,6 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from .test_common import (
-    create_attn_metadata_and_kv_cache,
-    create_mla_metadata_and_kv_cache,
-    has_submodule_with_cls_name,
-)
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
@@ -27,6 +22,11 @@ from ..quantize_utils import AttentionQuantType, LinearQuantType
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_mtp_block_module_name
+from .test_common import (
+    create_attn_metadata_and_kv_cache,
+    create_mla_metadata_and_kv_cache,
+    has_submodule_with_cls_name,
+)
 
 
 def get_quant_config(start_layer_id=-1, end_layer_id=-1):

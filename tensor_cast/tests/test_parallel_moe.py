@@ -4,7 +4,6 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from .test_common import create_mla_metadata_and_kv_cache
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
@@ -13,6 +12,7 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_moe_config
+from .test_common import create_mla_metadata_and_kv_cache
 
 
 def get_parallel_config(parallel_configuration: tuple):
@@ -91,7 +91,7 @@ class ParallelMoETestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_with_ep(
-            self, model_id, parallel_configuration, moe_configuration
+        self, model_id, parallel_configuration, moe_configuration
     ):
         parallel_config = get_parallel_config(parallel_configuration)
         model_config = ModelConfig(
@@ -148,12 +148,12 @@ class ParallelMoETestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_with_redundant_experts_and_external_shared_expert(
-            self,
-            model_id,
-            parallel_configuration,
-            moe_configuration,
-            num_external_shared_experts,
-            num_redundant_experts,
+        self,
+        model_id,
+        parallel_configuration,
+        moe_configuration,
+        num_external_shared_experts,
+        num_redundant_experts,
     ):
         parallel_config = get_parallel_config(parallel_configuration)
         model_config = ModelConfig(

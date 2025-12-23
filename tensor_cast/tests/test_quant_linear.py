@@ -3,12 +3,6 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from .test_common import (
-    create_mla_metadata_and_kv_cache,
-    get_linear_quant_config,
-    get_quant_config,
-    has_submodule_with_cls_name,
-)
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
@@ -29,6 +23,12 @@ from ..runtime import Runtime
 from ..transformers.model import TransformerModel
 from ..transformers.utils import model_id_to_mtp_block_module_name
 from ..utils import DTYPE_FP8
+from .test_common import (
+    create_mla_metadata_and_kv_cache,
+    get_linear_quant_config,
+    get_quant_config,
+    has_submodule_with_cls_name,
+)
 
 # Define common parameters for tests
 IN_FEATURES = 32
