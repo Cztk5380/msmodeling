@@ -3,6 +3,7 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 from ..compilation import get_backend
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.sampler import SamplingMetadata
@@ -15,9 +16,7 @@ from ..model_config import (
 )
 from ..patch_torch import patch_torch
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
-
-from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
+from ..transformers.utils import model_id_to_mtp_block_module_name
 
 
 class MtpTestCase(unittest.TestCase):
@@ -33,19 +32,16 @@ class MtpTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_prefill_without_kvcache(
-        self, model_id, parallel_configuration, do_compile
+            self, model_id, parallel_configuration, do_compile
     ):
         num_tokens = 100
         parallel_config = ParallelConfig(
             world_size=parallel_configuration[0],
             expert_parallel=parallel_configuration[1],
         )
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -87,18 +83,15 @@ class MtpTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_prefill_with_kvcache(
-        self, model_id, parallel_configuration, do_compile
+            self, model_id, parallel_configuration, do_compile
     ):
         parallel_config = ParallelConfig(
             world_size=parallel_configuration[0],
             expert_parallel=parallel_configuration[1],
         )
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -150,18 +143,15 @@ class MtpTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_decode_with_kvcache(
-        self, model_id, parallel_configuration, do_compile
+            self, model_id, parallel_configuration, do_compile
     ):
         parallel_config = ParallelConfig(
             world_size=parallel_configuration[0],
             expert_parallel=parallel_configuration[1],
         )
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(

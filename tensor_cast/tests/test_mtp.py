@@ -3,6 +3,11 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from .test_common import (
+    create_attn_metadata_and_kv_cache,
+    create_mla_metadata_and_kv_cache,
+    has_submodule_with_cls_name,
+)
 from ..compilation import get_backend
 from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
@@ -16,13 +21,7 @@ from ..model_config import (
 )
 from ..patch_torch import patch_torch
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
-
-from .test_common import (
-    create_attn_metadata_and_kv_cache,
-    create_mla_metadata_and_kv_cache,
-    has_submodule_with_cls_name,
-)
+from ..transformers.utils import model_id_to_mtp_block_module_name
 
 
 class MtpTestCase(unittest.TestCase):
@@ -39,12 +38,9 @@ class MtpTestCase(unittest.TestCase):
     )
     def test_deepseek_prefill_without_kvcache(self, model_id, do_compile):
         num_tokens = 100
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -86,12 +82,9 @@ class MtpTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_prefill_with_kvcache(self, model_id, do_compile):
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -142,12 +135,9 @@ class MtpTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_decode_with_kvcache(self, model_id, do_compile):
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(

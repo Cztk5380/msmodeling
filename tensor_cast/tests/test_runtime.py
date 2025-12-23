@@ -4,6 +4,7 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
@@ -14,8 +15,6 @@ from ..performance_model.empirical import EmpiricalPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json
-from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 
 
 class PerfAnalysisTestCase(unittest.TestCase):
@@ -99,12 +98,9 @@ class PerfAnalysisTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek(self, model_id, do_compile):
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
