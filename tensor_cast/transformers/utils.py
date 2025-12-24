@@ -32,15 +32,6 @@ logger = logging.getLogger(__name__)
 #  parse the user's custom inputs,
 #  override the corresponding fields in the initialized config, and finally load the model.
 
-_model_id_to_json_tbl: dict[str, str] = {
-    "moonshotai/Kimi-K2-Base": "kimi_k2.json",
-    "deepseek-ai/DeepSeek-V3.1": "deepseek_v3.1.json",
-}
-
-
-def model_id_to_json(model_id: str) -> Optional[str]:
-    return _model_id_to_json_tbl.get(model_id)
-
 
 # model_id -> MoEConfig
 _model_id_to_moe_config: Dict[str, MoEConfig] = {

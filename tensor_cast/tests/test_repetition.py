@@ -5,13 +5,10 @@ from parameterized import parameterized
 
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
-
 from ..layers.attention import AttentionTensorCast
-
 from ..layers.internal import CopyLayerWrapper
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.sampler import SamplingMetadata
-
 from ..model_config import (
     MlaConfig,
     ModelConfig,
@@ -23,8 +20,7 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
-
+from ..transformers.utils import model_id_to_mtp_block_module_name
 from .test_common import (
     assert_close,
     create_mla_metadata_and_kv_cache,
@@ -134,13 +130,10 @@ class RepetitionTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_with_kvcache(self, model_id):
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
             attention_cls=AttentionTensorCast,
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(

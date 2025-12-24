@@ -7,12 +7,11 @@ from parameterized import parameterized
 from ..compilation import get_backend
 from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
-
 from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json, model_id_to_moe_config
+from ..transformers.utils import model_id_to_moe_config
 from .test_common import create_mla_metadata_and_kv_cache
 
 
@@ -95,11 +94,9 @@ class ParallelMoETestCase(unittest.TestCase):
         self, model_id, parallel_configuration, moe_configuration
     ):
         parallel_config = get_parallel_config(parallel_configuration)
-        hf_config_json = model_id_to_json(model_id)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -159,11 +156,9 @@ class ParallelMoETestCase(unittest.TestCase):
         num_redundant_experts,
     ):
         parallel_config = get_parallel_config(parallel_configuration)
-        hf_config_json = model_id_to_json(model_id)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(

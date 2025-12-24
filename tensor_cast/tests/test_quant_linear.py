@@ -21,7 +21,7 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
+from ..transformers.utils import model_id_to_mtp_block_module_name
 from ..utils import DTYPE_FP8
 from .test_common import (
     create_mla_metadata_and_kv_cache,
@@ -327,8 +327,6 @@ class TestQuantLinear(unittest.TestCase):
         ]
     )
     def test_deepseek_mtp_quant_tensorcast_static_w8a8(self, model_id, do_compile):
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             ParallelConfig(),
             get_quant_config(
@@ -336,7 +334,6 @@ class TestQuantLinear(unittest.TestCase):
                 activation_scale=torch.empty([], dtype=torch.float, device="meta"),
             ),
             quant_linear_cls=TensorCastQuantLinear,
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -415,7 +412,6 @@ class TestQuantLinear(unittest.TestCase):
 
     def test_quantize_lmhead_mtp(self):
         model_id = "deepseek-ai/DeepSeek-V3.1"
-        hf_config_json = model_id_to_json(model_id)
         linear_quant_config = get_linear_quant_config(
             LinearQuantType.W8A8,
             torch.randn(1),
@@ -426,7 +422,6 @@ class TestQuantLinear(unittest.TestCase):
         model_config = ModelConfig(
             ParallelConfig(),
             quant_config,
-            hf_config_json=hf_config_json,
             quant_linear_cls=TensorCastQuantLinear,
             enable_repetition=True,
         )
