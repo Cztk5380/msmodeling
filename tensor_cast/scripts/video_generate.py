@@ -1,0 +1,265 @@
+import argparse
+import logging
+import time
+from typing import Optional
+
+import torch
+
+from ..device import DeviceProfile
+
+
+from ..model_config import ParallelConfig, QuantConfig
+from ..performance_model.analytic import AnalyticPerformanceModel
+from ..performance_model.memory_tracker import MemoryTracker
+
+from ..runtime import Runtime
+
+from ..utils import str_to_dtype
+
+from ..diffusers.diffusers_model import build_diffusers_transformer_model
+from ..diffusers.diffusers_utils import (
+    model_class_to_input,
+    model_class_to_vae_stride,
+)
+
+
+def generate_diffusers_inputs(
+    batch_size, height, width, frame_num, seq_lens, model_config
+):
+    kwargs = {
+        "hidden_states": generate_diffusers_pixel_input(
+            batch_size, height, width, frame_num, model_config
+        ),
+        "encoder_hidden_states": generate_diffusers_text_input(
+            batch_size, seq_lens, model_config
+        ),
+        "timestep": generate_diffusers_timestamp_input(model_config),
+    }
+    extra_args = generate_extra_input(batch_size, seq_lens, model_config)
+    kwargs.update(extra_args)
+    return kwargs
+
+
+def generate_diffusers_pixel_input(batch_size, height, width, frame_num, model_config):
+    vae_stride = model_class_to_vae_stride(
+        model_config.transformer_config.model_config.get("_class_name")
+    )
+    z_dim = model_config.vae_config.model_config.get("z_dim", 16)
+    size = [
+        batch_size,
+        z_dim,
+        (frame_num - 1) // vae_stride[0] + 1,
+        height // vae_stride[1],
+        width // vae_stride[1],
+    ]
+
+    noise = torch.zeros(size=size, device=torch.device("meta"), dtype=model_config.transformer_config.dtype)
+
+    return noise
+
+
+def generate_diffusers_text_input(batch_size, seq_lens, model_config):
+    hidden_size = model_config.transformer_config.model_config.get("text_dim")  # Wan
+    hidden_size = hidden_size or model_config.transformer_config.model_config.get(
+        "text_embed_dim"
+    )  # Hunyuan
+    if hidden_size is None:
+        raise ValueError("Get hidden_size from config failed.")
+    size = [batch_size, seq_lens, hidden_size]
+    encoder_hidden_states = torch.zeros(
+        size=size, device=torch.device("meta"), dtype=model_config.transformer_config.dtype
+    )
+    return encoder_hidden_states
+
+
+def generate_extra_input(batch_size, seq_lens, model_config):
+    res = {}
+
+    if (
+        model_config.transformer_config.model_config.get("pooled_projection_dim")
+        is not None
+    ):
+        pooled_projections = torch.zeros(
+            [
+                batch_size,
+                model_config.transformer_config.model_config.get(
+                    "pooled_projection_dim"
+                ),
+            ],
+            device=torch.device("meta"),
+            dtype=model_config.transformer_config.dtype,
+        )
+        res["pooled_projections"] = pooled_projections
+
+    if model_config.transformer_config.model_config.get("guidance_embeds"):
+        guidance = torch.zeros([1], device=torch.device("meta"), dtype=model_config.transformer_config.dtype)
+        res["guidance"] = guidance
+
+    res.update(
+        model_class_to_input(
+            model_config.transformer_config.model_config.get("_class_name")
+        )(batch_size=batch_size, seq_lens=seq_lens, model_config=model_config)
+    )
+
+    return res
+
+
+def generate_diffusers_timestamp_input(model_config):
+    return torch.zeros([1], device=torch.device("meta"), dtype=model_config.transformer_config.dtype)
+
+
+def run_inference(
+    device: str,
+    model_id: str,
+    batch_size: int,
+    seq_len: int,
+    chrome_trace: Optional[str] = None,
+    height: int = 832,
+    width: int = 400,
+    frame_num: int = 81,
+    sample_step: int = 50,
+    profiler: bool = False,
+    dtype: str = "float16",
+):
+    if device not in DeviceProfile.all_device_profiles:
+        raise ValueError(f"Device '{device}' not recognized.")
+    device_profile = DeviceProfile.all_device_profiles[device]
+    perf_model = AnalyticPerformanceModel(device_profile)
+
+    parallel_config = ParallelConfig()
+    quant_config = QuantConfig()
+
+    dtype = str_to_dtype(dtype)
+
+    model, model_config = build_diffusers_transformer_model(
+        model_id,
+        parallel_config,
+        quant_config,
+        dtype,
+    )
+
+    print("Preparing dummy input tensors...")
+    input_kwargs = generate_diffusers_inputs(
+        batch_size, height, width, frame_num, seq_len, model_config
+    )
+
+    print(input_kwargs)
+    print("Running simulated inference...")
+    run_start = time.perf_counter()
+
+    with (
+        Runtime(
+            perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+        ) as runtime,
+        torch.no_grad(),
+    ):
+        for _ in range(sample_step):
+            _ = model.forward(**input_kwargs)
+
+    run_end = time.perf_counter()
+    print()
+
+    print(f"Model compilation and execution time: {run_end - run_start}s")
+    result = runtime.table_averages(group_by_input_shapes=False)
+    print(result)
+
+    if profiler:
+        runtime.export_chrome_trace("tensor_cast_tracer.json")
+
+
+def main():
+    # TODO add parallel config
+    # TODO add quant config
+    parser = argparse.ArgumentParser(
+        description="Run a simulated LLM inference pass and dump the perf result.",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    parser.add_argument(
+        "--device",
+        type=str,
+        choices=list(DeviceProfile.all_device_profiles.keys()),
+        default="TEST_DEVICE",
+        help="The device type for simulation.",
+    )
+    parser.add_argument(
+        "model_id",
+        type=str,
+        help="Model config json path.",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        required=True,
+    )
+    parser.add_argument(
+        "--seq-len",
+        type=int,
+        required=True,
+        help="Number of inference queries to run in a batch.",
+    )
+    parser.add_argument(
+        "--chrome-trace",
+        type=str,
+        default=None,
+        help="Generate chrome trace file",
+    )
+    parser.add_argument(
+        "--height",
+        type=int,
+        default=400,
+    )
+    parser.add_argument(
+        "--width",
+        type=int,
+        default=832,
+    )
+    parser.add_argument(
+        "--frame_num",
+        type=int,
+        default=81,
+    )
+    parser.add_argument(
+        "--sample_step",
+        type=int,
+        default=1,
+    )
+    parser.add_argument(
+        "--log-level",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        "--enable-profiler",
+        action="store_true",
+        default=False,
+    )
+    parser.add_argument(
+        "--dtype",
+        type=str,
+        choices=["float16", "float32", "bfloat16"],
+        default="float16",
+    )
+
+    args = parser.parse_args()
+
+    if args.log_level:
+        logging.basicConfig(level=args.log_level.upper())
+
+    run_inference(
+        device=args.device,
+        model_id=args.model_id,
+        batch_size=args.batch_size,
+        seq_len=args.seq_len,
+        chrome_trace=args.chrome_trace,
+        height=args.height,
+        width=args.width,
+        frame_num=args.frame_num,
+        sample_step=args.sample_step,
+        profiler=args.enable_profiler,
+        dtype=args.dtype,
+    )
+
+
+if __name__ == "__main__":
+    main()

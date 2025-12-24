@@ -423,3 +423,42 @@ class ModelConfig:
         # TODO: Use Pydantic to add data validation.
         if self.num_hidden_layers_override < 0:
             self.num_hidden_layers_override = 0
+
+
+@dataclasses.dataclass
+class DiffusersConfig:
+    model_path: Optional[str] = None
+    text_config: Optional[Type["DiffusersTextConfig"]] = None
+    transformer_config: Optional[Type["DiffusersTransformerConfig"]] = None
+    vae_config: Optional[Type["DiffusersVaeConfig"]] = None
+
+
+@dataclasses.dataclass
+class DiffusersTextConfig:
+    parallel_config: ParallelConfig
+    quant_config: QuantConfig
+    dtype: torch.dtype = torch.float16
+    config_json: Optional[str] = None
+    model_config: Optional[dict] = None
+
+
+@dataclasses.dataclass
+class DiffusersTransformerConfig:
+    parallel_config: ParallelConfig
+    quant_config: QuantConfig
+    dtype: torch.dtype = torch.float16
+    config_json: Optional[str] = None
+    model_config: Optional[dict] = None
+    attention_cls: Optional[Type["AttentionBase"]] = None
+    quant_linear_cls: Optional[Type["QuantLinearBase"]] = None
+
+
+@dataclasses.dataclass
+class DiffusersVaeConfig:
+    parallel_config: ParallelConfig
+    quant_config: QuantConfig
+    dtype: torch.dtype = torch.float16
+    config_json: Optional[str] = None
+    model_config: Optional[dict] = None
+
+
