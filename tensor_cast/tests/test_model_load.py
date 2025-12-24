@@ -4,14 +4,11 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-
 from ..layers.attention import AttentionTensorCast
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..model_config import MlaConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..patch_torch import patch_torch
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json
-
 from .test_common import (
     create_attn_metadata_and_kv_cache,
     create_mla_metadata_and_kv_cache,
@@ -67,12 +64,9 @@ class ModelLoadTestCase(unittest.TestCase):
     )
     def test_deepseek_without_kvcache(self, model_id, do_compile):
         num_tokens = 100
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -104,12 +98,9 @@ class ModelLoadTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_with_kvcache(self, model_id, do_compile):
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(

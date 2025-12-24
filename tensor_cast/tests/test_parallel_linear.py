@@ -13,7 +13,6 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json
 from .test_common import create_mla_metadata_and_kv_cache
 from .test_quant_linear import get_quant_config
 
@@ -125,12 +124,9 @@ class ParallelLinearTestCase(unittest.TestCase):
     def test_deepseek_with_tp_and_dp(self, model_id, parallel_configuration):
         parallel_config = get_parallel_config(parallel_configuration)
 
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -210,12 +206,9 @@ class ParallelLinearTestCase(unittest.TestCase):
     def test_deepseek_quant_with_tp_and_dp(self, model_id, parallel_configuration):
         parallel_config = get_parallel_config(parallel_configuration)
 
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(

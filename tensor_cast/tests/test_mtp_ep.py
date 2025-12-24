@@ -15,8 +15,7 @@ from ..model_config import (
 )
 from ..patch_torch import patch_torch
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
-
+from ..transformers.utils import model_id_to_mtp_block_module_name
 from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 
 
@@ -40,12 +39,9 @@ class MtpTestCase(unittest.TestCase):
             world_size=parallel_configuration[0],
             expert_parallel=parallel_configuration[1],
         )
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -93,12 +89,9 @@ class MtpTestCase(unittest.TestCase):
             world_size=parallel_configuration[0],
             expert_parallel=parallel_configuration[1],
         )
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(
@@ -156,12 +149,9 @@ class MtpTestCase(unittest.TestCase):
             world_size=parallel_configuration[0],
             expert_parallel=parallel_configuration[1],
         )
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
-            hf_config_json=hf_config_json,
             enable_repetition=True,
         )
         mla_config = MlaConfig(

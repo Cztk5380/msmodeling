@@ -409,7 +409,6 @@ class ModelConfig:
     quant_linear_cls: Optional[Type["QuantLinearBase"]] = None  # noqa: F821
     hf_config: Optional[PretrainedConfig] = None
     trust_remote_code: bool = True
-    hf_config_json: Optional[str] = None  # TODO to be removed
 
     num_hidden_layers_override: int = 0
     """Override hf_config.num_hidden_layers, useful for speeding up sanity tests
