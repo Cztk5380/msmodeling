@@ -94,17 +94,54 @@ def model_id_to_moe_config(model_id: str, model_type: str = "") -> Optional[MoEC
     )
 
 
-_model_id_to_mla_module_name: Dict[str, str] = {
-    "deepseek-ai/DeepSeek-V3.1": "DeepseekV3Attention",
-    "moonshotai/Kimi-K2-Base": "DeepseekV3Attention",
+_model_type_to_moe_config: Dict[str, MoEConfig] = {
+    "deepseek_v3": MoEConfig(
+        module_name="DeepseekV3MoE",
+    ),
+    "glm4_moe": MoEConfig(
+        module_name="Glm4MoeMoE",
+    ),
+    "minimax_m2": MoEConfig(
+        module_name="MiniMaxM2SparseMoeBlock",
+        gate_returns_raw_logits=True,
+    ),
+    "qwen3_moe": MoEConfig(
+        module_name="Qwen3MoeSparseMoeBlock",
+        gate_returns_raw_logits=True,
+    ),
+    "qwen3_next": MoEConfig(
+        module_name="Qwen3NextSparseMoeBlock",
+        gate_returns_raw_logits=True,
+        field_names=MoEFieldNames(
+            shared_experts="shared_expert", shared_experts_gate="shared_expert_gate"
+        ),
+    ),
+    "mimo_v2_flash": MoEConfig(
+        module_name="MiMoV2MoE",
+    ),
+    "ernie4_5_moe": MoEConfig(
+        # This is not a strict mapping to ERNIE MoE which has bias correction
+        # and minimal routing weights normalization factor introducing additional
+        # computation (div and mul) on the intermediate tensors. But we simply map
+        # this to the standard MoE implementation since the additional computation
+        # is minor and ignorable compared to other primary ones.
+        module_name="Ernie4_5_MoeSparseMoeBlock",
+        gate_returns_raw_logits=True,
+    ),
+}
+
+
+def get_moe_config(model_type: str = "") -> Optional[MoEConfig]:
+    return _model_type_to_moe_config.get(model_type)
+
+
+_model_type_to_mla_module_name: Dict[str, str] = {
     "deepseek_v3": "DeepseekV3Attention",
 }
 
 
-def model_id_to_mla_module_name(model_id: str, model_type: str = ""):
-    return _model_id_to_mla_module_name.get(
-        model_id
-    ) or _model_id_to_mla_module_name.get(model_type)
+def get_mla_module_name(model_type: str = "") -> str:
+    return _model_type_to_mla_module_name.get(model_type)
 
 
 _model_id_to_mtp_block_module_name: Dict[str, str] = {
@@ -120,6 +157,17 @@ def model_id_to_mtp_block_module_name(model_id: str, model_type: str = "") -> st
     return _model_id_to_mtp_block_module_name.get(
         model_id
     ) or _model_id_to_mtp_block_module_name.get(model_type)
+
+
+_model_type_to_mtp_block_module_name: Dict[str, str] = {
+    "deepseek_v3": "DeepseekV3DecoderLayer",
+    "glm4_moe": "Glm4MoeDecoderLayer",
+    "mimo_v2_flash": "MiMoV2DecoderLayer",
+}
+
+
+def get_mtp_block_module_name(model_type: str = "") -> str:
+    return _model_type_to_mtp_block_module_name.get(model_type)
 
 
 def strip_module_name(name: str) -> str:

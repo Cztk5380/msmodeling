@@ -4,8 +4,11 @@ import torch
 from parameterized import parameterized
 
 from ..scripts.text_generate import run_inference
-
-from ..scripts.utils import QuantizeAttentionAction, QuantizeLinearAction
+from ..scripts.utils import (
+    QuantizeAttentionAction,
+    QuantizeLinearAction,
+    UserInputConfig,
+)
 
 
 class TestTextGenerate(unittest.TestCase):
@@ -111,156 +114,176 @@ class TestTextGenerate(unittest.TestCase):
     def test_basic_prefill(self):
         """Test basic prefill operation without quantization."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=self.num_queries,
-            query_len=self.query_len,
-            context_length=self.context_length,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=self.num_queries,
+                query_len=self.query_len,
+                context_length=self.context_length,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+            )
         )
         self._validate_inference_result(result, "test_basic_prefill")
 
     def test_prefill_with_context(self):
         """Test prefill with context length (similar to README example)."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=100,
-            context_length=200,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=100,
+                context_length=200,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+            )
         )
         self._validate_inference_result(result, "test_prefill_with_context")
 
     def test_prefill_with_w8a8_dynamic_quant(self):
         """Test prefill with W8A8 dynamic quantization (README example)."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=50,
-            context_length=100,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=50,
+                context_length=100,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+            )
         )
         self._validate_inference_result(result, "test_prefill_with_w8a8_dynamic_quant")
 
     def test_decode_with_w8a8_static_quant(self):
         """Test decode with W8A8 static quantization (README example)."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=10,
-            query_len=1,
-            context_length=100,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            is_decode=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=10,
+                query_len=1,
+                context_length=100,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            )
         )
         self._validate_inference_result(result, "test_decode_with_w8a8_static_quant")
 
     def test_decode_mode(self):
         """Test decode mode with single token input."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=5,
-            query_len=1,
-            context_length=50,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            is_decode=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=5,
+                query_len=1,
+                context_length=50,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+            )
         )
         self._validate_inference_result(result, "test_decode_mode")
 
     def test_with_compilation(self):
         """Test with torch.compile enabled."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+            )
         )
         self._validate_inference_result(result, "test_with_compilation")
 
     def test_with_compilation_and_graph_break(self):
         """Test with torch.compile and allow graph break."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=True,
-            allow_graph_break=True,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=True,
+                allow_graph_break=True,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+            )
         )
         self._validate_inference_result(result, "test_with_compilation_and_graph_break")
 
     def test_w4a8_dynamic_quantization(self):
         """Test with W4A8 dynamic quantization."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=20,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W4A8_DYNAMIC,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=20,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W4A8_DYNAMIC,
+            )
         )
         self._validate_inference_result(result, "test_w4a8_dynamic_quantization")
 
     def test_w4a8_static_quantization(self):
         """Test with W4A8 static quantization."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=20,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W4A8_STATIC,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=20,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W4A8_STATIC,
+            )
         )
         self._validate_inference_result(result, "test_w4a8_static_quantization")
 
     def test_fp8_quantization(self):
         """Test with FP8 quantization."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=20,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.FP8,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=20,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.FP8,
+            )
         )
         self._validate_inference_result(result, "test_fp8_quantization")
 
     def test_fp8_with_context(self):
         """Test FP8 quantization with context length."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=50,
-            context_length=100,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.FP8,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=50,
+                context_length=100,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.FP8,
+            )
         )
         self._validate_inference_result(result, "test_fp8_with_context")
         # Should have KV cache due to context
@@ -269,43 +292,48 @@ class TestTextGenerate(unittest.TestCase):
     def test_fp8_decode_mode(self):
         """Test FP8 quantization in decode mode."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=5,
-            query_len=1,
-            context_length=50,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.FP8,
-            is_decode=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=5,
+                query_len=1,
+                context_length=50,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.FP8,
+            )
         )
         self._validate_inference_result(result, "test_fp8_decode_mode")
 
     def test_mxfp4_quantization(self):
         """Test with MXFP4 quantization."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=20,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.MXFP4,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=20,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.MXFP4,
+            )
         )
         self._validate_inference_result(result, "test_mxfp4_quantization")
 
     def test_mxfp4_with_context(self):
         """Test MXFP4 quantization with context length."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=50,
-            context_length=100,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.MXFP4,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=50,
+                context_length=100,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.MXFP4,
+            )
         )
         self._validate_inference_result(result, "test_mxfp4_with_context")
         # Should have KV cache due to context
@@ -314,30 +342,33 @@ class TestTextGenerate(unittest.TestCase):
     def test_mxfp4_decode_mode(self):
         """Test MXFP4 quantization in decode mode."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=5,
-            query_len=1,
-            context_length=50,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.MXFP4,
-            is_decode=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=5,
+                query_len=1,
+                context_length=50,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.MXFP4,
+            )
         )
         self._validate_inference_result(result, "test_mxfp4_decode_mode")
 
     def test_kvcache_int8_quantization(self):
         """Test with INT8 KV cache quantization."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=20,
-            context_length=100,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=20,
+                context_length=100,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                quantize_attention_action=QuantizeAttentionAction.INT8,
+            )
         )
         self._validate_inference_result(result, "test_kvcache_int8_quantization")
         # Should have KV cache due to context
@@ -347,15 +378,17 @@ class TestTextGenerate(unittest.TestCase):
     def test_kvcache_int8_with_linear_quant(self):
         """Test INT8 KV cache quantization combined with linear quantization."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=50,
-            context_length=100,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=50,
+                context_length=100,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+                quantize_attention_action=QuantizeAttentionAction.INT8,
+            )
         )
         self._validate_inference_result(result, "test_kvcache_int8_with_linear_quant")
         # Should have KV cache due to context
@@ -365,16 +398,17 @@ class TestTextGenerate(unittest.TestCase):
     def test_kvcache_int8_decode_mode(self):
         """Test INT8 KV cache quantization in decode mode."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=5,
-            query_len=1,
-            context_length=50,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
-            is_decode=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=5,
+                query_len=1,
+                context_length=50,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+                quantize_attention_action=QuantizeAttentionAction.INT8,
+            )
         )
         self._validate_inference_result(result, "test_kvcache_int8_decode_mode")
         self.assertIn("tensor_cast.attention_quant", result["table_result"])
@@ -387,15 +421,17 @@ class TestTextGenerate(unittest.TestCase):
     def test_mla_int8_with_linear_quant(self, model_id):
         """Test INT8 KV cache quantization combined with linear quantization."""
         result = run_inference(
-            device=self.device,
-            model_id=model_id,
-            num_queries=2,
-            query_len=50,
-            context_length=100,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
+            UserInputConfig(
+                device=self.device,
+                model_id=model_id,
+                num_queries=2,
+                query_len=50,
+                context_length=100,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+                quantize_attention_action=QuantizeAttentionAction.INT8,
+            )
         )
         self._validate_inference_result(result, "test_kvcache_int8_with_linear_quant")
         # Should have KV cache due to context
@@ -412,16 +448,17 @@ class TestTextGenerate(unittest.TestCase):
     def test_mla_int8_decode_mode(self, model_id):
         """Test INT8 KV cache quantization in decode mode."""
         result = run_inference(
-            device=self.device,
-            model_id=model_id,
-            num_queries=5,
-            query_len=1,
-            context_length=50,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
-            is_decode=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=model_id,
+                num_queries=5,
+                query_len=1,
+                context_length=50,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+                quantize_attention_action=QuantizeAttentionAction.INT8,
+            )
         )
         self._validate_inference_result(result, "test_kvcache_int8_decode_mode")
         self.assertIn(
@@ -431,112 +468,124 @@ class TestTextGenerate(unittest.TestCase):
     def test_with_quantized_lmhead(self):
         """Test with LM head quantization enabled."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
-            quantize_lmhead=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+                quantize_lmhead=True,
+            )
         )
         self._validate_inference_result(result, "test_with_quantized_lmhead")
 
     def test_tensor_parallel(self):
         """Test with tensor parallelism."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=2,
-            tp_size=2,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=2,
+                tp_size=2,
+            )
         )
         self._validate_inference_result(result, "test_tensor_parallel")
 
     def test_data_parallel(self):
         """Test with data parallelism."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=4,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=2,
-            tp_size=1,
-            dp_size=2,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=4,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=2,
+                tp_size=1,
+                dp_size=2,
+            )
         )
         self._validate_inference_result(result, "test_data_parallel")
 
     def test_mixed_parallelism(self):
         """Test with mixed TP and DP."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=4,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=4,
-            tp_size=2,
-            dp_size=2,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=4,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=4,
+                tp_size=2,
+                dp_size=2,
+            )
         )
         self._validate_inference_result(result, "test_mixed_parallelism")
 
     def test_with_mtp_tokens(self):
         """Test with MTP (Multi-Token Prediction) tokens."""
-        # Use DeepSeek-V3.1 which supports MTP
         result = run_inference(
-            device=self.device,
-            model_id="deepseek-ai/DeepSeek-V3.1",
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            num_mtp_tokens=2,
+            UserInputConfig(
+                device=self.device,
+                model_id="deepseek-ai/DeepSeek-V3.1",
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                num_mtp_tokens=2,
+            )
         )
         self._validate_inference_result(result, "test_with_mtp_tokens")
 
     def test_with_auto_mtp(self):
         """Test with MTP (Multi-Token Prediction) tokens with auto mode."""
-        # Use Qwen3-32B to test the MTP auto mode
         result = run_inference(
-            device=self.device,
-            model_id="Qwen/Qwen3-32B",
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            num_mtp_tokens=2,
+            UserInputConfig(
+                device=self.device,
+                model_id="Qwen/Qwen3-32B",
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                num_mtp_tokens=2,
+            )
         )
         self._validate_inference_result(result, "test_with_auto_mtp")
 
     def test_disable_repetition(self):
         """Test with repetition disabled."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            disable_repetition=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                disable_repetition=True,
+            )
         )
         self._validate_inference_result(result, "test_disable_repetition")
 
@@ -544,18 +593,19 @@ class TestTextGenerate(unittest.TestCase):
         """Test with reserved memory configuration."""
         reserved_gb = 5
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            reserved_memory_gb=reserved_gb,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                reserved_memory_gb=reserved_gb,
+            )
         )
         self._validate_inference_result(result, "test_with_reserved_memory")
-        # Verify reserved memory reduces available memory
         expected_available = (
             result["total_device_memory_gb"]
             - result["peak_memory_usage_gb"]
@@ -568,69 +618,76 @@ class TestTextGenerate(unittest.TestCase):
     def test_num_hidden_layers_override(self):
         """Test with overridden number of hidden layers."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            num_hidden_layers_override=2,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                num_hidden_layers_override=2,
+            )
         )
         self._validate_inference_result(result, "test_num_hidden_layers_override")
 
     def test_mlp_specific_parallelism(self):
         """Test with MLP-specific tensor/data parallelism."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=4,
-            tp_size=2,
-            mlp_tp_size=2,
-            mlp_dp_size=2,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=4,
+                tp_size=2,
+                mlp_tp_size=2,
+                mlp_dp_size=2,
+            )
         )
         self._validate_inference_result(result, "test_mlp_specific_parallelism")
 
     def test_lmhead_specific_parallelism(self):
         """Test with LM head-specific tensor/data parallelism."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=4,
-            tp_size=2,
-            lmhead_tp_size=2,
-            lmhead_dp_size=2,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=4,
+                tp_size=2,
+                lmhead_tp_size=2,
+                lmhead_dp_size=2,
+            )
         )
         self._validate_inference_result(result, "test_lmhead_specific_parallelism")
 
     def test_expert_parallel(self):
         """Test with expert parallelism enabled."""
-        # Use Qwen3-235B-A22B MoE model for EP testing
         result = run_inference(
-            device=self.device,
-            model_id="Qwen/Qwen3-235B-A22B",
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=2,
-            tp_size=1,
-            ep=True,
+            UserInputConfig(
+                device=self.device,
+                model_id="Qwen/Qwen3-235B-A22B",
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=2,
+                tp_size=1,
+                ep=True,
+            )
         )
         self._validate_inference_result(result, "test_expert_parallel")
 
@@ -638,57 +695,65 @@ class TestTextGenerate(unittest.TestCase):
         """Test with invalid device name."""
         with self.assertRaises(ValueError):
             run_inference(
-                device="INVALID_DEVICE",
-                model_id=self.model_id,
-                num_queries=self.num_queries,
-                query_len=self.query_len,
-                context_length=self.context_length,
-                do_compile=False,
-                allow_graph_break=False,
-                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                UserInputConfig(
+                    device="INVALID_DEVICE",
+                    model_id=self.model_id,
+                    num_queries=self.num_queries,
+                    query_len=self.query_len,
+                    context_length=self.context_length,
+                    do_compile=False,
+                    allow_graph_break=False,
+                    quantize_linear_action=QuantizeLinearAction.DISABLED,
+                )
             )
 
     def test_large_batch_size(self):
         """Test with large batch size."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=32,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=32,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+            )
         )
         self._validate_inference_result(result, "test_large_batch_size")
 
     def test_long_context(self):
         """Test with long context length."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=500,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=500,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+            )
         )
         self._validate_inference_result(result, "test_long_context")
 
     def test_qwen3_32b_4_a3die_decode_result(self):
         """Make sure the result of qwen3-32b model on 4 A3 dies is as expected in some range"""
         result = run_inference(
-            device="ATLAS_800_A3_560T_128G_DIE",
-            model_id="Qwen/Qwen3-32B",
-            num_queries=60,
-            query_len=1,
-            context_length=4250,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            world_size=4,
-            tp_size=4,
+            UserInputConfig(
+                device="ATLAS_800_A3_560T_128G_DIE",
+                model_id="Qwen/Qwen3-32B",
+                num_queries=60,
+                query_len=1,
+                context_length=4250,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+                world_size=4,
+                tp_size=4,
+            )
         )
         self._validate_inference_result(result, "qwen3_32b_4_a3die_decode")
         self.assertLess(result["execution_time_s"], 0.0328)
@@ -696,17 +761,19 @@ class TestTextGenerate(unittest.TestCase):
     def test_deepseek_v3_1_a3_ep64_decode_result(self):
         """Make sure the result of deepseek v3.1 model on 64 A3 dies with EP 64 is as expected in some range"""
         result = run_inference(
-            device="ATLAS_800_A3_560T_128G_DIE",
-            model_id="deepseek-ai/DeepSeek-V3.1",
-            num_queries=256,
-            query_len=4,
-            context_length=4250,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
-            world_size=64,
-            num_mtp_tokens=3,
-            ep=True,
+            UserInputConfig(
+                device="ATLAS_800_A3_560T_128G_DIE",
+                model_id="deepseek-ai/DeepSeek-V3.1",
+                num_queries=256,
+                query_len=4,
+                context_length=4250,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+                world_size=64,
+                num_mtp_tokens=3,
+                ep=True,
+            )
         )
         self._validate_inference_result(result, "test_deepseek_v3_1_a3_ep64_decode")
         self.assertLess(result["execution_time_s"], 0.063)
@@ -714,46 +781,52 @@ class TestTextGenerate(unittest.TestCase):
     def test_padding(self):
         """Test with padding tokens."""
         result = run_inference(
-            device=self.device,
-            model_id="Qwen/Qwen3-235B-A22B",
-            num_queries=1,
-            query_len=1,
-            context_length=500,
-            world_size=16,
-            ep=True,
-            tp_size=2,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            UserInputConfig(
+                device=self.device,
+                model_id="Qwen/Qwen3-235B-A22B",
+                num_queries=1,
+                query_len=1,
+                context_length=500,
+                world_size=16,
+                ep=True,
+                tp_size=2,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+            )
         )
         self._validate_inference_result(result, "test_padding")
 
     def test_fullmesh_subgroup_bandwidth_result(self):
         """Full Mesh with subgroup bandwidth is smaller than CLOS"""
         result_a3 = run_inference(
-            device="ATLAS_800_A3_752T_128G_DIE",
-            model_id="Qwen/Qwen3-32B",
-            num_queries=60,
-            query_len=1,
-            context_length=4250,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            world_size=4,
-            tp_size=4,
+            UserInputConfig(
+                device="ATLAS_800_A3_752T_128G_DIE",
+                model_id="Qwen/Qwen3-32B",
+                num_queries=60,
+                query_len=1,
+                context_length=4250,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+                world_size=4,
+                tp_size=4,
+            )
         )
         self._validate_inference_result(result_a3)
         result_a2 = run_inference(
-            device="ATLAS_800_A2_376T_64G",
-            model_id="Qwen/Qwen3-32B",
-            num_queries=60,
-            query_len=1,
-            context_length=4250,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            world_size=4,
-            tp_size=4,
+            UserInputConfig(
+                device="ATLAS_800_A2_376T_64G",
+                model_id="Qwen/Qwen3-32B",
+                num_queries=60,
+                query_len=1,
+                context_length=4250,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+                world_size=4,
+                tp_size=4,
+            )
         )
         self._validate_inference_result(result_a2)
         self.assertLess(result_a3["execution_time_s"], result_a2["execution_time_s"])
@@ -761,29 +834,33 @@ class TestTextGenerate(unittest.TestCase):
     def test_fullmesh_fullgroup_bandwidth_result(self):
         """Full Mesh with full group bandwidth is smaller than CLOS"""
         result_a3 = run_inference(
-            device="ATLAS_800_A3_752T_128G_DIE",
-            model_id="Qwen/Qwen3-32B",
-            num_queries=60,
-            query_len=1,
-            context_length=4250,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            world_size=8,
-            tp_size=8,
+            UserInputConfig(
+                device="ATLAS_800_A3_752T_128G_DIE",
+                model_id="Qwen/Qwen3-32B",
+                num_queries=60,
+                query_len=1,
+                context_length=4250,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+                world_size=8,
+                tp_size=8,
+            )
         )
         self._validate_inference_result(result_a3)
         result_a2 = run_inference(
-            device="ATLAS_800_A2_376T_64G",
-            model_id="Qwen/Qwen3-32B",
-            num_queries=60,
-            query_len=1,
-            context_length=4250,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            world_size=8,
-            tp_size=8,
+            UserInputConfig(
+                device="ATLAS_800_A2_376T_64G",
+                model_id="Qwen/Qwen3-32B",
+                num_queries=60,
+                query_len=1,
+                context_length=4250,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+                world_size=8,
+                tp_size=8,
+            )
         )
         self._validate_inference_result(result_a2)
         self.assertEqual(result_a3["execution_time_s"], result_a2["execution_time_s"])
@@ -797,64 +874,72 @@ class TestTextGenerate(unittest.TestCase):
     )
     def test_qwen2_5_with_compile(self, quant_linear_action):
         result = run_inference(
-            device=self.device,
-            model_id="Qwen/Qwen2.5-7B",
-            num_queries=2,
-            query_len=1,
-            context_length=500,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=quant_linear_action,
+            UserInputConfig(
+                device=self.device,
+                model_id="Qwen/Qwen2.5-7B",
+                num_queries=2,
+                query_len=1,
+                context_length=500,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=quant_linear_action,
+            )
         )
         self._validate_inference_result(result, "test_qwen2_5_with_compile")
 
     def test_o_proj_specific_parallelism(self):
         """Test with o_proj-specific tensor/data parallelism."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=4,
-            tp_size=2,
-            o_proj_tp_size=4,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=4,
+                tp_size=2,
+                o_proj_tp_size=4,
+            )
         )
         self._validate_inference_result(result, "test_o_proj_specific_parallelism")
 
     def test_word_embedding_parallel(self):
         """Test with word embedding parallel."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=4,
-            tp_size=2,
-            word_embedding_tp=True,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=4,
+                tp_size=2,
+                word_embedding_tp=True,
+            )
         )
         self._validate_inference_result(result, "test_word_embedding_parallel")
 
     def test_qwen3_32b_tp16(self):
         """Make sure tp_size can be greater than num_key_value_heads."""
         result = run_inference(
-            device=self.device,
-            model_id=self.model_id,
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=16,
-            tp_size=16,
+            UserInputConfig(
+                device=self.device,
+                model_id=self.model_id,
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=16,
+                tp_size=16,
+            )
         )
         self._validate_inference_result(result, "qwen3_32b_tp16")
 
@@ -873,34 +958,38 @@ class TestTextGenerate(unittest.TestCase):
     )
     def test_gmm_fusion(self, quant_linear_action, enable_ep, enable_tp):
         result = run_inference(
-            device=self.device,
-            model_id="Qwen/Qwen3-235B-A22B",
-            num_queries=2,
-            query_len=1,
-            context_length=500,
-            do_compile=True,
-            allow_graph_break=False,
-            quantize_linear_action=quant_linear_action,
-            world_size=8,
-            ep=enable_ep,
-            tp_size=8 if enable_tp else 1,
+            UserInputConfig(
+                device=self.device,
+                model_id="Qwen/Qwen3-235B-A22B",
+                num_queries=2,
+                query_len=1,
+                context_length=500,
+                do_compile=True,
+                allow_graph_break=False,
+                quantize_linear_action=quant_linear_action,
+                world_size=8,
+                ep=enable_ep,
+                tp_size=8 if enable_tp else 1,
+            )
         )
         self.assertIn("tensor_cast.grouped_matmul", result["table_result"])
 
     def test_redundant_experts(self):
         result = run_inference(
-            device=self.device,
-            model_id="Qwen/Qwen3-235B-A22B",
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=16,
-            tp_size=16,
-            ep=True,
-            enable_redundant_experts=True,
+            UserInputConfig(
+                device=self.device,
+                model_id="Qwen/Qwen3-235B-A22B",
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=16,
+                tp_size=16,
+                ep=True,
+                enable_redundant_experts=True,
+            )
         )
         self._validate_inference_result(result, "test_redundant_experts")
 
@@ -912,19 +1001,21 @@ class TestTextGenerate(unittest.TestCase):
     )
     def test_external_shared_experts(self, host_external_shared_experts):
         result = run_inference(
-            device=self.device,
-            model_id="deepseek-ai/DeepSeek-V3.1",
-            num_queries=2,
-            query_len=10,
-            context_length=0,
-            do_compile=False,
-            allow_graph_break=False,
-            quantize_linear_action=QuantizeLinearAction.DISABLED,
-            world_size=16,
-            tp_size=16,
-            ep=True,
-            enable_external_shared_experts=True,
-            host_external_shared_experts=host_external_shared_experts,
+            UserInputConfig(
+                device=self.device,
+                model_id="deepseek-ai/DeepSeek-V3.1",
+                num_queries=2,
+                query_len=10,
+                context_length=0,
+                do_compile=False,
+                allow_graph_break=False,
+                quantize_linear_action=QuantizeLinearAction.DISABLED,
+                world_size=16,
+                tp_size=16,
+                ep=True,
+                enable_external_shared_experts=True,
+                host_external_shared_experts=host_external_shared_experts,
+            )
         )
         self._validate_inference_result(result, "test_external_shared_experts")
 

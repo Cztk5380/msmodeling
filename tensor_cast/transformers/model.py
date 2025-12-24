@@ -8,6 +8,7 @@ import typing
 from typing import Dict, Optional, Union
 
 import torch
+from transformers import PreTrainedModel
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
 from ..layers import (
@@ -20,21 +21,19 @@ from ..layers.attention import flash_attention_forward
 from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
 from ..layers.mla import (
     MultiheadLatentAttentionBase,
-    MultiheadLatentAttentionTensorCast,
 )
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 from ..layers.quant_linear import QuantLinearBase
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
-from ..model_config import MlaConfig, ModelConfig, MoEConfig
+from ..model_config import  ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
 from ..utils import pattern_match
 from .utils import (
     AutoModelConfigLoader,
     init_on_device_without_buffers,
-    model_id_to_mla_module_name,
     model_id_to_moe_config,
     strip_module_name,
 )
@@ -115,9 +114,7 @@ class ModelWrapper(ModelWrapperBase):
 
 class TransformerModel(ModelWrapperBase):
     def __init__(
-        self,
-        model_id: str,
-        model_config: ModelConfig,
+        self, model_id: str, model_config: ModelConfig, hf_model: PreTrainedModel = None
     ):
         """
         Construct a transformer model wrapper that auto-loads a transformer model and converts
@@ -126,6 +123,8 @@ class TransformerModel(ModelWrapperBase):
         Args:
             model_id: transformer model id, (`str` or `os.PathLike`)
             model_config: specify how we should load and convert the transformer model
+            hf_model: native model
+            #TODO: native model + running config(model_config) = running model,do not need model_id
         """
         super().__init__(None)
         self.model_id = model_id
@@ -318,17 +317,9 @@ class TransformerModel(ModelWrapperBase):
         return True
 
     def patch_mla(self):
-        mla_config = self.model_config.mla_config
-        if not mla_config:
-            mla_module_name = model_id_to_mla_module_name(self.hf_config.model_type)
-            if not mla_module_name:
-                return
-            mla_config = MlaConfig(
-                module_name=mla_module_name,
-                mla_cls=MultiheadLatentAttentionTensorCast,
-            )
-            self.model_config.mla_config = mla_config
-
+        mla_config=self.model_config.mla_config
+        if  mla_config is None:
+            return
         named_modules = list(self._inner.named_modules())
         for name, module in named_modules:
             if type(module).__name__ == mla_config.module_name:
