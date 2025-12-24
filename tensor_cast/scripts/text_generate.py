@@ -167,8 +167,7 @@ def run_inference(
     run_start = time.perf_counter()
     with (
         Runtime(
-            perf_model, device_profile, memory_tracker=MemoryTracker(device_profile),
-            is_vl_model=model.is_vl_model, hf_config=model.hf_config if model.hf_config else None
+            perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
         ) as runtime,
         torch.no_grad(),
     ):

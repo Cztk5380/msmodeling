@@ -928,6 +928,22 @@ class TestTextGenerate(unittest.TestCase):
         )
         self._validate_inference_result(result, "test_external_shared_experts")
 
+    def test_qwen3_vl_with_basic_prefill(self):
+        """Test qwen3_vl prefill operation."""
+        result = run_inference(
+            device=self.device,
+            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            num_queries=self.num_queries,
+            query_len=self.query_len,
+            context_length=self.context_length,
+            image_batch_size=1,
+            image_width=1920,
+            image_height=1080,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+        )
+        self._validate_inference_result(result, "test_qwen3_vl_with_basic_prefill")
 
 if __name__ == "__main__":
     unittest.main()

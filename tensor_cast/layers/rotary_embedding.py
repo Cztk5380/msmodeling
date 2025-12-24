@@ -46,9 +46,12 @@ class CachingRotaryEmb(torch.nn.Module):
 
     def forward(self, x: torch.Tensor, position_ids: torch.Tensor) -> torch.Tensor:
         if self.is_vl_model and self.cos_sin_cache is not None:
+            # position_ids 为: (3, batch, seq_len),其中 3-->（T/H/W）
             bs, seq_len = position_ids.shape[-2:]
             pos_emb = self.cos_sin_cache[:, :seq_len, :]
+            # pos_emb (bs, seq_len, head_dim *2)
             pos_emb = pos_emb.expand(bs, seq_len, -1)
+            # 拆分为 cos 和 sin
             return pos_emb.chunk(2, dim=-1)
         if self.cos_sin_cache is not None and x.dtype == self.act_dtype:
             return (

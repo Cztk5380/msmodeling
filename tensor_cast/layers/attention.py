@@ -76,6 +76,12 @@ def flash_attention_forward(
         layer_idx = getattr(module.config, 'depth_layer_idx')
         module.config.update({'depth_layer_idx': layer_idx + 1})
         self_attn = attention_by_layers[layer_idx]
+        kv_cache = None
+        attention_meta = None
+        query, key, value = (x.transpose(1, 2) for x in (query, key, value))
+        num_tokens = query.shape[0] * query.shape[1]
+        # 为了后续的计算,不需要对key、value进行reshape
+        query = query.reshape(num_tokens, -1)
     else:
         kv_cache_by_layers: Optional[dict[int, torch.Tensor]] = kwargs.pop(
             "kv_cache_by_layers", None
@@ -95,10 +101,10 @@ def flash_attention_forward(
             if attention_meta_by_layers
             else attention_meta
         )
-    # TODO: understand why we need these shape manipulation
-    query, key, value = (x.transpose(1, 2) for x in (query, key, value))
-    num_tokens = query.shape[0] * query.shape[1]
-    query, key, value = (x.reshape(num_tokens, -1) for x in (query, key, value))
+        # TODO: understand why we need these shape manipulation
+        query, key, value = (x.transpose(1, 2) for x in (query, key, value))
+        num_tokens = query.shape[0] * query.shape[1]
+        query, key, value = (x.reshape(num_tokens, -1) for x in (query, key, value))
     # return (attn_output, attn_weights) while we ignore attn_weights
     return self_attn.forward(
         query,

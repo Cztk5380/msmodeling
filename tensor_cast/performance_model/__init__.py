@@ -477,11 +477,6 @@ def _attention_properties_helper(
 ) -> OpInvokeInfo.PerformanceProperties:
     hidden_size = query.size(-1)
     head_size = key.size(-1)
-    is_vl_attention = False
-    if key.ndim == 2 and op_invoke_info.kwargs.get('hf_config'):
-        is_vl_attention = True
-        vision_config = op_invoke_info.kwargs.get('hf_config').vision_config
-        head_size = vision_config.hidden_size // vision_config.num_heads
     # Infer the number of query heads
     # hidden_size = num_q_heads * head_size
     assert hidden_size % head_size == 0, "hidden_size must be divisible by head_size"
@@ -519,14 +514,9 @@ def _attention_properties_helper(
     properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={1, 2})
     # KV cache access: query i accesses 2 * seq_len_i slots with kv_head_num * head_size * element_size each.
     assert key.ndim >= 2
-    if is_vl_attention:
-        properties.memory_read_bytes += torch.sum(
-            seq_lens * 2 * bytes_of_elements(key.size(-1), key.dtype)
-        ).item()
-    else:
-        properties.memory_read_bytes += torch.sum(
-            seq_lens * 2 * bytes_of_elements(key.size(-1) * key.size(-2), key.dtype)
-        ).item()
+    properties.memory_read_bytes += torch.sum(
+        seq_lens * 2 * bytes_of_elements(key.size(-1) * key.size(-2), key.dtype)
+    ).item()
     compute_ops = properties.compute_ops.setdefault(
         query.dtype, OpInvokeInfo.ComputeOps()
     )
