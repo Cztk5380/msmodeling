@@ -8,3 +8,5 @@ pyyaml
 strenum
 prettytable
 pandas
+diffusers
+aenum

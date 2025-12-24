@@ -71,3 +71,17 @@ def get_modules_to_not_convert(
     elif isinstance(quant_config, CompressedTensorsConfig):
         modules_to_not_convert = quant_config.quantization_config.ignore
     return modules_to_not_convert
+
+
+_str_to_dtype = {
+    "float16": torch.float16,
+    "float32": torch.float32,
+    "bfloat16": torch.bfloat16,
+}
+
+
+def str_to_dtype(string: str) -> torch.dtype:
+    res = _str_to_dtype.get(string)
+    if res is None:
+        raise ValueError(f"Unsupported type for model: {string}")
+    return res
