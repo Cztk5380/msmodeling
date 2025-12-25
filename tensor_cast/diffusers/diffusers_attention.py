@@ -17,7 +17,7 @@ extend_enum(
 
 @_AttentionBackendRegistry.register("tensor_cast")
 def _attention(query, key, value, **kwargs):
-    return torch.ops.tensor_cast.multimodal_attention(
+    return torch.ops.tensor_cast.dit_attention(
         query, key, value, None, None, None, None, None
     )
 
@@ -29,7 +29,7 @@ def use_custom_sdpa():
     def _custom_sdpa(
         q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None
     ):
-        return torch.ops.tensor_cast.multimodal_attention(
+        return torch.ops.tensor_cast.dit_attention(
             q, k, v, attn_mask, None, None, None, None
         )
 

@@ -45,7 +45,7 @@ def _(
     return torch.empty_like(query).contiguous()
 
 
-@register_tensor_cast_op("multimodal_attention")
+@register_tensor_cast_op("dit_attention")
 def _(
     query: torch.Tensor,
     key: torch.Tensor,

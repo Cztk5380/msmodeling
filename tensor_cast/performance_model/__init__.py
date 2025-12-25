@@ -1127,3 +1127,51 @@ def _(
     )
     compute_ops.mma_ops = total_flops
     return properties
+
+
+def _dit_attention_properties_helper(
+    op_invoke_info: OpInvokeInfo,
+    query,
+    key,
+    query_start_loc,
+    seq_lens,
+    softmax_dtype,
+) -> OpInvokeInfo.PerformanceProperties:
+    B, Sq, N, D = query.size()
+    _, Sk, _, _ = key.size()
+
+    # BNSD * BNSD -> BNSD * BNDS = BNSS -> BNSSD*2
+    bmm1_ops = B * N * Sq * Sk * D * 2
+
+    # 2. Softmax
+    # This operates on the score matrix. The number of elements is sum(num_tokens_i * seq_len_i) * num_q_heads.
+    # Each softmax element (exp, sum, div) is often approximated as ~4 FLOPs.
+    softmax_ops = B * Sq * Sk * N * 4
+    bmm2_ops = B * N * Sq * Sk * D * 2
+
+    properties = op_invoke_info.get_memory_access_properties()
+    compute_ops = properties.compute_ops.setdefault(
+        query.dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.mma_ops = bmm1_ops + bmm2_ops
+    compute_ops = properties.compute_ops.setdefault(
+        softmax_dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.gp_ops = softmax_ops
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.dit_attention.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    assert len(op_invoke_info.args) == 8
+    query = op_invoke_info.args[0]
+    key = op_invoke_info.args[1]
+    seq_lens = op_invoke_info.args[6]
+    query_lens = op_invoke_info.args[7]
+    if query_lens is None or seq_lens is None:
+        query_lens, seq_lens = _default_query_lens_and_seq_lens(query)
+    return _dit_attention_properties_helper(
+        op_invoke_info, query, key, seq_lens, query_lens, query.dtype
+    )
