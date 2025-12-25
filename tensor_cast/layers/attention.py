@@ -64,23 +64,23 @@ def flash_attention_forward(
     attention_by_layers: Optional[dict[int, AttentionBase]] = kwargs.pop(
         "attention_by_layers", None
     )
-    # 从此处判断为为vision还是text
     is_vision_attention = False
+    # Determine whether the value is vision or text.
     if attention_by_layers is None:
-        # 从配置中获取
+        # Obtained from the configuration
         is_vision_attention = True
         attention_by_layers = getattr(module.config,'attention_by_layers',None)
 
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
     if is_vision_attention:
-        layer_idx = getattr(module.config, 'depth_layer_idx')
+        layer_idx = module.config.depth_layer_idx
         module.config.update({'depth_layer_idx': layer_idx + 1})
         self_attn = attention_by_layers[layer_idx]
         kv_cache = None
         attention_meta = None
         query, key, value = (x.transpose(1, 2) for x in (query, key, value))
         num_tokens = query.shape[0] * query.shape[1]
-        # 为了后续的计算,不需要对key、value进行reshape
+        # For subsequent time calculation, the key and value do not need to be reshaped
         query = query.reshape(num_tokens, -1)
     else:
         kv_cache_by_layers: Optional[dict[int, torch.Tensor]] = kwargs.pop(

@@ -94,8 +94,7 @@ class CausalLmWrapper(ModelWrapperBase):
 
 class VLModelWrapper(ModelWrapperBase):
     """
-    # todo 文本的moe和vl的moe的区别
-    Vision-Language模型包装器，专门处理Qwen3 VL 多模态模型
+    Vision-Language model wrapper, for Qwen3 VL multimodal models
     """
 
     def __init__(self, hf_config, model: torch.nn.Module):
@@ -120,23 +119,26 @@ class VLModelWrapper(ModelWrapperBase):
             **kwargs,
     ) -> Union[torch.Tensor, TensorDict]:
         """
-        多模态前向传播
-
+        multimodal forward
         Args:
-            input_ids: 文本token IDs
-            position_ids: 位置编码
-            inputs_embeds: 文本嵌入
-            pixel_values: 图像输入 (batch_size, num_images, channels, height, width)
-            pixel_values_videos: 视频输入
-            image_grid_thw: 图像网格时空信息 (num_images, 3) [t, h, w]
-            video_grid_thw: 视频网格时空信息 (num_videos, 3) [t, h, w]
-            attention_mask: 注意力掩码
-            cache_position: 缓存位置
+            input_ids: text token IDs
+            position_ids: position code.
+            inputs_embeds: text embedding
+            past_key_values: It is a [`Cache`] instance.
+            pixel_values: image input (batch_size, num_images, channels, height, width)
+            pixel_values_videos: video input
+            image_grid_thw: image_grid_thw (`torch.LongTensor` of shape `(num_images, 3)`, *optional*):
+                The temporal, height and width of feature shape of each image in LLM.
+            video_grid_thw (`torch.LongTensor` of shape `(num_videos, 3)`, *optional*):
+                The temporal, height and width of feature shape of each video in LLM.
+            attention_mask: attention mask
+            cache_position: cache location
 
         Returns:
-            logits: 生成概率logits
+            logits: generation probability logits
         """
-        # 因为vision层attention的layer数量为image_batch_size * vision_config.depth,所以前面的一些配置放在此处来进行
+        # The number of attention layers at the vision layer is image_batch_size x vision_config.depth.
+        # Therefore, the preceding configurations are performed here
         if image_grid_thw is not None:
             attention_by_layers: Optional[dict] = kwargs.get('attention_by_layers', None)
             if attention_by_layers is not None:
@@ -144,7 +146,7 @@ class VLModelWrapper(ModelWrapperBase):
                 exist_length = len(attention_by_layers)
                 num_vision_layers = self._inner.config.vision_config.depth * image_grid_thw.shape[0]
                 self._inner.config.vision_config.update({"depth_layer_idx": exist_length})
-                # 从第一个获取cls,然后实例化
+                # Get cls from the first one and instantiate
                 attn_cls = attention_by_layers[0].__class__
                 for i in range(num_vision_layers):
                     attention_by_layers[i + exist_length] = attn_cls()
@@ -166,10 +168,7 @@ class VLModelWrapper(ModelWrapperBase):
         )
 
         hidden_states = outputs.last_hidden_state
-        # 处理采样元数据 - 这是TensorCast特有的
         sampling_metadata: Optional[SamplingMetadata] = kwargs.get("sampling_metadata")
-
-        # 采样优化：只计算选定的token
         if sampling_metadata and sampling_metadata.selected_token_indices is not None:
             hidden_states = hidden_states.index_select(
                 1, sampling_metadata.selected_token_indices
@@ -181,29 +180,24 @@ class VLModelWrapper(ModelWrapperBase):
     def patch_source_for_meta(self):
         from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel, Qwen3VLTextModel
         from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeModel,Qwen3VLMoeTextModel
-        # 要 patch 的类
+        # Class to be patched
         TARGET_CLASSES = [Qwen3VLModel, Qwen3VLMoeModel]
-
-        # 保存每个类的原方法
+        # Save the original method of each class.
         ORIGINAL_METHODS = {cls: cls.get_placeholder_mask for cls in TARGET_CLASSES}
 
-        # 通用 patch
         def patched_get_placeholder_mask(self, *args, **kwargs):
-            # 强制跳过 image_features
+            # Forcibly skip image_features
             kwargs["image_features"] = None
-            # 调用对应类的原始方法
+            # Invoke the original method of the corresponding class.
             return ORIGINAL_METHODS[type(self)](self, *args, **kwargs)
 
-        # 执行循环 patch
         for cls in TARGET_CLASSES:
             cls.get_placeholder_mask = patched_get_placeholder_mask
-
 
         DEEPSTACK_PROCESS_TARGET_CLASSES = [Qwen3VLTextModel, Qwen3VLMoeTextModel]
         def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
             return hidden_states
 
-        # 执行循环 patch
         for cls in DEEPSTACK_PROCESS_TARGET_CLASSES:
             cls._deepstack_process = _patched_deepstack_process
 
@@ -269,8 +263,9 @@ class TransformerModel(ModelWrapperBase):
 
             self.text_config = self.hf_config.get_text_config()
             self.is_vl_model = hasattr(self.hf_config, "vision_config")
-            # 修改model_config的type
             if self.is_vl_model:
+                # Change the value of type in model_config. Otherwise, the value of type in cache_rotary_embedding
+                # cannot be matched.
                 self.model_config.dtype = self.text_config.dtype
             if (
                 self.model_config.attention_cls
@@ -387,7 +382,6 @@ class TransformerModel(ModelWrapperBase):
         if hasattr(unwrapped, "layers"):
             repeat_layers(unwrapped.layers)
         if self.is_vl_model:
-            # 先处理visual后处理text
             visual = unwrapped.visual
             if hasattr(visual, "blocks"):
                 repeat_layers(visual.blocks)
@@ -583,26 +577,10 @@ class TransformerModel(ModelWrapperBase):
             if self.is_vl_model:
                 tp_plan.update(
                     {
-                        # 非moe的相关配置：
+                        # todo 先完成language_model的tp，vision的并行后续需要处理
                         "language_model.layers.*.mlp.gate_proj": (COLWISE_LINEAR, params),
                         "language_model.layers.*.mlp.up_proj": (COLWISE_LINEAR, params),
                         "language_model.layers.*.mlp.down_proj": (ROWWISE_LINEAR, params),
-
-                        # "visual.blocks.*.mlp.linear_fc1": (COLWISE_LINEAR, params),
-                        # "visual.blocks.*.mlp.linear_fc2": (ROWWISE_LINEAR, params),
-                        # "visual.merger.linear_fc1": (COLWISE_LINEAR, params),
-                        # "visual.merger.linear_fc2": (ROWWISE_LINEAR, params),
-                        # "visual.deepstack_merger_list.*.linear_fc1": (COLWISE_LINEAR, params),
-                        # "visual.deepstack_merger_list.*.linear_fc2": (ROWWISE_LINEAR, params),
-
-                        # # todo tensor_cast 当前没有qkv合并的tp切分plan，实际上qkv切分需要先拆分q,k,v，再切分再合并
-                        # # todo 确认非vl的qwen的qkv是已经合并还是切分,非vl的qkv以及拆分为q,k,v，没有对应的合并关系
-                        # "visual.blocks.*.attn.qkv": (COLWISE_LINEAR, params),
-                        # "visual.blocks.*.attn.proj": (ROWWISE_LINEAR, params),
-
-                        # todo layers_keyword尝试做更广泛的适配而非qwen的language_model.layers
-                        # "language_model.layers.*.mlp.gate": (COLWISE_LINEAR, params),
-
                     }
                 )
             else:

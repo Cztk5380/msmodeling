@@ -397,6 +397,7 @@ def img_smart_resize(
         w_bar = math.ceil(width * beta / factor) * factor
     return h_bar, w_bar
 
+
 def generate_image_inputs(model, image_batch_size, image_height, image_width):
     if not model.is_vl_model:
         return {}
@@ -411,12 +412,8 @@ def generate_image_inputs(model, image_batch_size, image_height, image_width):
     vision_config = model.hf_config.vision_config
     patch_size = vision_config.patch_size
     merge_size = vision_config.spatial_merge_size if vision_config.spatial_merge_size else 2
-    resized_height, resized_width = img_smart_resize(
-        image_height,
-        image_width,
-        factor=patch_size * merge_size
-    )
-
+    resized_height, resized_width = img_smart_resize(image_height, image_width, factor=patch_size * merge_size)
+    # For images, the value of grid_t is 1.
     grid_t = 1
     grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
     image_grid_thw = torch.tensor([[grid_t, grid_h, grid_w]], dtype=torch.long).expand(image_batch_size, 3)
@@ -425,12 +422,9 @@ def generate_image_inputs(model, image_batch_size, image_height, image_width):
     hidden_dim = channel * temporal_patch_size * patch_size * patch_size
     tokens = grid_t * grid_h * grid_w
     pixel_values = torch.empty(image_batch_size * tokens, hidden_dim, dtype=torch.float32, device="meta")
-    # 计算嵌入到文本的token
+    # Calculate the token embedded in the text.
     merge_length = merge_size ** 2
     num_image_tokens = image_batch_size * (tokens // merge_length + 2)
-    print(pixel_values)
-    print(image_grid_thw)
-    print(f'num_image_tokens is {num_image_tokens}')
     return {"pixel_values": pixel_values, "image_grid_thw": image_grid_thw, "num_image_tokens": num_image_tokens}
 
 @dataclass

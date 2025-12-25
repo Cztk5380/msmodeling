@@ -151,10 +151,9 @@ def run_inference(
     ).eval()
     print("Preparing dummy input tensors...")
     image_kwargs = generate_image_inputs(model, image_batch_size, image_height, image_width)
-    print(model)
     num_image_tokens = image_kwargs.pop("num_image_tokens", 0)
     if is_decode:
-        # decode阶段,移除图片的输入,但需要将图片的token添加到content_length中
+        # In the decode phase, the image input is removed, but the image token needs to be added to content_length
         image_kwargs = {}
         context_length += num_image_tokens
     else:

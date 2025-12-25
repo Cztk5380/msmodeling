@@ -477,6 +477,7 @@ def _attention_properties_helper(
 ) -> OpInvokeInfo.PerformanceProperties:
     hidden_size = query.size(-1)
     head_size = key.size(-1)
+
     # Infer the number of query heads
     # hidden_size = num_q_heads * head_size
     assert hidden_size % head_size == 0, "hidden_size must be divisible by head_size"
