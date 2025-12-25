@@ -4,6 +4,7 @@ try:
 except ImportError:
     # Fallback for Python 3.10
     from strenum import StrEnum
+import argparse
 from dataclasses import dataclass
 from typing import List
 
@@ -65,10 +66,10 @@ def get_available_memory_gb(device_profile, runtime, reserved_memory_size_gb=0):
     :param reserved_memory_size_gb: The reserved memory size on top of the consumption of the models.
     :return: The minimum available memory during execution.
     """
-    total_device_memory_gb = device_profile.memory_size_bytes / 1024 ** 3
-    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024 ** 3
+    total_device_memory_gb = device_profile.memory_size_bytes / 1024**3
+    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
     device_memory_available_gb = (
-            total_device_memory_gb - peak_memory_usage_gb - reserved_memory_size_gb
+        total_device_memory_gb - peak_memory_usage_gb - reserved_memory_size_gb
     )
     return device_memory_available_gb
 
@@ -133,10 +134,10 @@ def create_attention_quant_config(quantize_attention_action: QuantizeAttentionAc
 
 
 def create_quant_config(
-        quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.DISABLED,
-        quantize_lmhead: bool = False,
-        quantize_attention_action: QuantizeAttentionAction = QuantizeAttentionAction.DISABLED,
-        **kwargs,
+    quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.DISABLED,
+    quantize_lmhead: bool = False,
+    quantize_attention_action: QuantizeAttentionAction = QuantizeAttentionAction.DISABLED,
+    **kwargs,
 ):
     quant_config = QuantConfig()
     if quantize_linear_action != QuantizeLinearAction.DISABLED:
@@ -163,17 +164,17 @@ def create_quant_config(
 
 
 def build_model(
-        model_id: str,
-        parallel_config: ParallelConfig,
-        quant_config: QuantConfig,
-        num_mtp_tokens: int = 0,
-        compile: bool = False,
-        allow_graph_break: bool = True,
-        enable_repetition: bool = True,
-        num_hidden_layers_override: int = 0,
-        enable_redundant_experts: bool = False,
-        enable_external_shared_experts: bool = False,
-        host_external_shared_experts: bool = False,
+    model_id: str,
+    parallel_config: ParallelConfig,
+    quant_config: QuantConfig,
+    num_mtp_tokens: int = 0,
+    compile: bool = False,
+    allow_graph_break: bool = True,
+    enable_repetition: bool = True,
+    num_hidden_layers_override: int = 0,
+    enable_redundant_experts: bool = False,
+    enable_external_shared_experts: bool = False,
+    host_external_shared_experts: bool = False,
 ) -> TransformerModel:
     """
     Build a transformer model based on the given args
@@ -238,16 +239,16 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     )
     parallel_config = model_config.parallel_config
     batch_size = (
-                         concurrency + parallel_config.data_parallel_size - 1
-                 ) // parallel_config.data_parallel_size
+        concurrency + parallel_config.data_parallel_size - 1
+    ) // parallel_config.data_parallel_size
 
     max_context_length = seq_len + num_mtp_tokens + 1
 
     # Paged attention parameters (can be adjusted)
     block_size = 128
     num_blocks = (
-                         max_context_length * batch_size + block_size - 1
-                 ) // block_size  # Total number of blocks available in the KV cache
+        max_context_length * batch_size + block_size - 1
+    ) // block_size  # Total number of blocks available in the KV cache
 
     # Prepare Attention Metadata for Paged Attention
     # `query_start_loc` indicates the start of each query in the concatenated input tensor.
@@ -280,7 +281,7 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
     padding_tokens = 0
     if batch_size * query_len % parallel_config.tensor_parallel_size != 0:
         padding_tokens = parallel_config.tensor_parallel_size - (
-                batch_size * query_len % parallel_config.tensor_parallel_size
+            batch_size * query_len % parallel_config.tensor_parallel_size
         )
 
     query_start_loc[-1] = query_start_loc[-1] + padding_tokens
@@ -318,8 +319,8 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
         else:
             # Shape: [2 (K/V), num_blocks, block_size, num_heads, head_dim]
             if (
-                    model.text_config.num_key_value_heads
-                    >= parallel_config.tensor_parallel_size
+                model.text_config.num_key_value_heads
+                >= parallel_config.tensor_parallel_size
             ):
                 kv_heads = exact_division(
                     model.text_config.num_key_value_heads,
@@ -327,9 +328,9 @@ def generate_inputs(model, query_len, seq_len, concurrency, is_decode=True):
                 )
             else:
                 assert (
-                        parallel_config.tensor_parallel_size
-                        % model.text_config.num_key_value_heads
-                        == 0
+                    parallel_config.tensor_parallel_size
+                    % model.text_config.num_key_value_heads
+                    == 0
                 )
                 kv_heads = 1
 
@@ -409,7 +410,7 @@ def get_kv_cache_info(model, num_blocks, block_size):
                 device="meta",
             )
         kv_cache_per_token += bytes_of_tensor(kv_cache_by_layers[i]) / (
-                num_blocks * block_size
+            num_blocks * block_size
         )
 
     return kv_cache_by_layers, kv_cache_per_token
@@ -441,8 +442,8 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     query_len_t = torch.tensor(query_lens, dtype=torch.long)
 
     num_blocks = (
-                         sum(seq_lens) + batch_size * (num_mtp_tokens + 1) + block_size - 1
-                 ) // block_size
+        sum(seq_lens) + batch_size * (num_mtp_tokens + 1) + block_size - 1
+    ) // block_size
     max_num_blocks_per_seq = (max(seq_lens) + block_size - 1) // block_size
     block_table_tensor = torch.empty(
         (batch_size, max_num_blocks_per_seq), dtype=torch.long, device="meta"
@@ -511,3 +512,14 @@ def get_inputs_num_bytes(model, requests: List[RequestInfo], block_size: int) ->
     )
     inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].slot_mapping)
     return inputs_num_bytes
+
+
+def check_positive_integer(value):
+    try:
+        value = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("Invalid integer value: %r", value) from None
+    if value <= 0:
+        raise argparse.ArgumentTypeError("%r is not a positive integer", value)
+
+    return value

@@ -66,7 +66,7 @@ _model_class_input = {
 
 def model_class_to_input(model_class):
     def generate_empty_input(**kwargs):
-        return None
+        return {}
 
     input_func = _model_class_input.get(model_class)
     if input_func is None:
@@ -74,7 +74,7 @@ def model_class_to_input(model_class):
     return input_func
 
 
-def get_split_dim(hidden_states: torch.Tensor, ulysses_size: int) -> int:
+def get_ulysses_split_dim(hidden_states: torch.Tensor, ulysses_size: int) -> int:
     if hidden_states is None:
         raise ValueError("hidden_states is None")
     if hidden_states.shape[-2] // 2 % ulysses_size == 0:

@@ -1,4 +1,5 @@
 import argparse
+import logging
 import time
 from typing import Optional
 
@@ -9,7 +10,7 @@ from ..device import DeviceProfile
 from ..diffusers.diffusers_attention import set_sp_group
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (
-    get_split_dim,
+    get_ulysses_split_dim,
     model_class_to_input,
     model_class_to_vae_stride,
 )
@@ -20,7 +21,8 @@ from ..performance_model.memory_tracker import MemoryTracker
 
 from ..runtime import Runtime
 
-from ..utils import check_positive_integer, logger, set_log_level, str_to_dtype
+from ..utils import str_to_dtype
+from .utils import check_positive_integer
 
 
 def generate_diffusers_inputs(
@@ -127,7 +129,7 @@ def process_input(input_kwargs, model_config):
         return input_kwargs, None
 
     hidden_states = input_kwargs.get("hidden_states")
-    split_dim = get_split_dim(hidden_states, ulysses_size)
+    split_dim = get_ulysses_split_dim(hidden_states, ulysses_size)
 
     hidden_states = hidden_states.chunk(ulysses_size, dim=split_dim)
     hidden_states = hidden_states[rank]
@@ -173,14 +175,14 @@ def run_inference(
     if ulysses_size > 1:
         set_sp_group(model.sp_group)
 
-    logger.debug("Preparing dummy input tensors...")
+    print("Preparing dummy input tensors...")
     input_kwargs = generate_diffusers_inputs(
         batch_size, height, width, frame_num, seq_len, model_config
     )
     input_kwargs, split_dim = process_input(input_kwargs, model_config)
 
-    logger.debug(input_kwargs)
-    logger.info("Running simulated inference...")
+    print(input_kwargs)
+    print("Running simulated inference...")
     run_start = time.perf_counter()
 
     with (
@@ -195,11 +197,11 @@ def run_inference(
                 out = model.sp_group.all_gather(out, dim=split_dim)
 
     run_end = time.perf_counter()
-    logger.info(
-        "Model compilation and execution time: %.2f seconds.", run_end - run_start
-    )
+    print()
+
+    print(f"Model compilation and execution time: {run_end - run_start}s")
     result = runtime.table_averages(group_by_input_shapes=False)
-    logger.info("\n%s", result)
+    print(result)
 
     if profiler:
         runtime.export_chrome_trace("tensor_cast_tracer.json")
@@ -238,7 +240,7 @@ def main():
     )
     parser.add_argument(
         "--chrome-trace",
-        type=check_positive_integer,
+        type=str,
         default=None,
         help="Generate chrome trace file",
     )
@@ -253,21 +255,19 @@ def main():
         default=832,
     )
     parser.add_argument(
-        "--frame_num",
+        "--frame-num",
         type=check_positive_integer,
         default=81,
     )
     parser.add_argument(
-        "--sample_step",
+        "--sample-step",
         type=check_positive_integer,
         default=1,
     )
     parser.add_argument(
         "--log-level",
         type=str,
-        default="info",
-        choices=["debug", "info", "warning", "error", "critical"],
-        help="Log level to print",
+        default=None,
     )
     parser.add_argument(
         "--enable-profiler",
@@ -290,14 +290,16 @@ def main():
     )
     parallel_group.add_argument(
         "--ulysses-size",
-        type=int,
+        type=check_positive_integer,
         default=1,
         help="Ulysses size.",
     )
 
     args = parser.parse_args()
 
-    set_log_level(args.log_level)
+    if args.log_level:
+        logging.basicConfig(level=args.log_level.upper())
+
     if args.world_size % args.ulysses_size != 0:
         raise ValueError(
             f"World size {args.world_size!r} must be divisible by ulysses size {args.ulysses_size!r}."

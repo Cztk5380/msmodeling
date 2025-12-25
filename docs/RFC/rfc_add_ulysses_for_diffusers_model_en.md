@@ -38,6 +38,5 @@ After `all_to_all`, we get each part is [b, s * p, head_num, head_dim / p].
 So the communication cost is `input_len / p * (p  - 1)`.
 
 ## 3. Plan
-[
-TODO: Add UT
-]
+**TODO LIST**
+- [ ] Add extra checks in ut to make sure ulysses parallelism works.
