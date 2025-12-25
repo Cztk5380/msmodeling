@@ -67,13 +67,17 @@ class QuantScheme(Enum):
 
 
 def get_quant_config(name, quant_config, default_config_name):
-    wildcard_configs = {n: quant_config.linear_configs[n] for n in quant_config.linear_configs if "*" in n or "?" in n}
+    wildcard_configs = {
+        n: quant_config.linear_configs[n]
+        for n in quant_config.linear_configs
+        if "*" in n or "?" in n
+    }
     if name in quant_config.linear_configs:
         return quant_config.linear_configs[name]
     for pattern, config in wildcard_configs.items():
         if fnmatch.fnmatch(name, pattern):
             return config
-    return quant_config.linear_configs.get(default_config_name, None)
+    return quant_config.linear_configs.get(default_config_name)
 
 
 def replace_module(name, new_module, root_module):
@@ -87,11 +91,23 @@ def replace_module(name, new_module, root_module):
     setattr(parent_module, child_name, new_module)
 
 
-def quantize_linear_common(quant_linear_cls, quant_config, root_module, skip_pattern_check, default_config_name, strip_module_fn, pattern_match_fn):
+def quantize_linear_common(
+    quant_linear_cls,
+    quant_config,
+    root_module,
+    skip_pattern_check,
+    default_config_name,
+    strip_module_fn,
+    pattern_match_fn,
+):
     if not quant_linear_cls or not root_module:
         return
     for name, module in root_module.named_modules():
-        if not skip_pattern_check and pattern_match_fn and pattern_match_fn(name, quant_config.modules_to_not_convert):
+        if (
+            not skip_pattern_check
+            and pattern_match_fn
+            and pattern_match_fn(name, quant_config.modules_to_not_convert)
+        ):
             continue
         if isinstance(module, torch.nn.Linear):
             module_name = strip_module_fn(name) if strip_module_fn else name

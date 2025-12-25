@@ -5,22 +5,7 @@ from typing import Optional
 
 import torch
 
-from .utils import (
-    QuantizeLinearAction,
-    create_quant_config
-)
-
 from ..device import DeviceProfile
-
-
-from ..model_config import ParallelConfig, QuantConfig
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..performance_model.memory_tracker import MemoryTracker
-
-from ..runtime import Runtime
-
-from ..utils import str_to_dtype
-from ..quantize_utils import QuantGranularity
 
 from ..diffusers.diffusers_attention import use_custom_sdpa
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
@@ -29,6 +14,17 @@ from ..diffusers.diffusers_utils import (
     model_class_to_vae_stride,
     patch_torch_op,
 )
+
+from ..model_config import ParallelConfig, QuantConfig
+from ..performance_model.analytic import AnalyticPerformanceModel
+from ..performance_model.memory_tracker import MemoryTracker
+from ..quantize_utils import QuantGranularity
+
+from ..runtime import Runtime
+
+from ..utils import str_to_dtype
+
+from .utils import create_quant_config, QuantizeLinearAction
 
 
 def generate_diffusers_inputs(
@@ -61,7 +57,11 @@ def generate_diffusers_pixel_input(batch_size, height, width, frame_num, model_c
         width // vae_stride[1],
     ]
 
-    noise = torch.zeros(size=size, device=torch.device("meta"), dtype=model_config.transformer_config.dtype)
+    noise = torch.zeros(
+        size=size,
+        device=torch.device("meta"),
+        dtype=model_config.transformer_config.dtype,
+    )
 
     return noise
 
@@ -75,7 +75,9 @@ def generate_diffusers_text_input(batch_size, seq_lens, model_config):
         raise ValueError("Get hidden_size from config failed.")
     size = [batch_size, seq_lens, hidden_size]
     encoder_hidden_states = torch.zeros(
-        size=size, device=torch.device("meta"), dtype=model_config.transformer_config.dtype
+        size=size,
+        device=torch.device("meta"),
+        dtype=model_config.transformer_config.dtype,
     )
     return encoder_hidden_states
 
@@ -100,7 +102,11 @@ def generate_extra_input(batch_size, seq_lens, model_config):
         res["pooled_projections"] = pooled_projections
 
     if model_config.transformer_config.model_config.get("guidance_embeds"):
-        guidance = torch.zeros([1], device=torch.device("meta"), dtype=model_config.transformer_config.dtype)
+        guidance = torch.zeros(
+            [1],
+            device=torch.device("meta"),
+            dtype=model_config.transformer_config.dtype,
+        )
         res["guidance"] = guidance
 
     res.update(
@@ -113,7 +119,9 @@ def generate_extra_input(batch_size, seq_lens, model_config):
 
 
 def generate_diffusers_timestamp_input(model_config):
-    return torch.zeros([1], device=torch.device("meta"), dtype=model_config.transformer_config.dtype)
+    return torch.zeros(
+        [1], device=torch.device("meta"), dtype=model_config.transformer_config.dtype
+    )
 
 
 def run_inference(
@@ -129,7 +137,7 @@ def run_inference(
     profiler: bool = False,
     dtype: str = "float16",
     quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.W8A8_DYNAMIC,
-    mxfp4_group_size:int = 32,
+    mxfp4_group_size: int = 32,
 ):
     if device not in DeviceProfile.all_device_profiles:
         raise ValueError(f"Device '{device}' not recognized.")
@@ -138,9 +146,7 @@ def run_inference(
 
     parallel_config = ParallelConfig()
     quant_config = QuantConfig()
-    if (
-            quantize_linear_action != QuantizeLinearAction.DISABLED
-    ):
+    if quantize_linear_action != QuantizeLinearAction.DISABLED:
         extra_kwargs = {}
         if quantize_linear_action == QuantizeLinearAction.MXFP4:
             extra_kwargs.update(

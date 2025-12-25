@@ -1,47 +1,39 @@
-import contextlib
-import copy
-import dataclasses
-import fnmatch
-import importlib
 import json
 import logging
-import math
 import os
-import re
-import typing
 from typing import Dict, Optional, Union
 
 import torch
 from transformers.modeling_utils import no_init_weights
 
-from ..layers.attention import flash_attention_forward, AttentionTensorCast
+from ..layers.attention import AttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
 
 from ..layers.utils import ModelWrapperBase
-from ..model_config import ModelConfig
-
-from ..performance_model.utils import bytes_of_tensor
-from ..transformers.utils import init_on_device_without_buffers
-
-from ..transformers.model import ModelWrapper, ModelWrapperBase
+from ..model_config import (
+    DiffusersConfig,
+    DiffusersTransformerConfig,
+    DiffusersVaeConfig,
+    ModelConfig,
+)
 
 from ..quantize_utils import quantize_linear_common
 
-from . import diffusers_attention
-from .diffusers_utils import get_diffusers_transformer_module
-from ..model_config import DiffusersTransformerConfig, DiffusersConfig, DiffusersTextConfig, DiffusersVaeConfig
+from ..transformers.model import ModelWrapper
 
-if typing.TYPE_CHECKING:
-    from ..layers.sampler import SamplingMetadata
+from ..transformers.utils import init_on_device_without_buffers
+
+from .diffusers_utils import get_diffusers_transformer_module
+
 
 logger = logging.getLogger(__name__)
 
 
 def build_diffusers_transformer_model(
-        model_id: str,
-        parallel_config: None,
-        quant_config: None,
-        dtype: torch.dtype,
+    model_id: str,
+    parallel_config: None,
+    quant_config: None,
+    dtype: torch.dtype,
 ):
     model_config = load_config_from_file(
         model_path=model_id,
@@ -56,12 +48,12 @@ def build_diffusers_transformer_model(
 
 
 def load_config_from_file(
-        model_path: str,
-        parallel_config: None,
-        quant_config: None,
-        quant_linear_cls: None,
-        attention_cls: None,
-        dtype: torch.dtype,
+    model_path: str,
+    parallel_config: None,
+    quant_config: None,
+    quant_linear_cls: None,
+    attention_cls: None,
+    dtype: torch.dtype,
 ):
     # TODO add seperate parallel_config and quant_config(atten_cls is needed?) for vae and text
     if not os.path.isdir(model_path):
@@ -69,7 +61,7 @@ def load_config_from_file(
 
     config_path_dict = {}
     model_path = os.path.abspath(model_path)
-    for root, dirs, files in os.walk(model_path):
+    for root, _, files in os.walk(model_path):
         if "config.json" in files:
             folder_name = os.path.basename(root)
             config_path = os.path.join(root, "config.json")
@@ -111,32 +103,31 @@ def load_config_from_file(
 
 class DiffusersModel(ModelWrapperBase):
     def __init__(
-            self,
-            model_id: str,
-            model_config: ModelConfig,
+        self,
+        model_id: str,
+        model_config: ModelConfig,
     ):
         super().__init__(None)
         self.model_id = model_id
         self.model_config = model_config
 
-        # TODO Diffusers pipline include: TextModel VaeModel TransformerModel. Only TransformerModel is supported by now.
+        # TODO Diffusers pipline include: TextModel VaeModel TransformerModel.
+        # Only TransformerModel is supported by now.
         # TransformerModel refers to DiffusersTransformerModel.
 
     def wrap_model(self):
         self._inner = ModelWrapper(self._inner)
 
     def forward(self, *args, **kwargs) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
-        res = self.transformer(
-            *args, **kwargs
-        )
+        res = self.transformer(*args, **kwargs)
         return res
 
 
 class DiffusersTransformerModel(ModelWrapperBase):
     def __init__(
-            self,
-            model_id: str,
-            model_config: DiffusersTransformerConfig,
+        self,
+        model_id: str,
+        model_config: DiffusersTransformerConfig,
     ):
         super().__init__(None)
         self.model_id = model_id
@@ -171,9 +162,13 @@ class DiffusersTransformerModel(ModelWrapperBase):
     def quantize_linear(self):
         if not self.model_config.quant_linear_cls:
             return
-        root = self._inner.transformer_blocks if hasattr(self._inner,
-                                                         "transformer_blocks") else self._inner.blocks if hasattr(
-            self._inner, "blocks") else None
+        root = (
+            self._inner.transformer_blocks
+            if hasattr(self._inner, "transformer_blocks")
+            else self._inner.blocks
+            if hasattr(self._inner, "blocks")
+            else None
+        )
         quantize_linear_common(
             self.model_config.quant_linear_cls,
             self.model_config.quant_config,
@@ -181,17 +176,17 @@ class DiffusersTransformerModel(ModelWrapperBase):
             skip_pattern_check=True,
             default_config_name="default_dit",
             strip_module_fn=None,
-            pattern_match_fn=None
+            pattern_match_fn=None,
         )
 
     def forward(
-            self,
-            hidden_states: torch.Tensor,
-            timestep: torch.LongTensor,
-            encoder_hidden_states: torch.Tensor,
-            encoder_hidden_states_images: Optional[torch.Tensor] = None,
-            return_dict=False,
-            **kwargs: object,
+        self,
+        hidden_states: torch.Tensor,
+        timestep: torch.LongTensor,
+        encoder_hidden_states: torch.Tensor,
+        encoder_hidden_states_images: Optional[torch.Tensor] = None,
+        return_dict=False,
+        **kwargs: object,
     ):
         hidden_states = self._inner(
             hidden_states=hidden_states,

@@ -25,15 +25,17 @@ def patch_torch_op():
     @wraps(torch.Tensor.__getitem__)
     def _patched_tensor_getitem(self, idx):
         if self.device.type == "meta":
-            if isinstance(idx, torch.Tensor) and idx.dtype == torch.bool and idx.device.type == "meta":
+            if (
+                isinstance(idx, torch.Tensor)
+                and idx.dtype == torch.bool
+                and idx.device.type == "meta"
+            ):
                 return torch.empty(
-                    (self.shape[0],) + self.shape[1:],
-                    dtype=self.dtype,
-                    device="meta"
+                    (self.shape[0],) + self.shape[1:], dtype=self.dtype, device="meta"
                 )
             try:
                 return original_tensor_getitem(self, idx)
-            except (NotImplementedError, RuntimeError):
+            except RuntimeError:
                 if isinstance(idx, int):
                     new_shape = self.shape[1:]
                 elif isinstance(idx, slice):
@@ -63,12 +65,14 @@ def get_diffusers_transformer_module(json_path):
     try:
         module = importlib.import_module("diffusers.models")
     except ModuleNotFoundError as e:
-        raise ModuleNotFoundError(f"Import models from diffusers failed.", e)
+        raise ModuleNotFoundError("Import models from diffusers failed.") from e
 
     class_name = config.get("_class_name")
     if class_name is None or not isinstance(class_name, str):
-        raise ValueError("Unable to find _class_name attribute "
-                         "or _class_name not a str from the diffusers transformer config.json.")
+        raise ValueError(
+            "Unable to find _class_name attribute "
+            "or _class_name not a str from the diffusers transformer config.json."
+        )
     if class_name not in dir(module):
         raise KeyError(f"The class {class_name} is not supported by diffusers.")
     model_class = getattr(module, class_name)
@@ -127,14 +131,18 @@ def generate_hunyuanvideo15_input(**kwargs):
     )
     res["encoder_attention_mask"] = attention_mask
     res["encoder_attention_mask_2"] = attention_mask
-    text_embed_2_dim = kwargs.get("model_config").transformer_config.model_config.get("text_embed_2_dim")
+    text_embed_2_dim = kwargs.get("model_config").transformer_config.model_config.get(
+        "text_embed_2_dim"
+    )
     if text_embed_2_dim is not None:
         res["encoder_hidden_states_2"] = torch.zeros(
             [batch_size, seq_lens, text_embed_2_dim],
             device=torch.device("meta"),
             dtype=dtype,
         )
-    image_embed_dim = kwargs.get("model_config").transformer_config.model_config.get("image_embed_dim")
+    image_embed_dim = kwargs.get("model_config").transformer_config.model_config.get(
+        "image_embed_dim"
+    )
     if image_embed_dim is not None:
         res["image_embeds"] = torch.zeros(
             [image_embed_dim, image_embed_dim, image_embed_dim],

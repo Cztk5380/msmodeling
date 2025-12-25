@@ -31,7 +31,6 @@ from ..model_config import MlaConfig, ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
 from ..quantize_utils import quantize_linear_common
-from ..utils import pattern_match
 from .utils import (
     AutoModelConfigLoader,
     init_on_device_without_buffers,
@@ -569,7 +568,7 @@ class TransformerModel(ModelWrapperBase):
             skip_pattern_check=False,
             default_config_name=None,
             strip_module_fn=lambda n: n.replace("_inner.", "") if "_inner." in n else n,
-            pattern_match_fn=lambda n, ps: any(fnmatch.fnmatch(n, p) for p in ps)
+            pattern_match_fn=lambda n, ps: any(fnmatch.fnmatch(n, p) for p in ps),
         )
 
     def quantize_attention(self):
