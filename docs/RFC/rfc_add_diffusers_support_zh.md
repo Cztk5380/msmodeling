@@ -30,7 +30,10 @@ TODO
 TODO
 
 ## 3. 实施计划
-TODO
+- [x] 已完成hunyuanvideo的dit建模
+- [x] 已完成hunyuanvideo1.5的dit建模
+- [x] 已完成量化特性适配
+- [x] 已完成dit attention的性能建模
 
 ## TODO List
 1. 模型初始化时使用from_config接口，diffusers会提示warning这个接口将在diffusers的v1.0版本（当前为0.36）被替换为load_config，但是当前版本两个接口的返回值不同，from_config能够基于config.json文件路径返回随机初始化的模型实例，load_config接口类似json.load，返回值是dict。正式版发布后需要确认一下。并且该接口使用和当前项目中transformer模型的初始化代码不统一。  
