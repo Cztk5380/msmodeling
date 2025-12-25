@@ -1,5 +1,6 @@
 #!/usr/bin/env python
 # _*_coding:utf-8_*_
+import fnmatch
 
 from enum import auto, Enum
 from typing import Optional
@@ -63,3 +64,38 @@ class QuantGranularity(Enum):
 class QuantScheme(Enum):
     SYMMETRIC = auto()
     ASYMMETRIC = auto()
+
+
+def get_quant_config(name, quant_config, default_config_name):
+    wildcard_configs = {n: quant_config.linear_configs[n] for n in quant_config.linear_configs if "*" in n or "?" in n}
+    if name in quant_config.linear_configs:
+        return quant_config.linear_configs[name]
+    for pattern, config in wildcard_configs.items():
+        if fnmatch.fnmatch(name, pattern):
+            return config
+    return quant_config.linear_configs.get(default_config_name, None)
+
+
+def replace_module(name, new_module, root_module):
+    if not root_module:
+        return
+    path = name.split(".")
+    parent_name, child_name = ".".join(path[:-1]), path[-1]
+    parent_module = root_module
+    if parent_name:
+        parent_module = parent_module.get_submodule(parent_name)
+    setattr(parent_module, child_name, new_module)
+
+
+def quantize_linear_common(quant_linear_cls, quant_config, root_module, skip_pattern_check, default_config_name, strip_module_fn, pattern_match_fn):
+    if not quant_linear_cls or not root_module:
+        return
+    for name, module in root_module.named_modules():
+        if not skip_pattern_check and pattern_match_fn and pattern_match_fn(name, quant_config.modules_to_not_convert):
+            continue
+        if isinstance(module, torch.nn.Linear):
+            module_name = strip_module_fn(name) if strip_module_fn else name
+            cfg = get_quant_config(module_name, quant_config, default_config_name)
+            if cfg:
+                new_module = quant_linear_cls(module, cfg)
+                replace_module(name, new_module, root_module)

@@ -5,6 +5,11 @@ from typing import Optional
 
 import torch
 
+from .utils import (
+    QuantizeLinearAction,
+    create_quant_config
+)
+
 from ..device import DeviceProfile
 
 
@@ -15,11 +20,14 @@ from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 
 from ..utils import str_to_dtype
+from ..quantize_utils import QuantGranularity
 
+from ..diffusers.diffusers_attention import use_custom_sdpa
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (
     model_class_to_input,
     model_class_to_vae_stride,
+    patch_torch_op,
 )
 
 
@@ -44,10 +52,10 @@ def generate_diffusers_pixel_input(batch_size, height, width, frame_num, model_c
     vae_stride = model_class_to_vae_stride(
         model_config.transformer_config.model_config.get("_class_name")
     )
-    z_dim = model_config.vae_config.model_config.get("z_dim", 16)
+    channels = model_config.transformer_config.model_config.get("in_channels")
     size = [
         batch_size,
-        z_dim,
+        channels,
         (frame_num - 1) // vae_stride[0] + 1,
         height // vae_stride[1],
         width // vae_stride[1],
@@ -120,6 +128,8 @@ def run_inference(
     sample_step: int = 50,
     profiler: bool = False,
     dtype: str = "float16",
+    quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.W8A8_DYNAMIC,
+    mxfp4_group_size:int = 32,
 ):
     if device not in DeviceProfile.all_device_profiles:
         raise ValueError(f"Device '{device}' not recognized.")
@@ -128,7 +138,19 @@ def run_inference(
 
     parallel_config = ParallelConfig()
     quant_config = QuantConfig()
-
+    if (
+            quantize_linear_action != QuantizeLinearAction.DISABLED
+    ):
+        extra_kwargs = {}
+        if quantize_linear_action == QuantizeLinearAction.MXFP4:
+            extra_kwargs.update(
+                weight_group_size=mxfp4_group_size,
+                weight_quant_granularity=QuantGranularity.PER_GROUP,
+            )
+        quant_config = create_quant_config(
+            quantize_linear_action,
+            **extra_kwargs,
+        )
     dtype = str_to_dtype(dtype)
 
     model, model_config = build_diffusers_transformer_model(
@@ -152,6 +174,8 @@ def run_inference(
             perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
         ) as runtime,
         torch.no_grad(),
+        use_custom_sdpa(),
+        patch_torch_op(),
     ):
         for _ in range(sample_step):
             _ = model.forward(**input_kwargs)
@@ -240,7 +264,13 @@ def main():
         choices=["float16", "float32", "bfloat16"],
         default="float16",
     )
-
+    parser.add_argument(
+        "--quantize-linear-action",
+        type=QuantizeLinearAction,
+        choices=list(QuantizeLinearAction),
+        default=QuantizeLinearAction.W8A8_DYNAMIC,
+        help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
+    )
     args = parser.parse_args()
 
     if args.log_level:
@@ -258,6 +288,7 @@ def main():
         sample_step=args.sample_step,
         profiler=args.enable_profiler,
         dtype=args.dtype,
+        quantize_linear_action=args.quantize_linear_action,
     )
 
 
