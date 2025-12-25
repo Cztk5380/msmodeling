@@ -375,8 +375,8 @@ def build_model(
     model_config = config_resolver.resolve()
 
     model = TransformerModel(model_id, model_config)
-    use_full_graph = not user_input.allow_graph_break or (not allow_graph_break)
-    if compile or user_input.do_compile:
+    use_full_graph = not user_input.allow_graph_break
+    if user_input.do_compile:
         model = torch.compile(
             model, backend=get_backend(), dynamic=True, fullgraph=use_full_graph
         )
@@ -384,6 +384,21 @@ def build_model(
 
 
 class ConfigResolver:
+    """
+    Resolves and configures model settings for tensor cast operations.
+
+    This class handles the configuration of various model components including
+    parallelization, quantization, MoE (Mixture of Experts), MLA (Multihead Latent Attention),
+    and MTP (Multi-Token Prediction) settings. It loads the HuggingFace model configuration
+    and applies user-specified overrides.
+
+    Attributes:
+        model_id: The identifier of the model to configure.
+        hf_config: The loaded HuggingFace model configuration.
+        user_input: User-provided input configuration.
+        model_config: The resolved model configuration containing all settings.
+    """
+
     def __init__(
         self,
         model_id: str = "",
@@ -391,6 +406,18 @@ class ConfigResolver:
         parallel_config: ParallelConfig = None,
         quant_config: QuantConfig = None,
     ):
+        """
+        Initialize the ConfigResolver.
+
+        Args:
+            model_id: The identifier of the model to configure. If empty, will use user_input.model_id.
+            user_input: User-provided input configuration. If None, parallel_config and quant_config must be provided.
+            parallel_config: Parallelization configuration. Required if user_input is None.
+            quant_config: Quantization configuration. Required if user_input is None.
+
+        Raises:
+            ValueError: If user_input is None and either parallel_config or quant_config is None.
+        """
         self.model_id = model_id or user_input.model_id
         auto_loader = AutoModelConfigLoader()
         self.hf_config = auto_loader.load_config(self.model_id)
@@ -417,6 +444,15 @@ class ConfigResolver:
         )
 
     def resolve(self) -> ModelConfig:
+        """
+        Resolve and apply all configuration updates.
+
+        Updates the model configuration with user-specified settings for
+        repetition, hidden layers, MoE, MLA, and MTP features.
+
+        Returns:
+            ModelConfig: The fully resolved model configuration.
+        """
         self.update_hf_config(
             enable_repetition=not self.user_input.disable_repetition,
             num_hidden_layers_override=self.user_input.num_hidden_layers_override,
@@ -437,6 +473,15 @@ class ConfigResolver:
         enable_external_shared_experts: bool = False,
         host_external_shared_experts: bool = False,
     ):
+        """
+        Update the Mixture of Experts (MoE) configuration.
+
+        Args:
+            model_type: The type of the model. If empty, uses the loaded model's type.
+            enable_redundant_experts: Whether to enable redundant experts.
+            enable_external_shared_experts: Whether to enable external shared experts.
+            host_external_shared_experts: Whether to host external shared experts.
+        """
         if not model_type:
             model_type = self.hf_config.model_type
         moe_config = get_moe_config(model_type)
@@ -447,6 +492,12 @@ class ConfigResolver:
         self.model_config.moe_config = moe_config
 
     def update_mla_config(self, model_type: str = ""):
+        """
+        Update the Multihead Latent Attention (MLA) configuration.
+
+        Args:
+            model_type: The type of the model. If empty, uses the loaded model's type.
+        """
         if not model_type:
             model_type = self.hf_config.model_type
         mla_module_name = get_mla_module_name(model_type)
@@ -458,6 +509,13 @@ class ConfigResolver:
             self.model_config.mla_config = mla_config
 
     def update_mtp_config(self, model_type: str = "", num_mtp_tokens: int = 0):
+        """
+        Update the Multi-Token Prediction (MTP) configuration.
+
+        Args:
+            model_type: The type of the model. If empty, uses the loaded model's type.
+            num_mtp_tokens: Number of MTP tokens to enable.
+        """
         if not model_type:
             model_type = self.hf_config.model_type
         mtp_block_module_name = get_mtp_block_module_name(model_type)
@@ -471,6 +529,13 @@ class ConfigResolver:
     def update_hf_config(
         self, enable_repetition: bool = False, num_hidden_layers_override: int = 0
     ):
+        """
+        Update the HuggingFace configuration settings.
+
+        Args:
+            enable_repetition: Whether to enable repetition in the model.
+            num_hidden_layers_override: Override the number of hidden layers.
+        """
         self.model_config.enable_repetition = enable_repetition
         self.model_config.num_hidden_layers_override = num_hidden_layers_override
 
