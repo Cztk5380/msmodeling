@@ -1,4 +1,6 @@
+import argparse
 import fnmatch
+import logging
 import re
 from typing import List, Optional
 
@@ -13,6 +15,50 @@ from transformers.utils.quantization_config import (
 DTYPE_FP8 = torch.float8_e5m2
 # use int4 placeholder for FP4
 DTYPE_FP4 = torch.int4
+
+LOG_LEVELS = {
+    "debug": logging.DEBUG,
+    "info": logging.INFO,
+    "warning": logging.WARNING,
+    "error": logging.ERROR,
+    "fatal": logging.FATAL,
+    "critical": logging.CRITICAL,
+}
+
+
+def set_log_level(level="info"):
+    if level.lower() in LOG_LEVELS:
+        logger.setLevel(LOG_LEVELS.get(level.lower()))
+    else:
+        logger.warning("log level %r not found, set to info", level)
+
+
+def set_logger(logger_: logging.Logger):
+    logger_.propagate = False
+    logger_.setLevel(logging.INFO)
+    if not logger_.handlers:
+        console_handler = logging.StreamHandler()
+        formatter = logging.Formatter(
+            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+        )
+        console_handler.setFormatter(formatter)
+        logger_.addHandler(console_handler)
+
+
+logger = logging.getLogger("msmodeling_logger")
+set_logger(logger)
+
+
+def check_positive_integer(value):
+    try:
+        value = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("Invalid integer value: %r", value) from None
+    if value <= 0:
+        raise argparse.ArgumentTypeError("%r is not a positive integer", value)
+    if value > 1e6:
+        raise argparse.ArgumentTypeError("%r is too large", value)
+    return value
 
 
 def register_tensor_cast_op(name, mutates_args=(), **kwargs):
