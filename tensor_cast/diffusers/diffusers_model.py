@@ -1,38 +1,27 @@
-import contextlib
-import copy
-import dataclasses
-import fnmatch
-import importlib
 import json
-import logging
-import math
 import os
-import re
-import typing
 from typing import Dict, Optional, Union
+
+import numpy as np
 
 import torch
 from transformers.modeling_utils import no_init_weights
 
-from ..layers.attention import flash_attention_forward, AttentionTensorCast
+from ..layers.attention import AttentionTensorCast
 
-from ..layers.utils import ModelWrapperBase
-from ..model_config import ModelConfig
-
-from ..performance_model.utils import bytes_of_tensor
-from ..transformers.utils import init_on_device_without_buffers
+from ..model_config import (
+    DiffusersConfig,
+    DiffusersTransformerConfig,
+    DiffusersVaeConfig,
+    ModelConfig,
+)
+from ..parallel_group import ParallelGroup
 
 from ..transformers.model import ModelWrapper, ModelWrapperBase
 
-from . import diffusers_attention
+from ..transformers.utils import init_on_device_without_buffers
+
 from .diffusers_utils import get_diffusers_transformer_module
-from ..model_config import DiffusersTransformerConfig, DiffusersConfig, DiffusersTextConfig, DiffusersVaeConfig
-
-
-if typing.TYPE_CHECKING:
-    from ..layers.sampler import SamplingMetadata
-
-logger = logging.getLogger(__name__)
 
 
 def build_diffusers_transformer_model(
@@ -62,10 +51,10 @@ def load_config_from_file(
     # TODO add seperate parallel_config and quant_config(atten_cls is needed?) for vae and text
     if not os.path.isdir(model_path):
         raise ValueError(f"Input args.model_id should be dir, but got {model_path}")
-    
+
     config_path_dict = {}
     model_path = os.path.abspath(model_path)
-    for root, dirs, files in os.walk(model_path):
+    for root, _, files in os.walk(model_path):
         if "config.json" in files:
             folder_name = os.path.basename(root)
             config_path = os.path.join(root, "config.json")
@@ -77,7 +66,7 @@ def load_config_from_file(
         with open(config_path) as f:
             config = json.load(f)
         config_dict[key] = config
-    
+
     model_config = DiffusersConfig()
     transformer_config = config_dict.get("transformer")
     if transformer_config is None:
@@ -114,18 +103,17 @@ class DiffusersModel(ModelWrapperBase):
         self.model_id = model_id
         self.model_config = model_config
 
-        # TODO Diffusers pipline include: TextModel VaeModel TransformerModel. Only TransformerModel is supported by now.
+        # TODO Diffusers pipline include: TextModel VaeModel TransformerModel.
+        # Only TransformerModel is supported by now.
         # TransformerModel refers to DiffusersTransformerModel.
 
     def wrap_model(self):
         self._inner = ModelWrapper(self._inner)
 
     def forward(self, *args, **kwargs) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
-        res = self.transformer(
-            *args, **kwargs
-        )
+        res = self.transformer(*args, **kwargs)
         return res
-    
+
 
 class DiffusersTransformerModel(ModelWrapperBase):
     def __init__(
@@ -138,6 +126,10 @@ class DiffusersTransformerModel(ModelWrapperBase):
         self.model_config = model_config
 
         hf_config_json = self.model_config.config_json
+        self.sp_group = get_sp_group(
+            world_size=self.model_config.parallel_config.world_size,
+            ulysses_size=self.model_config.parallel_config.ulysses_size,
+        )
 
         if hf_config_json is None:
             raise ValueError("hf_config_json should not be None.")
@@ -152,7 +144,7 @@ class DiffusersTransformerModel(ModelWrapperBase):
             self._inner = model_class.from_config(hf_config_json).to(model_config.dtype)
         self._inner.eval()
         self.wrap_model()
-    
+
     def wrap_model(self):
         # diffusers attention backend registered in diffuser_attention.py
         self._inner.set_attention_backend("tensor_cast")
@@ -160,10 +152,15 @@ class DiffusersTransformerModel(ModelWrapperBase):
     def quantize_model(self):
         # TODO quantization on cuda: github NVIDIA/Model-Optimizer/tree/main/examples/diffusers
         # TODO whether linears outside blocks should be quant?
-        for name, module in self._inner.transformer_blocks.named_modules(): # for wan: self._inner.blocks.named_modules
+        for (
+            _,
+            module,
+        ) in (
+            self._inner.transformer_blocks.named_modules()
+        ):  # for wan: self._inner.blocks.named_modules
             if isinstance(module, torch.nn.Linear):
                 pass
-        
+
     def forward(
         self,
         hidden_states: torch.Tensor,
@@ -182,3 +179,15 @@ class DiffusersTransformerModel(ModelWrapperBase):
         )[0]
         return hidden_states
 
+
+def get_sp_group(world_size: int, ulysses_size: int) -> ParallelGroup:
+    all_ranks = np.arange(world_size)
+    rank = 0
+    if ulysses_size > 0:
+        rank_groups = all_ranks.reshape(-1, ulysses_size)
+    sp_group = ParallelGroup(
+        rank=rank,
+        rank_groups=[x.tolist() for x in rank_groups],
+        global_world_size=world_size,
+    )
+    return sp_group

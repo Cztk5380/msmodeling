@@ -21,6 +21,7 @@ from .utils import (
     generate_inputs,
     get_available_memory_gb,
     get_parallel_config,
+    check_positive_integer,
     QuantizeAttentionAction,
     QuantizeLinearAction,
 )
@@ -173,13 +174,13 @@ def main():
     )
     parser.add_argument(
         "--input-length",
-        type=int,
+        type=check_positive_integer,
         required=True,
         help="The input length of the prompt.",
     )
     parser.add_argument(
         "--output-length",
-        type=int,
+        type=check_positive_integer,
         required=True,
         help="The expected output length.",
     )
@@ -198,7 +199,7 @@ def main():
     )
     parser.add_argument(
         "--num-devices",
-        type=int,
+        type=check_positive_integer,
         default=1,
         help="Number of devices",
     )
@@ -273,7 +274,7 @@ models:
     )
     parser.add_argument(
         "--mxfp4-group-size",
-        type=int,
+        type=check_positive_integer,
         default=32,
         help="Group size for MXFP4 quantization",
     )
