@@ -4,12 +4,13 @@ import fnmatch
 import re
 
 from enum import auto, Enum
-from typing import Optional, Callable, List
+from typing import Callable, List, Optional
 
 import torch
 import torch.nn as nn
 
 from .utils import DTYPE_FP4, DTYPE_FP8
+
 
 class LinearQuantType(Enum):
     W8A16 = auto()  # Weight in int8, activation in bfloat16 or half
@@ -68,7 +69,7 @@ class QuantScheme(Enum):
 
 
 def get_quant_config(name, quant_config, default_config_name):
-    if not hasattr(quant_config, '_cached_wildcard_configs'):
+    if not hasattr(quant_config, "_cached_wildcard_configs"):
         quant_config._cached_wildcard_configs = {
             n: quant_config.linear_configs[n]
             for n in quant_config.linear_configs
@@ -95,11 +96,11 @@ def replace_module(name, new_module, root_module):
 
 
 def quantize_linear_modules(
-        root_module: nn.Module,
-        quant_linear_cls: Optional["QuantLinearBase"],
-        quant_config: Optional["QuantConfig"],
-        default_config_name: str,
-        strip_module_fn: Optional[Callable[[str], str]],
+    root_module: nn.Module,
+    quant_linear_cls: Optional["QuantLinearBase"],
+    quant_config: Optional["QuantConfig"],
+    default_config_name: str,
+    strip_module_fn: Optional[Callable[[str], str]],
 ) -> None:
     """
     Quantize Linear modules in a root module with specified quantization config and class.
@@ -135,6 +136,7 @@ def quantize_linear_modules(
             if matched:
                 break
         return matched
+
     if not quant_linear_cls or not root_module:
         return
     for name, module in root_module.named_modules():

@@ -7,15 +7,17 @@ import torch
 
 from ..device import DeviceProfile
 
-from ..diffusers.diffusers_attention import use_custom_sdpa, set_sp_group
+from ..diffusers.diffusers_attention import set_sp_group, use_custom_sdpa
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (
+    get_ulysses_split_dim,
     model_class_to_input,
     model_class_to_vae_stride,
-    get_ulysses_split_dim,
 )
 
 from ..model_config import ParallelConfig, QuantConfig
+
+from ..parallel_group import ParallelGroup
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..quantize_utils import QuantGranularity
@@ -24,10 +26,7 @@ from ..runtime import Runtime
 
 from ..utils import str_to_dtype
 
-from .utils import create_quant_config, QuantizeLinearAction
-from .utils import check_positive_integer
-
-from ..parallel_group import ParallelGroup
+from .utils import check_positive_integer, create_quant_config, QuantizeLinearAction
 
 
 def generate_diffusers_inputs(
@@ -115,8 +114,12 @@ def generate_extra_input(batch_size, seq_lens, model_config):
     res.update(
         model_class_to_input(
             model_config.transformer_config.model_config.get("_class_name")
-        )(batch_size=batch_size, seq_lens=seq_lens, dtype=model_config.transformer_config.dtype,
-          **model_config.transformer_config.model_config)
+        )(
+            batch_size=batch_size,
+            seq_lens=seq_lens,
+            dtype=model_config.transformer_config.dtype,
+            **model_config.transformer_config.model_config,
+        )
     )
 
     return res
@@ -195,7 +198,9 @@ def run_inference(
     if ulysses_size > 1:
         set_sp_group(model.sp_group)
     if use_cfg and cfg_parallel:
-        cfg_parallel_group = ParallelGroup(0, [[0, 1]], world_size) # cfg parallel group can only be size 2
+        cfg_parallel_group = ParallelGroup(
+            0, [[0, 1]], world_size
+        )  # cfg parallel group can only be size 2
     else:
         cfg_parallel_group = None
 
@@ -218,11 +223,15 @@ def run_inference(
     ):
         for _ in range(sample_step):
             out = model.forward(**input_kwargs)
-            if use_cfg and not cfg_parallel: # use cfg but not use cfg parallel, do one extra forward
+            if (
+                use_cfg and not cfg_parallel
+            ):  # use cfg but not use cfg parallel, do one extra forward
                 _ = model.forward(**input_kwargs)
             if ulysses_size > 1:
                 out = model.sp_group.all_gather(out, dim=split_dim)
-            if use_cfg and cfg_parallel: # use cfg and use cfg parallel, do all-gather after each step of DiT forward
+            if (
+                use_cfg and cfg_parallel
+            ):  # use cfg and use cfg parallel, do all-gather after each step of DiT forward
                 out = cfg_parallel_group.all_gather(out, dim=0)
 
     run_end = time.perf_counter()

@@ -1,5 +1,6 @@
 import importlib
 import json
+
 import torch
 
 
@@ -65,7 +66,7 @@ _model_class_input = {
 
 
 def model_class_to_input(model_class):
-    return _model_class_input.get(model_class,lambda **kwargs: {})
+    return _model_class_input.get(model_class, lambda **kwargs: {})
 
 
 def get_ulysses_split_dim(hidden_states: torch.Tensor, ulysses_size: int) -> int:
