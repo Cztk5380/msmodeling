@@ -12,7 +12,6 @@ from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (
     model_class_to_input,
     model_class_to_vae_stride,
-    patch_torch_op,
     get_ulysses_split_dim,
 )
 
@@ -216,7 +215,6 @@ def run_inference(
         ) as runtime,
         torch.no_grad(),
         use_custom_sdpa(),
-        patch_torch_op(),
     ):
         for _ in range(sample_step):
             out = model.forward(**input_kwargs)
