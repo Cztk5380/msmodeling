@@ -7,13 +7,15 @@ import torch
 
 from ..device import DeviceProfile
 
-from ..diffusers.diffusers_attention import use_custom_sdpa
+from ..diffusers.diffusers_attention import use_custom_sdpa, set_sp_group
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (
     model_class_to_input,
     model_class_to_vae_stride,
     patch_torch_op,
+    get_ulysses_split_dim,
 )
+
 
 from ..model_config import ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
@@ -25,6 +27,7 @@ from ..runtime import Runtime
 from ..utils import str_to_dtype
 
 from .utils import create_quant_config, QuantizeLinearAction
+from .utils import check_positive_integer
 
 
 def generate_diffusers_inputs(
@@ -124,6 +127,22 @@ def generate_diffusers_timestamp_input(model_config):
     )
 
 
+def process_input(input_kwargs, model_config):
+    ulysses_size = model_config.transformer_config.parallel_config.ulysses_size
+    rank = model_config.transformer_config.parallel_config.rank
+    if ulysses_size == 1:
+        return input_kwargs, None
+
+    hidden_states = input_kwargs.get("hidden_states")
+    split_dim = get_ulysses_split_dim(hidden_states, ulysses_size)
+
+    hidden_states = hidden_states.chunk(ulysses_size, dim=split_dim)
+    hidden_states = hidden_states[rank]
+    input_kwargs["hidden_states"] = hidden_states
+
+    return input_kwargs, split_dim
+
+
 def run_inference(
     device: str,
     model_id: str,
@@ -138,13 +157,18 @@ def run_inference(
     dtype: str = "float16",
     quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.W8A8_DYNAMIC,
     mxfp4_group_size: int = 32,
+    world_size: int = 1,
+    ulysses_size: int = 1,
 ):
     if device not in DeviceProfile.all_device_profiles:
         raise ValueError(f"Device '{device}' not recognized.")
     device_profile = DeviceProfile.all_device_profiles[device]
     perf_model = AnalyticPerformanceModel(device_profile)
 
-    parallel_config = ParallelConfig()
+    parallel_config = ParallelConfig(
+        world_size=world_size,
+        ulysses_size=ulysses_size,
+    )
     quant_config = QuantConfig()
     if quantize_linear_action != QuantizeLinearAction.DISABLED:
         extra_kwargs = {}
@@ -165,11 +189,14 @@ def run_inference(
         quant_config,
         dtype,
     )
+    if ulysses_size > 1:
+        set_sp_group(model.sp_group)
 
     print("Preparing dummy input tensors...")
     input_kwargs = generate_diffusers_inputs(
         batch_size, height, width, frame_num, seq_len, model_config
     )
+    input_kwargs, split_dim = process_input(input_kwargs, model_config)
 
     print(input_kwargs)
     print("Running simulated inference...")
@@ -184,7 +211,9 @@ def run_inference(
         patch_torch_op(),
     ):
         for _ in range(sample_step):
-            _ = model.forward(**input_kwargs)
+            out = model.forward(**input_kwargs)
+            if ulysses_size > 1:
+                out = model.sp_group.all_gather(out, dim=split_dim)
 
     run_end = time.perf_counter()
     print()
@@ -219,12 +248,12 @@ def main():
     )
     parser.add_argument(
         "--batch-size",
-        type=int,
+        type=check_positive_integer,
         required=True,
     )
     parser.add_argument(
         "--seq-len",
-        type=int,
+        type=check_positive_integer,
         required=True,
         help="Number of inference queries to run in a batch.",
     )
@@ -236,22 +265,22 @@ def main():
     )
     parser.add_argument(
         "--height",
-        type=int,
+        type=check_positive_integer,
         default=400,
     )
     parser.add_argument(
         "--width",
-        type=int,
+        type=check_positive_integer,
         default=832,
     )
     parser.add_argument(
-        "--frame_num",
-        type=int,
+        "--frame-num",
+        type=check_positive_integer,
         default=81,
     )
     parser.add_argument(
-        "--sample_step",
-        type=int,
+        "--sample-step",
+        type=check_positive_integer,
         default=1,
     )
     parser.add_argument(
@@ -277,10 +306,30 @@ def main():
         default=QuantizeLinearAction.W8A8_DYNAMIC,
         help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
     )
+
+    parallel_group = parser.add_argument_group("Parallel Options")
+    parallel_group.add_argument(
+        "--world-size",
+        type=check_positive_integer,
+        default=1,
+        help="Number of devices.",
+    )
+    parallel_group.add_argument(
+        "--ulysses-size",
+        type=check_positive_integer,
+        default=1,
+        help="Ulysses size.",
+    )
+
     args = parser.parse_args()
 
     if args.log_level:
         logging.basicConfig(level=args.log_level.upper())
+
+    if args.world_size % args.ulysses_size != 0:
+        raise ValueError(
+            f"World size {args.world_size!r} must be divisible by ulysses size {args.ulysses_size!r}."
+        )
 
     run_inference(
         device=args.device,
@@ -294,6 +343,8 @@ def main():
         sample_step=args.sample_step,
         profiler=args.enable_profiler,
         dtype=args.dtype,
+        world_size=args.world_size,
+        ulysses_size=args.ulysses_size,
         quantize_linear_action=args.quantize_linear_action,
     )
 

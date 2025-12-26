@@ -166,3 +166,15 @@ def model_class_to_input(model_class):
     if input_func is None:
         return generate_empty_input
     return input_func
+
+
+def get_ulysses_split_dim(hidden_states: torch.Tensor, ulysses_size: int) -> int:
+    if hidden_states is None:
+        raise ValueError("hidden_states is None")
+    if hidden_states.shape[-2] // 2 % ulysses_size == 0:
+        split_dim = -2
+    elif hidden_states.shape[-1] // 2 % ulysses_size == 0:
+        split_dim = -1
+    else:
+        raise ValueError(f"Cannot split video sequence into {ulysses_size}")
+    return split_dim

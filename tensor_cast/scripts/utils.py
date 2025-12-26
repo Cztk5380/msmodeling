@@ -4,6 +4,7 @@ try:
 except ImportError:
     # Fallback for Python 3.10
     from strenum import StrEnum
+import argparse
 from dataclasses import dataclass
 from typing import List
 
@@ -514,3 +515,14 @@ def get_inputs_num_bytes(model, requests: List[RequestInfo], block_size: int) ->
     )
     inputs_num_bytes += bytes_of_tensor(input_kwargs["attention_meta"].slot_mapping)
     return inputs_num_bytes
+
+
+def check_positive_integer(value):
+    try:
+        value = int(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError("Invalid integer value: %r", value) from None
+    if value <= 0:
+        raise argparse.ArgumentTypeError("%r is not a positive integer", value)
+
+    return value

@@ -228,6 +228,7 @@ class ParallelConfig:
     embedding_parallel: bool = False
     # TODO: use expert_parallel_size instead of expert_parallel
     expert_parallel: bool = False
+    ulysses_size: int = 1
 
     def has_attn_tp(self) -> bool:
         return self.tensor_parallel_size > 1
@@ -448,8 +449,8 @@ class DiffusersTransformerConfig:
     dtype: torch.dtype = torch.float16
     config_json: Optional[str] = None
     model_config: Optional[dict] = None
-    attention_cls: Optional[Type["AttentionBase"]] = None
-    quant_linear_cls: Optional[Type["QuantLinearBase"]] = None
+    attention_cls: Optional[Type["AttentionBase"]] = None  # noqa: F821
+    quant_linear_cls: Optional[Type["QuantLinearBase"]] = None  # noqa: F821
 
 
 @dataclasses.dataclass
@@ -459,5 +460,3 @@ class DiffusersVaeConfig:
     dtype: torch.dtype = torch.float16
     config_json: Optional[str] = None
     model_config: Optional[dict] = None
-
-
