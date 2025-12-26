@@ -567,7 +567,6 @@ class TransformerModel(ModelWrapperBase):
             self.model_config.quant_config,
             default_config_name=None,
             strip_module_fn=lambda n: n.replace("_inner.", "") if "_inner." in n else n,
-            pattern_match_fn=lambda n, ps: any(fnmatch.fnmatch(n, p) for p in ps),
         )
 
     def quantize_attention(self):

@@ -9,7 +9,7 @@ import torch
 import torch.nn as nn
 
 from .utils import DTYPE_FP4, DTYPE_FP8
-
+from .utils import pattern_match
 
 class LinearQuantType(Enum):
     W8A16 = auto()  # Weight in int8, activation in bfloat16 or half
@@ -100,7 +100,6 @@ def quantize_linear_modules(
         quant_config: Optional["QuantConfig"],
         default_config_name: str,
         strip_module_fn: Optional[Callable[[str], str]],
-        pattern_match_fn: Optional[Callable[[str, list[str]], bool]],
 ) -> None:
     """
     Quantize Linear modules in a root module with specified quantization config and class.
@@ -113,15 +112,11 @@ def quantize_linear_modules(
         strip_module_fn:
             (Optional[Callable[[str], str]]) Function to clean/normalize module names,
             None = use raw module name without modification
-        pattern_match_fn:
-            (Optional[Callable[[str, list[str]], bool]]) Function to filter modules to skip quantization,
-            takes (module name str, exclude pattern list) and returns bool (True = skip),
-            None = no module filtering
     """
     if not quant_linear_cls or not root_module:
         return
     for name, module in root_module.named_modules():
-        if pattern_match_fn and pattern_match_fn(name, quant_config.modules_to_not_convert):
+        if pattern_match(name, quant_config.modules_to_not_convert):
             continue
         if isinstance(module, torch.nn.Linear):
             module_name = strip_module_fn(name) if strip_module_fn else name

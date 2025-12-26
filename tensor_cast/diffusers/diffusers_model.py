@@ -185,7 +185,6 @@ class DiffusersTransformerModel(ModelWrapperBase):
             self.model_config.quant_config,
             default_config_name="default_dit",
             strip_module_fn=None,
-            pattern_match_fn=None,
         )
 
     def forward(
