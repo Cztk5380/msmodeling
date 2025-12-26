@@ -124,7 +124,7 @@ def generate_hunyuanvideo15_input(**kwargs):
 
     dtype = kwargs.get("model_config").transformer_config.dtype
 
-    attention_mask = torch.ones(
+    attention_mask = torch.zeros(
         [batch_size, seq_lens],
         device=torch.device("meta"),
         dtype=dtype,

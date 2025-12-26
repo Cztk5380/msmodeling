@@ -3,9 +3,10 @@
 import fnmatch
 
 from enum import auto, Enum
-from typing import Optional
+from typing import Optional, Callable
 
 import torch
+import torch.nn as nn
 
 from .utils import DTYPE_FP4, DTYPE_FP8
 
@@ -67,11 +68,13 @@ class QuantScheme(Enum):
 
 
 def get_quant_config(name, quant_config, default_config_name):
-    wildcard_configs = {
-        n: quant_config.linear_configs[n]
-        for n in quant_config.linear_configs
-        if "*" in n or "?" in n
-    }
+    if not hasattr(quant_config, '_cached_wildcard_configs'):
+        quant_config._cached_wildcard_configs = {
+            n: quant_config.linear_configs[n]
+            for n in quant_config.linear_configs
+            if "*" in n or "?" in n
+        }
+    wildcard_configs = quant_config._cached_wildcard_configs
     if name in quant_config.linear_configs:
         return quant_config.linear_configs[name]
     for pattern, config in wildcard_configs.items():
@@ -91,23 +94,34 @@ def replace_module(name, new_module, root_module):
     setattr(parent_module, child_name, new_module)
 
 
-def quantize_linear_common(
-    quant_linear_cls,
-    quant_config,
-    root_module,
-    skip_pattern_check,
-    default_config_name,
-    strip_module_fn,
-    pattern_match_fn,
-):
+def quantize_linear_modules(
+        root_module: nn.Module,
+        quant_linear_cls: Optional["QuantLinearBase"],
+        quant_config: Optional["QuantConfig"],
+        default_config_name: str,
+        strip_module_fn: Optional[Callable[[str], str]],
+        pattern_match_fn: Optional[Callable[[str, list[str]], bool]],
+) -> None:
+    """
+    Quantize Linear modules in a root module with specified quantization config and class.
+
+    Args:
+        root_module: (nn.Module) Root module containing Linear layers to be quantized
+        quant_linear_cls: (QuantLinearBase) Quantized Linear class to replace original Linear modules
+        quant_config: (QuantConfig) Quantization configuration object with linear config rules and exclude list
+        default_config_name: (str) Fallback config name if no match found for a target Linear module
+        strip_module_fn:
+            (Optional[Callable[[str], str]]) Function to clean/normalize module names,
+            None = use raw module name without modification
+        pattern_match_fn:
+            (Optional[Callable[[str, list[str]], bool]]) Function to filter modules to skip quantization,
+            takes (module name str, exclude pattern list) and returns bool (True = skip),
+            None = no module filtering
+    """
     if not quant_linear_cls or not root_module:
         return
     for name, module in root_module.named_modules():
-        if (
-            not skip_pattern_check
-            and pattern_match_fn
-            and pattern_match_fn(name, quant_config.modules_to_not_convert)
-        ):
+        if pattern_match_fn and pattern_match_fn(name, quant_config.modules_to_not_convert):
             continue
         if isinstance(module, torch.nn.Linear):
             module_name = strip_module_fn(name) if strip_module_fn else name

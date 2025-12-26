@@ -30,7 +30,7 @@ from ..layers.utils import ModelWrapperBase
 from ..model_config import MlaConfig, ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
-from ..quantize_utils import quantize_linear_common
+from ..quantize_utils import quantize_linear_modules
 from .utils import (
     AutoModelConfigLoader,
     init_on_device_without_buffers,
@@ -561,11 +561,10 @@ class TransformerModel(ModelWrapperBase):
         """
         if not self.model_config.quant_linear_cls:
             return
-        quantize_linear_common(
+        quantize_linear_modules(
+            self._inner,
             self.model_config.quant_linear_cls,
             self.model_config.quant_config,
-            self._inner,
-            skip_pattern_check=False,
             default_config_name=None,
             strip_module_fn=lambda n: n.replace("_inner.", "") if "_inner." in n else n,
             pattern_match_fn=lambda n, ps: any(fnmatch.fnmatch(n, p) for p in ps),

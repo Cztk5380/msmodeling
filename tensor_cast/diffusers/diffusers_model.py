@@ -17,7 +17,7 @@ from ..model_config import (
     ModelConfig,
 )
 
-from ..quantize_utils import quantize_linear_common
+from ..quantize_utils import quantize_linear_modules
 
 from ..transformers.model import ModelWrapper
 
@@ -169,11 +169,10 @@ class DiffusersTransformerModel(ModelWrapperBase):
             if hasattr(self._inner, "blocks")
             else None
         )
-        quantize_linear_common(
+        quantize_linear_modules(
+            root,
             self.model_config.quant_linear_cls,
             self.model_config.quant_config,
-            root,
-            skip_pattern_check=True,
             default_config_name="default_dit",
             strip_module_fn=None,
             pattern_match_fn=None,
