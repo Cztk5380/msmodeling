@@ -24,6 +24,8 @@ from ..runtime import Runtime
 from ..utils import str_to_dtype
 from .utils import check_positive_integer
 
+from ..parallel_group import ParallelGroup
+
 
 def generate_diffusers_inputs(
     batch_size, height, width, frame_num, seq_lens, model_config
@@ -150,8 +152,10 @@ def run_inference(
     sample_step: int = 50,
     profiler: bool = False,
     dtype: str = "float16",
+    use_cfg: bool = False,
     world_size: int = 1,
     ulysses_size: int = 1,
+    cfg_parallel: bool = False,
 ):
     if device not in DeviceProfile.all_device_profiles:
         raise ValueError(f"Device '{device}' not recognized.")
@@ -174,6 +178,10 @@ def run_inference(
     )
     if ulysses_size > 1:
         set_sp_group(model.sp_group)
+    if use_cfg and cfg_parallel:
+        cfg_parallel_group = ParallelGroup(0, [[0, 1]], world_size) # cfg parallel group can only be size 2
+    else:
+        cfg_parallel_group = None
 
     print("Preparing dummy input tensors...")
     input_kwargs = generate_diffusers_inputs(
@@ -193,8 +201,12 @@ def run_inference(
     ):
         for _ in range(sample_step):
             out = model.forward(**input_kwargs)
+            if use_cfg and not cfg_parallel: # use cfg but not use cfg parallel, do one extra forward
+                _ = model.forward(**input_kwargs)
             if ulysses_size > 1:
                 out = model.sp_group.all_gather(out, dim=split_dim)
+            if use_cfg and cfg_parallel: # use cfg and use cfg parallel, do all-gather after each step of DiT forward
+                out = cfg_parallel_group.all_gather(out, dim=0)
 
     run_end = time.perf_counter()
     print()
@@ -280,6 +292,11 @@ def main():
         choices=["float16", "float32", "bfloat16"],
         default="float16",
     )
+    parser.add_argument(
+        "--use-cfg",
+        action="store_true",
+        default=False,
+    )
 
     parallel_group = parser.add_argument_group("Parallel Options")
     parallel_group.add_argument(
@@ -293,6 +310,11 @@ def main():
         type=check_positive_integer,
         default=1,
         help="Ulysses size.",
+    )
+    parallel_group.add_argument(
+        "--cfg-parallel",
+        action="store_true",
+        default=False,
     )
 
     args = parser.parse_args()
@@ -317,8 +339,10 @@ def main():
         sample_step=args.sample_step,
         profiler=args.enable_profiler,
         dtype=args.dtype,
+        use_cfg=args.use_cfg,
         world_size=args.world_size,
         ulysses_size=args.ulysses_size,
+        cfg_parallel=args.cfg_parallel,
     )
 
 
