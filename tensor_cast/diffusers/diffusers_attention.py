@@ -4,13 +4,9 @@ import threading
 from typing import Optional
 
 import diffusers
-import torch
 import torch.nn.functional as F
-from aenum import extend_enum
 import torch
 from aenum import extend_enum
-
-from diffusers.models.attention_dispatch import _AttentionBackendRegistry
 
 from ..parallel_group import ParallelGroup
 from diffusers.models.attention_dispatch import _AttentionBackendRegistry
@@ -87,7 +83,7 @@ def _attention(query, key, value, **kwargs):
         num_heads_kv // ulysses_size,
         head_dim_kv,
     )
-    out = torch.ops.tensor_cast.dit_attention(
+    out = torch.ops.tensor_cast.attention(
         query, key, value, None, None, None, None, None
     )
 
@@ -107,7 +103,7 @@ def use_custom_sdpa():
     def _custom_sdpa(
         q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None
     ):
-        return torch.ops.tensor_cast.dit_attention(
+        return torch.ops.tensor_cast.attention(
             q, k, v, attn_mask, None, None, None, None
         )
 

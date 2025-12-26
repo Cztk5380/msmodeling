@@ -15,16 +15,6 @@ class TestVideoGeneration(unittest.TestCase):
 
     def setUp(self):
         """Set up test fixtures."""
-        self.device = "TEST_DEVICE"
-        # Create temporary directory structure for mock model
-        self.temp_dir = tempfile.mkdtemp()
-        self.model_dir = os.path.join(self.temp_dir, "mock_model")
-        os.makedirs(self.model_dir, exist_ok=True)
-
-        # Create transformer subdirectory and config
-        transformer_dir = os.path.join(self.model_dir, "transformer")
-        os.makedirs(transformer_dir, exist_ok=True)
-
         # Create a mock transformer config
         transformer_config = {
             "_class_name": "HunyuanVideoTransformer3DModel",
@@ -46,13 +36,6 @@ class TestVideoGeneration(unittest.TestCase):
             "rope_theta": 256.0,
             "text_embed_dim": 4096,
         }
-
-        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
-            json.dump(transformer_config, f)
-
-        # Create vae subdirectory and config
-        vae_dir = os.path.join(self.model_dir, "vae")
-        os.makedirs(vae_dir, exist_ok=True)
 
         # Create a mock vae config
         vae_config = {
@@ -79,10 +62,8 @@ class TestVideoGeneration(unittest.TestCase):
             "z_dim": 16,
         }
 
-        with open(os.path.join(vae_dir, "config.json"), "w") as f:
-            json.dump(vae_config, f)
-
-        self.model_id = self.model_dir
+        self.temp_dir, self.model_id = self._create_mock_model_dir(transformer_config, vae_config)
+        self.device = "TEST_DEVICE"
         self.batch_size = 2
         self.seq_len = 10
         self.height = 400
@@ -96,6 +77,23 @@ class TestVideoGeneration(unittest.TestCase):
         import shutil
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _create_mock_model_dir(transformer_config, vae_config):
+        temp_dir = tempfile.mkdtemp()
+        model_dir = os.path.join(temp_dir, "mock_model")
+        os.makedirs(model_dir, exist_ok=True)
+
+        transformer_dir = os.path.join(model_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(transformer_config, f)
+
+        # Write VAE config
+        vae_dir = os.path.join(model_dir, "vae")
+        os.makedirs(vae_dir, exist_ok=True)
+        with open(os.path.join(vae_dir, "config.json"), "w") as f:
+            json.dump(vae_config, f)
+        return temp_dir, model_dir
 
     def _validate_inference_result(self, test_name: str = ""):
         """
@@ -215,6 +213,8 @@ class TestVideoGeneration(unittest.TestCase):
             self.fail(
                 f"test_video_inference_with_world_{world_size}_ulysses_{ulysses_size} failed with exception: {str(e)}"
             )
+
+
 
     @parameterized.expand(
         [
@@ -353,24 +353,7 @@ class TestVideoGeneration(unittest.TestCase):
     def test_video_inference_with_model_configs(
             self, config_name, transformer_config, vae_config
     ):
-        temp_dir = tempfile.mkdtemp()
-        model_dir = os.path.join(temp_dir, "mock_model")
-        os.makedirs(model_dir, exist_ok=True)
-
-        transformer_dir = os.path.join(model_dir, "transformer")
-        os.makedirs(transformer_dir, exist_ok=True)
-
-        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
-            json.dump(transformer_config, f)
-
-        vae_dir = os.path.join(model_dir, "vae")
-        os.makedirs(vae_dir, exist_ok=True)
-
-        with open(os.path.join(vae_dir, "config.json"), "w") as f:
-            json.dump(vae_config, f)
-
-        torch.compiler.reset()
-
+        temp_dir, model_dir = self._create_mock_model_dir(transformer_config, vae_config)
         try:
             run_inference(
                 device="TEST_DEVICE",

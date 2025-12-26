@@ -475,56 +475,46 @@ def _attention_properties_helper(
     query_lens,
     softmax_dtype,
 ) -> OpInvokeInfo.PerformanceProperties:
-    hidden_size = query.size(-1)
-    head_size = key.size(-1)
+    # --- Fix: correct num_q_heads for both 3D (LLM) and 4D (DiT) ---
+    if query.ndim == 4:
+        num_q_heads = query.size(2)  # [B, S, N, D] → N
+        head_size = query.size(3)  # D
+    else:
+        hidden_size = query.size(-1)
+        head_size = key.size(-1)
+        num_q_heads = hidden_size // head_size
 
-    # Infer the number of query heads
-    # hidden_size = num_q_heads * head_size
-    assert hidden_size % head_size == 0, "hidden_size must be divisible by head_size"
-    num_q_heads = hidden_size // head_size
+    if query.ndim == 2:
+        batch_size = query.size(0)
+        query_len_per_seq = 1
+    elif query.ndim == 4:
+        batch_size = query.size(0)
+        query_len_per_seq = query.size(1)
+    else:
+        batch_size = query.size(0)
+        query_len_per_seq = query.size(1)
 
-    num_tokens_per_seq = query_lens
+    key_len_per_seq = key.size(1)  # works for 3D ([B, S, ...]) and 4D ([B, S, ...])
+    context_len_product_sum = batch_size * query_len_per_seq * key_len_per_seq
 
-    # The core computation involves multiplying query tokens for a sequence with all
-    # key tokens of that same sequence. We sum this product over all sequences.
-    # This gives a measure of the total QK^T and Score*V interactions.
-    # E.g., for seq `i`: num_tokens_per_seq[i] * seq_lens[i]
-    # We sum this value across the entire batch.
-    context_len_product_sum = torch.sum(
-        num_tokens_per_seq.to(seq_lens.dtype) * seq_lens
-    ).item()
-
-    # 1. First Batched Matrix Multiplication (BMM): Q @ K^T
-    # For each query head, this is a sum of (num_tokens_per_seq * seq_len) dot products,
-    # where each dot product has `head_size` multiply-adds.
-    # Total FMA ops = sum(num_tokens_i * seq_len_i) * num_q_heads * head_size
-    # Total FLOPs = FMA_ops * 2
     bmm1_ops = context_len_product_sum * num_q_heads * head_size * 2
-
-    # 2. Softmax
-    # This operates on the score matrix. The number of elements is sum(num_tokens_i * seq_len_i) * num_q_heads.
-    # Each softmax element (exp, sum, div) is often approximated as ~4 FLOPs.
     softmax_ops = context_len_product_sum * num_q_heads * 4
-
-    # 3. Second Batched Matrix Multiplication (BMM): Scores @ V
-    # This has the same computational cost as the first BMM.
-    # Total FMA ops = sum(num_tokens_i * seq_len_i) * num_q_heads * head_size
-    # Total FLOPs = FMA_ops * 2
     bmm2_ops = context_len_product_sum * num_q_heads * head_size * 2
 
     properties = op_invoke_info.get_memory_access_properties(exclude_input_ids={1, 2})
-    # KV cache access: query i accesses 2 * seq_len_i slots with kv_head_num * head_size * element_size each.
-    assert key.ndim >= 2
-    properties.memory_read_bytes += torch.sum(
-        seq_lens * 2 * bytes_of_elements(key.size(-1) * key.size(-2), key.dtype)
-    ).item()
-    compute_ops = properties.compute_ops.setdefault(
-        query.dtype, OpInvokeInfo.ComputeOps()
+
+    kv_head_num = key.size(2) if key.ndim == 4 else 1
+    element_size = (
+        torch.finfo(key.dtype).bits // 8
+        if key.dtype.is_floating_point
+        else torch.iinfo(key.dtype).bits // 8
     )
+    kv_cache_bytes = batch_size * key_len_per_seq * 2 * kv_head_num * head_size * element_size
+    properties.memory_read_bytes += kv_cache_bytes
+
+    compute_ops = properties.compute_ops.setdefault(query.dtype, OpInvokeInfo.ComputeOps())
     compute_ops.mma_ops = bmm1_ops + bmm2_ops
-    compute_ops = properties.compute_ops.setdefault(
-        softmax_dtype, OpInvokeInfo.ComputeOps()
-    )
+    compute_ops = properties.compute_ops.setdefault(softmax_dtype, OpInvokeInfo.ComputeOps())
     compute_ops.gp_ops = softmax_ops
 
     return properties
@@ -1127,51 +1117,3 @@ def _(
     )
     compute_ops.mma_ops = total_flops
     return properties
-
-
-def _dit_attention_properties_helper(
-    op_invoke_info: OpInvokeInfo,
-    query,
-    key,
-    query_start_loc,
-    seq_lens,
-    softmax_dtype,
-) -> OpInvokeInfo.PerformanceProperties:
-    B, Sq, N, D = query.size()
-    _, Sk, _, _ = key.size()
-
-    # BNSD * BNSD -> BNSD * BNDS = BNSS -> BNSSD*2
-    bmm1_ops = B * N * Sq * Sk * D * 2
-
-    # 2. Softmax
-    # This operates on the score matrix. The number of elements is sum(num_tokens_i * seq_len_i) * num_q_heads.
-    # Each softmax element (exp, sum, div) is often approximated as ~4 FLOPs.
-    softmax_ops = B * Sq * Sk * N * 4
-    bmm2_ops = B * N * Sq * Sk * D * 2
-
-    properties = op_invoke_info.get_memory_access_properties()
-    compute_ops = properties.compute_ops.setdefault(
-        query.dtype, OpInvokeInfo.ComputeOps()
-    )
-    compute_ops.mma_ops = bmm1_ops + bmm2_ops
-    compute_ops = properties.compute_ops.setdefault(
-        softmax_dtype, OpInvokeInfo.ComputeOps()
-    )
-    compute_ops.gp_ops = softmax_ops
-    return properties
-
-
-@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.dit_attention.default)
-def _(
-    op_invoke_info: OpInvokeInfo,
-) -> OpInvokeInfo.PerformanceProperties:
-    assert len(op_invoke_info.args) == 8
-    query = op_invoke_info.args[0]
-    key = op_invoke_info.args[1]
-    seq_lens = op_invoke_info.args[6]
-    query_lens = op_invoke_info.args[7]
-    if query_lens is None or seq_lens is None:
-        query_lens, seq_lens = _default_query_lens_and_seq_lens(query)
-    return _dit_attention_properties_helper(
-        op_invoke_info, query, key, seq_lens, query_lens, query.dtype
-    )

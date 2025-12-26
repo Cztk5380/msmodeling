@@ -45,36 +45,6 @@ def _(
     return torch.empty_like(query).contiguous()
 
 
-@register_tensor_cast_op("dit_attention")
-def _(
-    query: torch.Tensor,
-    key: torch.Tensor,
-    value: torch.Tensor,
-    attention_mask: Optional[torch.Tensor],
-    block_table: Optional[torch.Tensor],
-    query_start_loc: Optional[torch.Tensor],
-    seq_lens: Optional[torch.Tensor],
-    query_lens: Optional[torch.Tensor],
-) -> torch.Tensor:
-    """
-    Normal attention: MHA/GQA/MQA
-
-    Args:
-        query: (num_tokens, hidden_size)
-        key:
-            (total_num_blocks, block_size, kv_head_num, head_size) if block_table exists,
-            otherwise (*, kv_head_num, head_size)
-        value:
-            (total_num_blocks, block_size, kv_head_num, head_size) if block_table exists,
-            otherwise (*, kv_head_num, head_size)
-        attention_mask: (batch_size, num_heads, max_q_len, max_seq_len)
-        block_table: (batch_size, max_blocks_per_seq)
-        query_start_loc: (batch_size + 1,), the start location of each request in query Tensor
-        seq_len: (batch_size,), the length of each request including both computed tokens and newly scheduled tokens
-    """
-    return torch.empty_like(query).contiguous()
-
-
 @register_tensor_cast_op("attention_quant")
 def _(
     query: torch.Tensor,

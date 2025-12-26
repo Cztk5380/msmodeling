@@ -126,7 +126,7 @@ def generate_hunyuanvideo15_input(**kwargs):
 
     attention_mask = torch.zeros(
         [batch_size, seq_lens],
-        device=torch.device("cpu"),
+        device=torch.device("meta"),
         dtype=dtype,
     )
     res["encoder_attention_mask"] = attention_mask
@@ -135,14 +135,14 @@ def generate_hunyuanvideo15_input(**kwargs):
     if text_embed_2_dim is not None:
         res["encoder_hidden_states_2"] = torch.zeros(
             [batch_size, seq_lens, text_embed_2_dim],
-            device=torch.device("cpu"),
+            device=torch.device("meta"),
             dtype=dtype,
         )
     image_embed_dim = kwargs.get("image_embed_dim")
     if image_embed_dim is not None:
         res["image_embeds"] = torch.zeros(
             [image_embed_dim, image_embed_dim, image_embed_dim],
-            device=torch.device("cpu"),
+            device=torch.device("meta"),
             dtype=dtype,
         )
     return res
