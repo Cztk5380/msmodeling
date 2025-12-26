@@ -42,12 +42,12 @@ def _attention(query, key, value, **kwargs):
     batch_size, seq_per_rank, num_heads, head_dim = query.shape
     batch_size_kv, seq_per_rank_kv, num_heads_kv, head_dim_kv = key.shape
     input_tensor_q = torch.ones(
-        (batch_size, seq_per_rank, num_heads, head_dim // ulysses_size),
+        (batch_size, seq_per_rank, num_heads // ulysses_size, head_dim),
         dtype=query.dtype,
         device=query.device,
     )
     input_tensor_kv = torch.ones(
-        (batch_size_kv, seq_per_rank_kv, num_heads_kv, head_dim_kv // ulysses_size),
+        (batch_size_kv, seq_per_rank_kv, num_heads_kv // ulysses_size, head_dim_kv),
         dtype=query.dtype,
         device=query.device,
     )
@@ -70,19 +70,19 @@ def _attention(query, key, value, **kwargs):
         input_split_sizes=input_split_sizes,
     )
     query = query.view(
-        batch_size, seq_per_rank * ulysses_size, num_heads, head_dim // ulysses_size
+        batch_size, seq_per_rank * ulysses_size, num_heads // ulysses_size, head_dim
     )
     key = key.view(
         batch_size_kv,
         seq_per_rank_kv * ulysses_size,
-        num_heads_kv,
-        head_dim_kv // ulysses_size,
+        num_heads_kv // ulysses_size,
+        head_dim_kv,
     )
     value = value.view(
         batch_size_kv,
         seq_per_rank_kv * ulysses_size,
-        num_heads_kv,
-        head_dim_kv // ulysses_size,
+        num_heads_kv // ulysses_size,
+        head_dim_kv,
     )
     out = torch.ops.tensor_cast.attention(
         query, key, value, None, None, None, None, None
