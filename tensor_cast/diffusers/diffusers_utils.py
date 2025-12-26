@@ -102,7 +102,7 @@ def generate_hunyuanvideo_input(**kwargs):
     seq_lens = kwargs.get("seq_lens")
     assert isinstance(seq_lens, int)
 
-    dtype = kwargs.get("model_config").transformer_config.dtype
+    dtype = kwargs.get("dtype")
 
     attention_mask = torch.zeros(
         [batch_size, seq_lens],
@@ -122,7 +122,7 @@ def generate_hunyuanvideo15_input(**kwargs):
     seq_lens = kwargs.get("seq_lens")
     assert isinstance(seq_lens, int)
 
-    dtype = kwargs.get("model_config").transformer_config.dtype
+    dtype = kwargs.get("dtype")
 
     attention_mask = torch.zeros(
         [batch_size, seq_lens],
@@ -131,18 +131,14 @@ def generate_hunyuanvideo15_input(**kwargs):
     )
     res["encoder_attention_mask"] = attention_mask
     res["encoder_attention_mask_2"] = attention_mask
-    text_embed_2_dim = kwargs.get("model_config").transformer_config.model_config.get(
-        "text_embed_2_dim"
-    )
+    text_embed_2_dim = kwargs.get("text_embed_2_dim")
     if text_embed_2_dim is not None:
         res["encoder_hidden_states_2"] = torch.zeros(
             [batch_size, seq_lens, text_embed_2_dim],
             device=torch.device("meta"),
             dtype=dtype,
         )
-    image_embed_dim = kwargs.get("model_config").transformer_config.model_config.get(
-        "image_embed_dim"
-    )
+    image_embed_dim = kwargs.get("image_embed_dim")
     if image_embed_dim is not None:
         res["image_embeds"] = torch.zeros(
             [image_embed_dim, image_embed_dim, image_embed_dim],
@@ -159,13 +155,7 @@ _model_class_input = {
 
 
 def model_class_to_input(model_class):
-    def generate_empty_input(**kwargs):
-        return {}
-
-    input_func = _model_class_input.get(model_class)
-    if input_func is None:
-        return generate_empty_input
-    return input_func
+    return _model_class_input.get(model_class,lambda **kwargs: {})
 
 
 def get_ulysses_split_dim(hidden_states: torch.Tensor, ulysses_size: int) -> int:

@@ -115,7 +115,8 @@ def generate_extra_input(batch_size, seq_lens, model_config):
     res.update(
         model_class_to_input(
             model_config.transformer_config.model_config.get("_class_name")
-        )(batch_size=batch_size, seq_lens=seq_lens, model_config=model_config)
+        )(batch_size=batch_size, seq_lens=seq_lens, dtype=model_config.transformer_config.dtype,
+          **model_config.transformer_config.model_config)
     )
 
     return res
