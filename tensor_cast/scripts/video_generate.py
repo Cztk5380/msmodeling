@@ -7,7 +7,7 @@ import torch
 
 from ..device import DeviceProfile
 
-from ..diffusers.diffusers_attention import set_sp_group
+from ..diffusers.diffusers_attention import set_sp_group, use_custom_sdpa
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (
     get_ulysses_split_dim,
@@ -16,15 +16,17 @@ from ..diffusers.diffusers_utils import (
 )
 
 from ..model_config import ParallelConfig, QuantConfig
+
+from ..parallel_group import ParallelGroup
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
+from ..quantize_utils import QuantGranularity
 
 from ..runtime import Runtime
 
 from ..utils import str_to_dtype
-from .utils import check_positive_integer
 
-from ..parallel_group import ParallelGroup
+from .utils import check_positive_integer, create_quant_config, QuantizeLinearAction
 
 
 def generate_diffusers_inputs(
@@ -48,10 +50,10 @@ def generate_diffusers_pixel_input(batch_size, height, width, frame_num, model_c
     vae_stride = model_class_to_vae_stride(
         model_config.transformer_config.model_config.get("_class_name")
     )
-    z_dim = model_config.vae_config.model_config.get("z_dim", 16)
+    channels = model_config.transformer_config.model_config.get("in_channels")
     size = [
         batch_size,
-        z_dim,
+        channels,
         (frame_num - 1) // vae_stride[0] + 1,
         height // vae_stride[1],
         width // vae_stride[1],
@@ -112,7 +114,12 @@ def generate_extra_input(batch_size, seq_lens, model_config):
     res.update(
         model_class_to_input(
             model_config.transformer_config.model_config.get("_class_name")
-        )(batch_size=batch_size, seq_lens=seq_lens, model_config=model_config)
+        )(
+            batch_size=batch_size,
+            seq_lens=seq_lens,
+            dtype=model_config.transformer_config.dtype,
+            **model_config.transformer_config.model_config,
+        )
     )
 
     return res
@@ -152,6 +159,8 @@ def run_inference(
     sample_step: int = 50,
     profiler: bool = False,
     dtype: str = "float16",
+    quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.W8A8_DYNAMIC,
+    mxfp4_group_size: int = 32,
     use_cfg: bool = False,
     world_size: int = 1,
     ulysses_size: int = 1,
@@ -167,7 +176,17 @@ def run_inference(
         ulysses_size=ulysses_size,
     )
     quant_config = QuantConfig()
-
+    if quantize_linear_action != QuantizeLinearAction.DISABLED:
+        extra_kwargs = {}
+        if quantize_linear_action == QuantizeLinearAction.MXFP4:
+            extra_kwargs.update(
+                weight_group_size=mxfp4_group_size,
+                weight_quant_granularity=QuantGranularity.PER_GROUP,
+            )
+        quant_config = create_quant_config(
+            quantize_linear_action,
+            **extra_kwargs,
+        )
     dtype = str_to_dtype(dtype)
 
     model, model_config = build_diffusers_transformer_model(
@@ -179,7 +198,9 @@ def run_inference(
     if ulysses_size > 1:
         set_sp_group(model.sp_group)
     if use_cfg and cfg_parallel:
-        cfg_parallel_group = ParallelGroup(0, [[0, 1]], world_size) # cfg parallel group can only be size 2
+        cfg_parallel_group = ParallelGroup(
+            0, [[0, 1]], world_size
+        )  # cfg parallel group can only be size 2
     else:
         cfg_parallel_group = None
 
@@ -198,14 +219,19 @@ def run_inference(
             perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
         ) as runtime,
         torch.no_grad(),
+        use_custom_sdpa(),
     ):
         for _ in range(sample_step):
             out = model.forward(**input_kwargs)
-            if use_cfg and not cfg_parallel: # use cfg but not use cfg parallel, do one extra forward
+            if (
+                use_cfg and not cfg_parallel
+            ):  # use cfg but not use cfg parallel, do one extra forward
                 _ = model.forward(**input_kwargs)
             if ulysses_size > 1:
                 out = model.sp_group.all_gather(out, dim=split_dim)
-            if use_cfg and cfg_parallel: # use cfg and use cfg parallel, do all-gather after each step of DiT forward
+            if (
+                use_cfg and cfg_parallel
+            ):  # use cfg and use cfg parallel, do all-gather after each step of DiT forward
                 out = cfg_parallel_group.all_gather(out, dim=0)
 
     run_end = time.perf_counter()
@@ -293,6 +319,13 @@ def main():
         default="float16",
     )
     parser.add_argument(
+        "--quantize-linear-action",
+        type=QuantizeLinearAction,
+        choices=list(QuantizeLinearAction),
+        default=QuantizeLinearAction.W8A8_DYNAMIC,
+        help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
+    )
+    parser.add_argument(
         "--use-cfg",
         action="store_true",
         default=False,
@@ -342,6 +375,7 @@ def main():
         use_cfg=args.use_cfg,
         world_size=args.world_size,
         ulysses_size=args.ulysses_size,
+        quantize_linear_action=args.quantize_linear_action,
         cfg_parallel=args.cfg_parallel,
     )
 

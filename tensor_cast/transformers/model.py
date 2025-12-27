@@ -30,7 +30,7 @@ from ..layers.utils import ModelWrapperBase
 from ..model_config import MlaConfig, ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
-from ..utils import pattern_match
+from ..quantize_utils import quantize_linear_modules
 from .utils import (
     AutoModelConfigLoader,
     init_on_device_without_buffers,
@@ -559,46 +559,15 @@ class TransformerModel(ModelWrapperBase):
         Replaces all nn.Linear modules with QuantLinear modules based on the
         quantization configuration stored in self.model_config.
         """
-        if self.model_config.quant_linear_cls is None:
+        if not self.model_config.quant_linear_cls:
             return
-
-        # get all the wildcard names from the configuration
-        wildcard_linear_configs = {}
-        for name in self.model_config.quant_config.linear_configs:
-            if "*" in name or "?" in name:
-                wildcard_linear_configs[name] = (
-                    self.model_config.quant_config.linear_configs[name]
-                )
-
-        def get_quant_config(name):
-            quant_config = None
-            if name in self.model_config.quant_config.linear_configs:
-                quant_config = self.model_config.quant_config.linear_configs[name]
-            else:
-                for wildcard_name in wildcard_linear_configs:
-                    if fnmatch.fnmatch(name, wildcard_name):
-                        # we only count in the first match
-                        quant_config = wildcard_linear_configs[wildcard_name]
-                        break
-            return quant_config
-
-        for name, module in self._inner.named_modules():
-            if pattern_match(
-                name, self.model_config.quant_config.modules_to_not_convert
-            ):
-                continue
-            # We need to find the parent module to replace the child
-            if isinstance(module, torch.nn.Linear):
-                # remove "_inner" from the module path since we may wrap original
-                # module with "_inner".
-                # TODO(jgong5): avoid name clashing?
-                quant_config = get_quant_config(strip_module_name(name))
-                if quant_config:
-                    # Create and set the new quantized module
-                    quantized_module = self.model_config.quant_linear_cls(
-                        module, quant_config
-                    )
-                    self._replace_module(name, quantized_module)
+        quantize_linear_modules(
+            self._inner,
+            self.model_config.quant_linear_cls,
+            self.model_config.quant_config,
+            default_config_name=None,
+            strip_module_fn=lambda n: n.replace("_inner.", "") if "_inner." in n else n,
+        )
 
     def quantize_attention(self):
         attention_configs = self.model_config.quant_config.attention_configs

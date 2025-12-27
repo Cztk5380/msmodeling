@@ -8,23 +8,13 @@ import torch
 from parameterized import parameterized
 
 from ..scripts.video_generate import process_input, run_inference
-
+from ..scripts.utils import QuantizeLinearAction
 
 class TestVideoGeneration(unittest.TestCase):
     """Unit tests for video_generate.py script."""
 
     def setUp(self):
         """Set up test fixtures."""
-        self.device = "TEST_DEVICE"
-        # Create temporary directory structure for mock model
-        self.temp_dir = tempfile.mkdtemp()
-        self.model_dir = os.path.join(self.temp_dir, "mock_model")
-        os.makedirs(self.model_dir, exist_ok=True)
-
-        # Create transformer subdirectory and config
-        transformer_dir = os.path.join(self.model_dir, "transformer")
-        os.makedirs(transformer_dir, exist_ok=True)
-
         # Create a mock transformer config
         transformer_config = {
             "_class_name": "HunyuanVideoTransformer3DModel",
@@ -46,13 +36,6 @@ class TestVideoGeneration(unittest.TestCase):
             "rope_theta": 256.0,
             "text_embed_dim": 4096,
         }
-
-        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
-            json.dump(transformer_config, f)
-
-        # Create vae subdirectory and config
-        vae_dir = os.path.join(self.model_dir, "vae")
-        os.makedirs(vae_dir, exist_ok=True)
 
         # Create a mock vae config
         vae_config = {
@@ -79,10 +62,8 @@ class TestVideoGeneration(unittest.TestCase):
             "z_dim": 16,
         }
 
-        with open(os.path.join(vae_dir, "config.json"), "w") as f:
-            json.dump(vae_config, f)
-
-        self.model_id = self.model_dir
+        self.temp_dir, self.model_id = self._create_mock_model_dir(transformer_config, vae_config)
+        self.device = "TEST_DEVICE"
         self.batch_size = 2
         self.seq_len = 10
         self.height = 400
@@ -96,6 +77,23 @@ class TestVideoGeneration(unittest.TestCase):
         import shutil
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
+
+    def _create_mock_model_dir(transformer_config, vae_config):
+        temp_dir = tempfile.mkdtemp()
+        model_dir = os.path.join(temp_dir, "mock_model")
+        os.makedirs(model_dir, exist_ok=True)
+
+        transformer_dir = os.path.join(model_dir, "transformer")
+        os.makedirs(transformer_dir, exist_ok=True)
+        with open(os.path.join(transformer_dir, "config.json"), "w") as f:
+            json.dump(transformer_config, f)
+
+        # Write VAE config
+        vae_dir = os.path.join(model_dir, "vae")
+        os.makedirs(vae_dir, exist_ok=True)
+        with open(os.path.join(vae_dir, "config.json"), "w") as f:
+            json.dump(vae_config, f)
+        return temp_dir, model_dir
 
     def _validate_inference_result(self, test_name: str = ""):
         """
@@ -215,6 +213,173 @@ class TestVideoGeneration(unittest.TestCase):
             self.fail(
                 f"test_video_inference_with_world_{world_size}_ulysses_{ulysses_size} failed with exception: {str(e)}"
             )
+
+
+
+    @parameterized.expand(
+        [
+            (
+                "Hunyuanvideo",
+                {
+                    "_class_name": "HunyuanVideoTransformer3DModel",
+                    "_diffusers_version": "0.32.0.dev0",
+                    "attention_head_dim": 128,
+                    "guidance_embeds": "true",
+                    "in_channels": 16,
+                    "mlp_ratio": 4.0,
+                    "num_attention_heads": 24,
+                    "num_layers": 20,
+                    "num_refiner_layers": 2,
+                    "num_single_layers": 40,
+                    "out_channels": 16,
+                    "patch_size": 2,
+                    "patch_size_t": 1,
+                    "pooled_projection_dim": 768,
+                    "qk_norm": "rms_norm",
+                    "rope_axes_dim": [16, 56, 56],
+                    "rope_theta": 256.0,
+                    "text_embed_dim": 4096,
+                },
+                {
+                    "_class_name": "AutoencoderKLCogVideoX",
+                    "in_channels": 3,
+                    "out_channels": 3,
+                    "down_block_types": [
+                        "CogVideoXDownBlock3D",
+                        "CogVideoXDownBlock3D",
+                        "CogVideoXDownBlock3D",
+                    ],
+                    "up_block_types": [
+                        "CogVideoXUpBlock3D",
+                        "CogVideoXUpBlock3D",
+                        "CogVideoXUpBlock3D",
+                    ],
+                    "block_out_channels": [128, 256, 512],
+                    "layers_per_block": 4,
+                    "act_fn": "silu",
+                    "sample_size": [16, 128, 128],
+                    "mid_block_type": "CogVideoXMidBlock3D",
+                    "norm_num_groups": 32,
+                    "temporal_compression_ratio": 4,
+                    "z_dim": 16,
+                }
+            ),
+            (
+                "WAN",
+                {
+                    "_class_name": "WanTransformer3DModel",
+                    "_diffusers_version": "0.35.0.dev0",
+                    "added_kv_proj_dim": None,
+                    "attention_head_dim": 128,
+                    "cross_attn_norm": True,
+                    "eps": 1e-06,
+                    "ffn_dim": 13824,
+                    "freq_dim": 256,
+                    "image_dim": None,
+                    "in_channels": 16,
+                    "num_attention_heads": 40,
+                    "num_layers": 40,
+                    "out_channels": 16,
+                    "patch_size": [
+                        1,
+                        2,
+                        2
+                    ],
+                    "pos_embed_seq_len": None,
+                    "qk_norm": "rms_norm_across_heads",
+                    "rope_max_seq_len": 1024,
+                    "text_dim": 4096
+                },
+                {
+                    "_class_name": "AutoencoderKLWan",
+                    "_diffusers_version": "0.35.0.dev0",
+                    "attn_scales": [],
+                    "base_dim": 96,
+                    "dim_mult": [1, 2, 4, 4],
+                    "dropout": 0.0,
+                    "latents_mean": [
+                        -0.7571, -0.7089, -0.9113, 0.1075, -0.1745, 0.9653, -0.1517, 1.5508, 0.4134, -0.0715,
+                        0.5517,
+                        -0.3632, -0.1922, -0.9497, 0.2503, -0.2921],
+                    "latents_std": [
+                        2.8184, 1.4541, 2.3275, 2.6558, 1.2196, 1.7708, 2.6052, 2.0743, 3.2687,
+                        2.1526, 2.8652, 1.5579, 1.6382, 1.1253, 2.8251, 1.916],
+                    "num_res_blocks": 2,
+                    "temperal_downsample": [False, True, True],
+                    "z_dim": 16
+                }
+            ),
+            (
+                "hunyuan_video15",
+                {
+                    "_class_name": "HunyuanVideo15Transformer3DModel",
+                    "_diffusers_version": "0.36.0.dev0",
+                    "attention_head_dim": 128,
+                    "image_embed_dim": 1152,
+                    "in_channels": 65,
+                    "mlp_ratio": 4.0,
+                    "num_attention_heads": 16,
+                    "num_layers": 54,
+                    "num_refiner_layers": 2,
+                    "out_channels": 32,
+                    "patch_size": 1,
+                    "patch_size_t": 1,
+                    "qk_norm": "rms_norm",
+                    "rope_axes_dim": [16, 56, 56],
+                    "rope_theta": 256.0,
+                    "target_size": 640,
+                    "task_type": "t2v",
+                    "text_embed_2_dim": 1472,
+                    "text_embed_dim": 3584,
+                    "use_meanflow": False,
+                },
+                {
+                    "_class_name": "AutoencoderKLHunyuanVideo15",
+                    "_diffusers_version": "0.36.0.dev0",
+                    "block_out_channels": [128, 256, 512, 1024, 1024],
+                    "downsample_match_channel": True,
+                    "in_channels": 3,
+                    "latent_channels": 32,
+                    "layers_per_block": 2,
+                    "out_channels": 3,
+                    "scaling_factor": 1.03682,
+                    "spatial_compression_ratio": 16,
+                    "temporal_compression_ratio": 4,
+                    "upsample_match_channel": True,
+                },
+            ),
+        ]
+    )
+    def test_video_inference_with_model_configs(
+            self, config_name, transformer_config, vae_config
+    ):
+        temp_dir, model_dir = self._create_mock_model_dir(transformer_config, vae_config)
+        try:
+            run_inference(
+                device="TEST_DEVICE",
+                model_id=model_dir,
+                batch_size=2,
+                seq_len=10,
+                height=800,
+                width=600,
+                frame_num=121,
+                sample_step=1,
+                profiler=False,
+                dtype="float16",
+                world_size=1,
+                ulysses_size=1,
+                quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+            )
+            self._validate_inference_result(
+                f"test_video_inference_with_model_configs[{config_name}]"
+            )
+        except Exception as e:
+            self.fail(
+                f"test_video_inference_with_model_configs[{config_name}] failed with exception: {str(e)}"
+            )
+        finally:
+            import shutil
+            shutil.rmtree(temp_dir, ignore_errors=True)
 
 
 if __name__ == "__main__":

@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from typing import Dict, Optional, Union
 
@@ -8,20 +9,30 @@ import torch
 from transformers.modeling_utils import no_init_weights
 
 from ..layers.attention import AttentionTensorCast
+from ..layers.quant_linear import TensorCastQuantLinear
 
+from ..parallel_group import ParallelGroup
 from ..model_config import (
     DiffusersConfig,
     DiffusersTransformerConfig,
     DiffusersVaeConfig,
     ModelConfig,
 )
-from ..parallel_group import ParallelGroup
+
+from ..quantize_utils import quantize_linear_modules
+
+from ..transformers.model import ModelWrapper
+
+from ..transformers.utils import init_on_device_without_buffers
 
 from ..transformers.model import ModelWrapper, ModelWrapperBase
 
 from ..transformers.utils import init_on_device_without_buffers
 
 from .diffusers_utils import get_diffusers_transformer_module
+from ..model_config import DiffusersTransformerConfig, DiffusersConfig, DiffusersTextConfig, DiffusersVaeConfig
+
+logger = logging.getLogger(__name__)
 
 
 def build_diffusers_transformer_model(
@@ -34,6 +45,7 @@ def build_diffusers_transformer_model(
         model_path=model_id,
         parallel_config=parallel_config,
         quant_config=quant_config,
+        quant_linear_cls=TensorCastQuantLinear,
         attention_cls=AttentionTensorCast,
         dtype=dtype,
     )
@@ -45,13 +57,14 @@ def load_config_from_file(
     model_path: str,
     parallel_config: None,
     quant_config: None,
+    quant_linear_cls: None,
     attention_cls: None,
     dtype: torch.dtype,
 ):
     # TODO add seperate parallel_config and quant_config(atten_cls is needed?) for vae and text
     if not os.path.isdir(model_path):
         raise ValueError(f"Input args.model_id should be dir, but got {model_path}")
-
+    
     config_path_dict = {}
     model_path = os.path.abspath(model_path)
     for root, _, files in os.walk(model_path):
@@ -66,7 +79,7 @@ def load_config_from_file(
         with open(config_path) as f:
             config = json.load(f)
         config_dict[key] = config
-
+    
     model_config = DiffusersConfig()
     transformer_config = config_dict.get("transformer")
     if transformer_config is None:
@@ -77,6 +90,7 @@ def load_config_from_file(
         quant_config=quant_config,
         config_json=transformer_config_path,
         model_config=transformer_config,
+        quant_linear_cls=quant_linear_cls,
         attention_cls=attention_cls,
         dtype=dtype,
     )
@@ -144,6 +158,7 @@ class DiffusersTransformerModel(ModelWrapperBase):
             self._inner = model_class.from_config(hf_config_json).to(model_config.dtype)
         self._inner.eval()
         self.wrap_model()
+        self.quantize_model()
 
     def wrap_model(self):
         # diffusers attention backend registered in diffuser_attention.py
@@ -152,14 +167,25 @@ class DiffusersTransformerModel(ModelWrapperBase):
     def quantize_model(self):
         # TODO quantization on cuda: github NVIDIA/Model-Optimizer/tree/main/examples/diffusers
         # TODO whether linears outside blocks should be quant?
-        for (
-            _,
-            module,
-        ) in (
-            self._inner.transformer_blocks.named_modules()
-        ):  # for wan: self._inner.blocks.named_modules
-            if isinstance(module, torch.nn.Linear):
-                pass
+        self.quantize_linear()
+
+    def quantize_linear(self):
+        if not self.model_config.quant_linear_cls:
+            return
+        root = (
+            self._inner.transformer_blocks
+            if hasattr(self._inner, "transformer_blocks")
+            else self._inner.blocks
+            if hasattr(self._inner, "blocks")
+            else None
+        )
+        quantize_linear_modules(
+            root,
+            self.model_config.quant_linear_cls,
+            self.model_config.quant_config,
+            default_config_name="default_dit",
+            strip_module_fn=None,
+        )
 
     def forward(
         self,

@@ -1,13 +1,16 @@
+from contextlib import contextmanager
+
 import threading
 from typing import Optional
 
 import diffusers
+import torch.nn.functional as F
 import torch
 from aenum import extend_enum
 
-from diffusers.models.attention_dispatch import _AttentionBackendRegistry
-
 from ..parallel_group import ParallelGroup
+from diffusers.models.attention_dispatch import _AttentionBackendRegistry
+_thread_local = threading.local()
 
 
 extend_enum(
@@ -15,10 +18,6 @@ extend_enum(
     "TENSOR_CAST",
     "tensor_cast",
 )
-
-_thread_local = threading.local()
-
-
 def set_sp_group(sp_group: Optional[ParallelGroup]):
     _thread_local.sp_group = sp_group
 
@@ -95,3 +94,21 @@ def _attention(query, key, value, **kwargs):
     )
     out = out.view(batch_size, seq_per_rank, num_heads, head_dim)
     return out
+
+
+@contextmanager
+def use_custom_sdpa():
+    original_sdpa = F.scaled_dot_product_attention
+
+    def _custom_sdpa(
+        q, k, v, attn_mask=None, dropout_p=0.0, is_causal=False, scale=None
+    ):
+        return torch.ops.tensor_cast.attention(
+            q, k, v, attn_mask, None, None, None, None
+        )
+
+    F.scaled_dot_product_attention = _custom_sdpa
+    try:
+        yield
+    finally:
+        F.scaled_dot_product_attention = original_sdpa

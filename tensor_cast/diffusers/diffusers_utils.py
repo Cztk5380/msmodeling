@@ -29,6 +29,7 @@ def get_diffusers_transformer_module(json_path):
 _model_class_to_vae_stride = {
     "WanTransformer3DModel": (4, 8),
     "HunyuanVideoTransformer3DModel": (4, 8),
+    "HunyuanVideo15Transformer3DModel": (4, 16),
     "Default": (4, 8),
 }
 
@@ -47,7 +48,7 @@ def generate_hunyuanvideo_input(**kwargs):
     seq_lens = kwargs.get("seq_lens")
     assert isinstance(seq_lens, int)
 
-    dtype = kwargs.get("model_config").transformer_config.dtype
+    dtype = kwargs.get("dtype")
 
     attention_mask = torch.zeros(
         [batch_size, seq_lens],
@@ -65,13 +66,7 @@ _model_class_input = {
 
 
 def model_class_to_input(model_class):
-    def generate_empty_input(**kwargs):
-        return {}
-
-    input_func = _model_class_input.get(model_class)
-    if input_func is None:
-        return generate_empty_input
-    return input_func
+    return _model_class_input.get(model_class, lambda **kwargs: {})
 
 
 def get_ulysses_split_dim(hidden_states: torch.Tensor, ulysses_size: int) -> int:
