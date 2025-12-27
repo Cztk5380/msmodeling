@@ -424,6 +424,7 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     requests: List[RequestInfo], each dict represents a request, containing keys: query_len, seq_len, is_decode
     """
     model_config = model.model_config
+    parallel_config = model_config.parallel_config
     mtp = getattr(model_config, "mtp_config", None)
     num_mtp_tokens = mtp.num_mtp_layers if mtp else 0
 
@@ -435,11 +436,18 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     seq_lens = [r.seq_len for r in requests]
     is_decode_list = [r.is_decode for r in requests]
     num_tokens = sum(query_lens)
+    
+    # padding query to make sure total num_tokens is divisible by tp_size in each dp domain
+    padding_nums = 0
+    if num_tokens % parallel_config.tensor_parallel_size != 0:
+        padding_nums = parallel_config.tensor_parallel_size - (num_tokens % parallel_config.tensor_parallel_size)
+    num_tokens += padding_nums
 
     query_start_loc = [0]
     for ql in query_lens:
         query_start_loc.append(query_start_loc[-1] + ql)
     query_start_loc = torch.tensor(query_start_loc, dtype=torch.long)
+    query_start_loc[-1] += padding_nums
 
     seq_lens_t = torch.tensor(seq_lens, dtype=torch.long)
     query_len_t = torch.tensor(query_lens, dtype=torch.long)

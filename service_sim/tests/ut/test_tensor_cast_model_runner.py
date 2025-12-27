@@ -46,5 +46,22 @@ class TestModelRunner(unittest.TestCase):
         metrics = runner.run_inference(mock_requests)
         self.assertIsNotNone(metrics)
 
+
+    def test_run_inference_with_ep(self):
+        model_runner = TensorCastModelRunner(
+            device="ATLAS_800_A2_280T_64G",
+            model_id="deepseek-ai/DeepSeek-V3.1",
+            quantize_linear_action="FP8",
+            quantize_attention_action="INT8",
+            world_size=8,
+            tp_size=8,
+            dp_size=1,
+            ep=True,
+        )
+        requests = [RequestInfo(1, 65, True)]
+        metrics = model_runner.run_inference(requests)
+        self.assertIsNotNone(metrics)
+
+
 if __name__ == "__main__":
     unittest.main()
