@@ -62,7 +62,7 @@ class ParallelLinearTestCase(unittest.TestCase):
         self.assertGreater(count, 0)
 
     def _validate_comm_result(
-        self, result: dict, runtime: Runtime, parallel_config: ParallelConfig
+        self, result: str, runtime: Runtime, parallel_config: ParallelConfig
     ):
         comm_op_name = "tensor_cast.all_reduce.default"
         if (

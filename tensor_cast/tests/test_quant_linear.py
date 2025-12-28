@@ -3,25 +3,17 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..compilation import get_backend
+from ..core.utils import build_model, QuantizeLinearAction, UserInputConfig
 from ..device import TEST_DEVICE
-from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
-from ..model_config import (
-    LinearQuantConfig,
-    MlaConfig,
-    ModelConfig,
-    MtpConfig,
-    ParallelConfig,
-    QuantConfig,
-)
+from ..model_config import LinearQuantConfig, ModelConfig, ParallelConfig, QuantConfig
 from ..patch_torch import patch_torch
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_mtp_block_module_name
+from ..transformers.utils import get_mtp_block_module_name
 from ..utils import DTYPE_FP8
 from .test_common import (
     create_mla_metadata_and_kv_cache,
@@ -327,35 +319,23 @@ class TestQuantLinear(unittest.TestCase):
         ]
     )
     def test_deepseek_mtp_quant_tensorcast_static_w8a8(self, model_id, do_compile):
-        model_config = ModelConfig(
-            ParallelConfig(),
-            get_quant_config(
-                quant_type=LinearQuantType.W8A8,
-                activation_scale=torch.empty([], dtype=torch.float, device="meta"),
-            ),
-            quant_linear_cls=TensorCastQuantLinear,
-            enable_repetition=True,
-        )
-        mla_config = MlaConfig(
-            module_name="DeepseekV3Attention",
-            mla_cls=MultiheadLatentAttentionTensorCast,
-        )
-        model_config.mla_config = mla_config
         num_mtp_layers = 1
-        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
-        self.assertIsNotNone(mtp_block_module_name)
-        mtp_config = MtpConfig(
-            num_mtp_layers=num_mtp_layers,
-            mtp_block_module_name=mtp_block_module_name,
+        user_config = UserInputConfig(
+            model_id=model_id,
+            num_mtp_tokens=num_mtp_layers,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            do_compile=do_compile,
         )
-        model_config.mtp_config = mtp_config
-        model = TransformerModel(model_id, model_config)
-        if do_compile:
-            model = torch.compile(
-                model, backend=get_backend(), dynamic=True, fullgraph=True
-            )
+
+        model = build_model(user_config)
+
+        mtp_block_module_name = get_mtp_block_module_name(
+            model.model_config.hf_config.model_type
+        )
+        self.assertIsNotNone(mtp_block_module_name)
+
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
-            model, model_config
+            model, model.model_config
         )
         # make sure all original attention modules have been replaced
         self.assertTrue(
@@ -412,39 +392,26 @@ class TestQuantLinear(unittest.TestCase):
 
     def test_quantize_lmhead_mtp(self):
         model_id = "deepseek-ai/DeepSeek-V3.1"
-        linear_quant_config = get_linear_quant_config(
-            LinearQuantType.W8A8,
-            torch.randn(1),
-        )
-        quant_config = QuantConfig()
-        quant_config.linear_configs["*.lm_head"] = linear_quant_config
-        quant_config.modules_to_not_convert = []
-        model_config = ModelConfig(
-            ParallelConfig(),
-            quant_config,
-            quant_linear_cls=TensorCastQuantLinear,
-            enable_repetition=True,
-        )
-        mla_config = MlaConfig(
-            module_name="DeepseekV3Attention",
-            mla_cls=MultiheadLatentAttentionTensorCast,
-        )
-        model_config.mla_config = mla_config
         num_mtp_layers = 1
-        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
-        self.assertIsNotNone(mtp_block_module_name)
-        mtp_config = MtpConfig(
-            num_mtp_layers=num_mtp_layers,
-            mtp_block_module_name=mtp_block_module_name,
+        user_config = UserInputConfig(
+            model_id=model_id,
+            num_mtp_tokens=num_mtp_layers,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            quantize_lmhead=True,
         )
-        model_config.mtp_config = mtp_config
-        model = TransformerModel(model_id, model_config)
+
+        model = build_model(user_config)
+
+        mtp_block_module_name = get_mtp_block_module_name(
+            model.model_config.hf_config.model_type
+        )
+        self.assertIsNotNone(mtp_block_module_name)
         # make sure all original attention modules have been replaced
         self.assertTrue(
             has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
         )
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
-            model, model_config
+            model, model.model_config
         )
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")

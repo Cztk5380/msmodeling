@@ -1,16 +1,17 @@
+import copy
 import unittest
 
-from ..device import DeviceProfile
-from ..quantize_utils import QuantGranularity
-from ..scripts.benchmark import find_best_throughput, get_benchmark_query_and_seq_length
-from ..scripts.utils import (
+from ..core.utils import (
     build_model,
     create_quant_config,
-    get_parallel_config,
     QuantizeAttentionAction,
     QuantizeLinearAction,
+    UserInputConfig,
 )
-from ..transformers.utils import model_id_to_moe_config
+from ..device import DeviceProfile
+from ..scripts.benchmark import find_best_throughput, get_benchmark_query_and_seq_length
+from ..transformers.utils import get_moe_config
+from .test_common import update_parallel_parameter
 
 
 class TestBenchmark(unittest.TestCase):
@@ -22,8 +23,14 @@ class TestBenchmark(unittest.TestCase):
         self.model_id = "Qwen/Qwen3-32B"
         self.input_length = 100
         self.output_length = 50
-        self.parallel_config = get_parallel_config(world_size=1, tp_size=1, ep=False)
-        self.quant_config = create_quant_config(QuantizeLinearAction.DISABLED)
+        self.default_config_dict = dict(
+            model_id=self.model_id,
+            quantize_attention_action=QuantizeLinearAction.DISABLED,
+            num_mtp_tokens=0,
+            do_compile=False,
+        )
+        self.user_input = UserInputConfig(**self.default_config_dict)
+        update_parallel_parameter(self.user_input, world_size=1, tp_size=1, ep=False)
 
     def test_get_benchmark_query_and_seq_length_decode(self):
         """Test query and sequence length calculation for decode mode."""
@@ -68,13 +75,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_decode_basic(self):
         """Test finding the best throughput for decode mode."""
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(self.user_input)
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -92,14 +93,8 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_prefill_basic(self):
-        """Test finding best throughput for prefill mode."""
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        """Test finding the best throughput for prefill mode."""
+        model = build_model(self.user_input)
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -117,15 +112,12 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_with_w8a8_quant(self):
-        """Test finding best throughput with W8A8 quantization."""
-        quant_config = create_quant_config(QuantizeLinearAction.W8A8_DYNAMIC)
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
+        """Test finding the best throughput with W8A8 quantization."""
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update(
+            {"quantize_linear_action": QuantizeLinearAction.W8A8_DYNAMIC}
         )
+        model = build_model(UserInputConfig(**user_config))
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -141,16 +133,12 @@ class TestBenchmark(unittest.TestCase):
         self.assertGreater(concurrency, 0)
 
     def test_find_best_throughput_with_w4a8_quant(self):
-        """Test finding best throughput with W4A8 quantization."""
-        quant_config = create_quant_config(QuantizeLinearAction.W4A8_DYNAMIC)
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
+        """Test finding the best throughput with W4A8 quantization."""
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update(
+            {"quantize_linear_action": QuantizeLinearAction.W4A8_DYNAMIC}
         )
-
+        model = build_model(UserInputConfig(**user_config))
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
             device_profile=self.device_profile,
@@ -165,16 +153,10 @@ class TestBenchmark(unittest.TestCase):
         self.assertGreater(concurrency, 0)
 
     def test_find_best_throughput_with_fp8_quant(self):
-        """Test finding best throughput with FP8 quantization."""
-        quant_config = create_quant_config(QuantizeLinearAction.FP8)
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
-
+        """Test finding the best throughput with FP8 quantization."""
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update({"quantize_linear_action": QuantizeLinearAction.FP8})
+        model = build_model(UserInputConfig(**user_config))
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
             device_profile=self.device_profile,
@@ -190,15 +172,10 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_fp8_prefill(self):
-        """Test finding best throughput with FP8 quantization in prefill mode."""
-        quant_config = create_quant_config(QuantizeLinearAction.FP8)
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        """Test finding the best throughput with FP8 quantization in prefill mode."""
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update({"quantize_linear_action": QuantizeLinearAction.FP8})
+        model = build_model(UserInputConfig(**user_config))
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -215,19 +192,16 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_with_mxfp4_quant(self):
-        """Test finding best throughput with MXFP4 quantization."""
-        quant_config = create_quant_config(
-            QuantizeLinearAction.MXFP4,
-            weight_group_size=32,
-            weight_quant_granularity=QuantGranularity.PER_GROUP,
+        """Test finding the best throughput with MXFP4 quantization."""
+
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update(
+            {
+                "quantize_linear_action": QuantizeLinearAction.MXFP4,
+                "mxfp4_group_size": 32,
+            }
         )
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(UserInputConfig(**user_config))
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -244,19 +218,15 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_mxfp4_prefill(self):
-        """Test finding best throughput with MXFP4 quantization in prefill mode."""
-        quant_config = create_quant_config(
-            QuantizeLinearAction.MXFP4,
-            weight_group_size=32,
-            weight_quant_granularity=QuantGranularity.PER_GROUP,
+        """Test finding the best throughput with MXFP4 quantization in prefill mode."""
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update(
+            {
+                "quantize_linear_action": QuantizeLinearAction.MXFP4,
+                "mxfp4_group_size": 32,
+            }
         )
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(UserInputConfig(**user_config))
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -273,18 +243,10 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_with_kvcache_int8(self):
-        """Test finding best throughput with INT8 KV cache quantization."""
-        quant_config = create_quant_config(
-            QuantizeLinearAction.DISABLED,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
-        )
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        """Test finding the best throughput with INT8 KV cache quantization."""
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update({"quantize_attention_action": QuantizeAttentionAction.INT8})
+        model = build_model(UserInputConfig(**user_config))
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -301,19 +263,16 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_kvcache_int8_with_linear_quant(self):
-        """Test finding best throughput with INT8 KV cache and linear quantization."""
-        quant_config = create_quant_config(
-            QuantizeLinearAction.W8A8_DYNAMIC,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
-        )
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        """Test finding the best throughput with INT8 KV cache and linear quantization."""
 
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update(
+            {
+                "quantize_attention_action": QuantizeAttentionAction.INT8,
+                "quantize_linear_action": QuantizeLinearAction.W8A8_DYNAMIC,
+            }
+        )
+        model = build_model(UserInputConfig(**user_config))
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
             device_profile=self.device_profile,
@@ -329,18 +288,15 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_kvcache_int8_prefill(self):
-        """Test finding best throughput with INT8 KV cache in prefill mode."""
-        quant_config = create_quant_config(
-            QuantizeLinearAction.W8A8_DYNAMIC,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
+        """Test finding the best throughput with INT8 KV cache in prefill mode."""
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update(
+            {
+                "quantize_attention_action": QuantizeAttentionAction.INT8,
+                "quantize_linear_action": QuantizeLinearAction.W8A8_DYNAMIC,
+            }
         )
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(UserInputConfig(**user_config))
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -357,15 +313,10 @@ class TestBenchmark(unittest.TestCase):
         self.assertIsInstance(breakdown, dict)
 
     def test_find_best_throughput_with_tp(self):
-        """Test finding best throughput with tensor parallelism."""
-        parallel_config = get_parallel_config(world_size=2, tp_size=2, ep=False)
-        model = build_model(
-            self.model_id,
-            parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        """Test finding the best throughput with tensor parallelism."""
+        user_config = copy.deepcopy(self.user_input)
+        update_parallel_parameter(user_config, world_size=2, tp_size=2, ep=False)
+        model = build_model(user_config)
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -379,19 +330,19 @@ class TestBenchmark(unittest.TestCase):
 
         self.assertGreater(latency, 0)
         # Concurrency should be at least equal to DP size
-        if parallel_config.data_parallel_size is not None:
-            self.assertGreaterEqual(concurrency, parallel_config.data_parallel_size)
+        if model.model_config.parallel_config.data_parallel_size is not None:
+            self.assertGreaterEqual(
+                concurrency, model.model_config.parallel_config.data_parallel_size
+            )
 
     def test_find_best_throughput_with_mtp(self):
-        """Test finding best throughput with MTP tokens."""
+        """Test finding the best throughput with MTP tokens."""
         # Use DeepSeek-V3.1 which supports MTP
-        model = build_model(
-            "deepseek-ai/DeepSeek-V3.1",
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=2,
-            compile=False,
+        user_config = copy.deepcopy(self.default_config_dict)
+        user_config.update(
+            {"model_id": "deepseek-ai/DeepSeek-V3.1", "num_mtp_tokens": 2}
         )
+        model = build_model(UserInputConfig(**user_config))
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -409,13 +360,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_strict_slo(self):
         """Test with very strict SLO limit (should fail or return low concurrency)."""
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(self.user_input)
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -433,13 +378,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_large_reserved_memory(self):
         """Test with large reserved memory (should hit OOM or return low concurrency)."""
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(self.user_input)
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -457,13 +396,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_custom_serving_overhead(self):
         """Test with custom serving overhead."""
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(self.user_input)
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -481,13 +414,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_long_sequence(self):
         """Test with long input/output sequences."""
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(self.user_input)
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -505,13 +432,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_find_best_throughput_breakdown_contents(self):
         """Test that breakdown contains expected keys."""
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(self.user_input)
 
         latency, concurrency, breakdown, error_msg = find_best_throughput(
             model=model,
@@ -532,7 +453,7 @@ class TestBenchmark(unittest.TestCase):
     def test_model_id_to_moe_config(self):
         """Test model ID to MoE config mapping."""
         # Test with a standard model (should return None)
-        moe_config = model_id_to_moe_config("gpt2")
+        moe_config = get_moe_config("gpt2")
         self.assertIsNone(moe_config)
 
         # Add more specific tests if MoE models are available
@@ -541,19 +462,21 @@ class TestBenchmark(unittest.TestCase):
 
     def test_parallel_config_creation(self):
         """Test parallel configuration creation."""
+        user_config = copy.deepcopy(self.user_input)
+
         # Test basic TP
-        config = get_parallel_config(world_size=2, tp_size=2, ep=False)
-        self.assertEqual(config.tensor_parallel_size, 2)
-        self.assertEqual(config.data_parallel_size, 1)
+        update_parallel_parameter(user_config, world_size=2, tp_size=2, ep=False)
+        self.assertEqual(user_config.get_parallel_config().tensor_parallel_size, 2)
+        self.assertEqual(user_config.get_parallel_config().data_parallel_size, 1)
 
         # Test TP + DP
-        config = get_parallel_config(world_size=4, tp_size=2, ep=False)
-        self.assertEqual(config.tensor_parallel_size, 2)
-        self.assertEqual(config.data_parallel_size, 2)
+        update_parallel_parameter(user_config, world_size=4, tp_size=2, ep=False)
+        self.assertEqual(user_config.get_parallel_config().tensor_parallel_size, 2)
+        self.assertEqual(user_config.get_parallel_config().data_parallel_size, 2)
 
         # Test EP
-        config = get_parallel_config(world_size=4, tp_size=2, ep=True)
-        self.assertEqual(config.expert_parallel, True)
+        update_parallel_parameter(user_config, world_size=4, tp_size=2, ep=True)
+        self.assertEqual(user_config.get_parallel_config().expert_parallel, True)
 
     def test_quant_config_creation(self):
         """Test quantization configuration creation."""
@@ -573,13 +496,9 @@ class TestBenchmark(unittest.TestCase):
         """Test benchmark with different device types."""
         for device_name in ["TEST_DEVICE"]:  # Add more devices if available
             device_profile = DeviceProfile.all_device_profiles[device_name]
-            model = build_model(
-                self.model_id,
-                self.parallel_config,
-                self.quant_config,
-                num_mtp_tokens=0,
-                compile=False,
-            )
+            user_config = copy.deepcopy(self.user_input)
+            user_config.device = device_name
+            model = build_model(user_config)
 
             latency, concurrency, breakdown, error_msg = find_best_throughput(
                 model=model,
@@ -596,13 +515,7 @@ class TestBenchmark(unittest.TestCase):
 
     def test_benchmark_various_input_lengths(self):
         """Test benchmark with various input lengths."""
-        model = build_model(
-            self.model_id,
-            self.parallel_config,
-            self.quant_config,
-            num_mtp_tokens=0,
-            compile=False,
-        )
+        model = build_model(self.user_input)
 
         for input_len in [10, 50, 100, 200]:
             latency, concurrency, breakdown, error_msg = find_best_throughput(

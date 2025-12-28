@@ -3,16 +3,18 @@ import unittest
 import torch
 from parameterized import parameterized
 
+from ..core.utils import (
+    build_model,
+    QuantizeAttentionAction,
+    QuantizeLinearAction,
+    UserInputConfig,
+)
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
-from ..layers.mla import MultiheadLatentAttentionTensorCast
-from ..layers.quant_linear import TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
 from ..model_config import (
     AttentionQuantConfig,
-    MlaConfig,
     ModelConfig,
-    MtpConfig,
     MultiheadLatentAttentionQuantConfig,
     ParallelConfig,
     QuantConfig,
@@ -21,7 +23,7 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..quantize_utils import AttentionQuantType, LinearQuantType
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_mtp_block_module_name
+from ..transformers.utils import get_mtp_block_module_name
 from .test_common import (
     create_attn_metadata_and_kv_cache,
     create_mla_metadata_and_kv_cache,
@@ -110,28 +112,22 @@ class TestQuantAttention(unittest.TestCase):
         ]
     )
     def test_mla_int8(self, model_id):
-        model_config = ModelConfig(
-            ParallelConfig(),
-            get_mla_quant_config(),
-            quant_linear_cls=TensorCastQuantLinear,
-            enable_repetition=True,
-        )
-        mla_config = MlaConfig(
-            module_name="DeepseekV3Attention",
-            mla_cls=MultiheadLatentAttentionTensorCast,
-        )
-        model_config.mla_config = mla_config
         num_mtp_layers = 1
-        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
-        self.assertIsNotNone(mtp_block_module_name)
-        mtp_config = MtpConfig(
-            num_mtp_layers=num_mtp_layers,
-            mtp_block_module_name=mtp_block_module_name,
+        user_config = UserInputConfig(
+            model_id=model_id,
+            num_mtp_tokens=num_mtp_layers,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
         )
-        model_config.mtp_config = mtp_config
-        model = TransformerModel(model_id, model_config)
+
+        model = build_model(user_config)
+
+        mtp_block_module_name = get_mtp_block_module_name(
+            model.model_config.hf_config.model_type
+        )
+        self.assertIsNotNone(mtp_block_module_name)
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
-            model, model_config
+            model, model.model_config
         )
         # make sure all original attention modules have been replaced
         self.assertTrue(
