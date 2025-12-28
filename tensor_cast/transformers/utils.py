@@ -25,74 +25,6 @@ logger = logging.getLogger(__name__)
 
 # TODO: Allow users to extend these default configurations from config.py
 
-# TODO: Using model_type as the key to load the Moe and Attention Config，
-
-# TODO: The model initialization logic needs to be optimized:
-#  first load the base config, then load other configs,
-#  parse the user's custom inputs,
-#  override the corresponding fields in the initialized config, and finally load the model.
-
-
-# model_id -> MoEConfig
-_model_id_to_moe_config: Dict[str, MoEConfig] = {
-    "deepseek_v3": MoEConfig(
-        module_name="DeepseekV3MoE",
-    ),
-    "zai-org/GLM-4.5": MoEConfig(
-        module_name="Glm4MoeMoE",
-    ),
-    "glm4_moe": MoEConfig(
-        module_name="Glm4MoeMoE",
-    ),
-    "minimax_m2": MoEConfig(
-        module_name="MiniMaxM2SparseMoeBlock",
-        gate_returns_raw_logits=True,
-    ),
-    "Qwen/Qwen3-235B-A22B": MoEConfig(
-        module_name="Qwen3MoeSparseMoeBlock",
-        gate_returns_raw_logits=True,
-    ),
-    "Qwen/Qwen3-30B-A3B": MoEConfig(
-        module_name="Qwen3MoeSparseMoeBlock",
-        gate_returns_raw_logits=True,
-    ),
-    "Qwen/Qwen3-Coder-480B-A35B-Instruct": MoEConfig(
-        module_name="Qwen3MoeSparseMoeBlock",
-        gate_returns_raw_logits=True,
-    ),
-    "Qwen/Qwen3-Next-80B-A3B-Instruct": MoEConfig(
-        module_name="Qwen3NextSparseMoeBlock",
-        gate_returns_raw_logits=True,
-        field_names=MoEFieldNames(
-            shared_experts="shared_expert", shared_experts_gate="shared_expert_gate"
-        ),
-    ),
-    "moonshotai/Kimi-K2-Base": MoEConfig(
-        module_name="DeepseekV3MoE",
-    ),
-    "deepseek-ai/DeepSeek-V3.1": MoEConfig(
-        module_name="DeepseekV3MoE",
-    ),
-    "mimo_v2_flash": MoEConfig(
-        module_name="MiMoV2MoE",
-    ),
-    "baidu/ERNIE-4.5-300B-A47B-PT": MoEConfig(
-        # This is not a strict mapping to ERNIE MoE which has bias correction
-        # and minimal routing weights normalization factor introducing additional
-        # computation (div and mul) on the intermediate tensors. But we simply map
-        # this to the standard MoE implementation since the additional computation
-        # is minor and ignorable compared to other primary ones.
-        module_name="Ernie4_5_MoeSparseMoeBlock",
-        gate_returns_raw_logits=True,
-    ),
-}
-
-
-def model_id_to_moe_config(model_id: str, model_type: str = "") -> Optional[MoEConfig]:
-    return _model_id_to_moe_config.get(model_id) or _model_id_to_moe_config.get(
-        model_type
-    )
-
 
 _model_type_to_moe_config: Dict[str, MoEConfig] = {
     "deepseek_v3": MoEConfig(
@@ -142,21 +74,6 @@ _model_type_to_mla_module_name: Dict[str, str] = {
 
 def get_mla_module_name(model_type: str = "") -> str:
     return _model_type_to_mla_module_name.get(model_type)
-
-
-_model_id_to_mtp_block_module_name: Dict[str, str] = {
-    "deepseek-ai/DeepSeek-V3.1": "DeepseekV3DecoderLayer",
-    "moonshotai/Kimi-K2-Base": "DeepseekV3DecoderLayer",
-    "deepseek_v3": "DeepseekV3DecoderLayer",
-    "glm4_moe": "Glm4MoeDecoderLayer",
-    "mimo_v2_flash": "MiMoV2DecoderLayer",
-}
-
-
-def model_id_to_mtp_block_module_name(model_id: str, model_type: str = "") -> str:
-    return _model_id_to_mtp_block_module_name.get(
-        model_id
-    ) or _model_id_to_mtp_block_module_name.get(model_type)
 
 
 _model_type_to_mtp_block_module_name: Dict[str, str] = {
