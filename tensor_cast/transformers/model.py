@@ -34,7 +34,6 @@ from ..utils import pattern_match
 from .utils import (
     AutoModelConfigLoader,
     init_on_device_without_buffers,
-    model_id_to_moe_config,
     strip_module_name,
 )
 
@@ -332,8 +331,6 @@ class TransformerModel(ModelWrapperBase):
                 self._replace_module(name, mla)
 
     def get_moe_config(self):
-        if not self.model_config.moe_config:
-            return model_id_to_moe_config(self.model_id, self.hf_config.model_type)
         return self.model_config.moe_config
 
     def patch_moe(self, moe_config: Optional[MoEConfig]):
