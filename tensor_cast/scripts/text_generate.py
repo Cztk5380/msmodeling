@@ -5,11 +5,11 @@ from .. import config
 from ..core.model_runner import ModelRunner
 from ..core.utils import (
     generate_inputs,
-    check_positive_integer,
     QuantizeAttentionAction,
     QuantizeLinearAction,
     UserInputConfig,
 )
+from .utils import  check_positive_integer
 from ..device import DeviceProfile
 
 
