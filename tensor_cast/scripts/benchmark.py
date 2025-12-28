@@ -20,7 +20,7 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-
+from .utils import check_positive_integer
 logger = logging.getLogger(__name__)
 
 
@@ -174,13 +174,13 @@ def main():
     )
     parser.add_argument(
         "--input-length",
-        type=int,
+        type=check_positive_integer,
         required=True,
         help="The input length of the prompt.",
     )
     parser.add_argument(
         "--output-length",
-        type=int,
+        type=check_positive_integer,
         required=True,
         help="The expected output length.",
     )
@@ -199,7 +199,7 @@ def main():
     )
     parser.add_argument(
         "--num-devices",
-        type=int,
+        type=check_positive_integer,
         default=1,
         help="Number of devices",
     )
@@ -274,7 +274,7 @@ models:
     )
     parser.add_argument(
         "--mxfp4-group-size",
-        type=int,
+        type=check_positive_integer,
         default=32,
         help="Group size for MXFP4 quantization",
     )

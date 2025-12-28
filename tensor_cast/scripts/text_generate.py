@@ -5,6 +5,7 @@ from .. import config
 from ..core.model_runner import ModelRunner
 from ..core.utils import (
     generate_inputs,
+    check_positive_integer,
     QuantizeAttentionAction,
     QuantizeLinearAction,
     UserInputConfig,
@@ -36,13 +37,13 @@ def main():
     )
     parser.add_argument(
         "--num-queries",
-        type=int,
+        type=check_positive_integer,
         required=True,
         help="Number of inference queries to run in a batch.",
     )
     parser.add_argument(
         "--query-length",
-        type=int,
+        type=check_positive_integer,
         required=True,
         help="The length of the new input tokens for each query.",
     )
@@ -87,7 +88,7 @@ def main():
     )
     parser.add_argument(
         "--mxfp4-group-size",
-        type=int,
+        type=check_positive_integer,
         default=32,
         help="Group size for MXFP4 quantization",
     )
@@ -141,55 +142,55 @@ def main():
     # ========== ParallelConfig Parameters ==========
     parser.add_argument(
         "--world-size",
-        type=int,
+        type=check_positive_integer,
         default=1,
         help="The total number of processes",
     )
     parser.add_argument(
         "--tp-size",
-        type=int,
+        type=check_positive_integer,
         default=1,
         help="The tp size for the whole model",
     )
     parser.add_argument(
         "--dp-size",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="The dp size for the whole model",
     )
     parser.add_argument(
         "--o-proj-tp-size",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="The tp size for attn o_proj layer",
     )
     parser.add_argument(
         "--o-proj-dp-size",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="The dp size for attn o_proj layer",
     )
     parser.add_argument(
         "--mlp-tp-size",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="The tp size for mlp layer, can override tp-size for mlp layer",
     )
     parser.add_argument(
         "--mlp-dp-size",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="The dp size for mlp layer, can override dp-size for mlp layer",
     )
     parser.add_argument(
         "--lmhead-tp-size",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="The tp size for lm head, can override tp-size for lm head",
     )
     parser.add_argument(
         "--lmhead-dp-size",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="The dp size for lm head, can override dp-size for lm head",
     )
