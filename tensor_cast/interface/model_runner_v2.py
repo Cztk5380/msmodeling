@@ -1,13 +1,14 @@
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 #!/usr/bin/env python
 # _*_coding:utf-8_*_
 """
 ModelRuner v2
 """
-# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
+
 from __future__ import annotations
 
 import time
-from typing import List, Optional, Callable
+from typing import Callable, List, Optional
 
 import torch
 
@@ -17,11 +18,16 @@ from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
 from tensor_cast.performance_model.memory_tracker import MemoryTracker
 from tensor_cast.performance_model.utils import bytes_of_tensor
 from tensor_cast.runtime import Runtime
-from tensor_cast.scripts.utils import (
+from tensor_cast.scripts.utils import build_model
+from .utils import (
     build_model,
+    generate_inputs_varlen,
+    get_inputs_num_bytes,
+    get_kv_cache_info,
+    ModelRunnerMetrics,
+    RequestInfo,
+    UserInputConfig,
 )
-from .utils import ModelRunnerMetrics, UserInputConfig, RequestInfo, get_kv_cache_info, generate_inputs_varlen, \
-    get_inputs_num_bytes, build_model
 
 
 class ModelRunner:
@@ -42,24 +48,23 @@ class ModelRunner:
         self.request_info_default = [user_input.get_request_info()]
 
         # ---------- 3. build model ----------
-        self.model = build_model(
-            user_input
-        ).eval()
+        self.model = build_model(user_input).eval()
 
         # ---------- 4. static_memory ----------
-        self.total_device_memory_gb = self.device_profile.memory_size_bytes / 1024 ** 3
-        self.model_weight_size_gb = self.model.weight_size / 1024 ** 3
+        self.total_device_memory_gb = self.device_profile.memory_size_bytes / 1024**3
+        self.model_weight_size_gb = self.model.weight_size / 1024**3
 
         self.sampler = Sampler()
 
     # -----------------------------------------------------
     # public API
     # -----------------------------------------------------
-    def run_inference(self,
-                      requests: Optional[List[RequestInfo]] = None,
-                      generate_inputs_func: Callable = generate_inputs_varlen,
-                      with_sampler: bool = False
-                      ) -> ModelRunnerMetrics:
+    def run_inference(
+        self,
+        requests: Optional[List[RequestInfo]] = None,
+        generate_inputs_func: Callable = generate_inputs_varlen,
+        with_sampler: bool = False,
+    ) -> ModelRunnerMetrics:
         print("Preparing dummy input tensors...")
         if requests is None:
             requests = self.request_info_default
@@ -89,21 +94,23 @@ class ModelRunner:
             group_by_input_shapes=self.user_input.dump_input_shapes
         )
         print(table_result)
-        peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024 ** 3
+        peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
 
         kv_cache_size_gb = (
-                sum(
-                    bytes_of_tensor(kv_cache)
-                    for kv_cache in input_kwargs["kv_cache_by_layers"].values()
-                )
-                / 1024 ** 3
+            sum(
+                bytes_of_tensor(kv_cache)
+                for kv_cache in input_kwargs["kv_cache_by_layers"].values()
+            )
+            / 1024**3
         )
-        kv_cache_per_token_gb = input_kwargs["kv_cache_per_token"] / 1024 ** 3
+        kv_cache_per_token_gb = input_kwargs["kv_cache_per_token"] / 1024**3
         model_activation_size_gb = (
-                peak_memory_usage_gb - kv_cache_size_gb - self.model_weight_size_gb
+            peak_memory_usage_gb - kv_cache_size_gb - self.model_weight_size_gb
         )
         device_memory_available_gb = (
-                self.total_device_memory_gb - peak_memory_usage_gb - self.user_input.reserved_memory_gb
+            self.total_device_memory_gb
+            - peak_memory_usage_gb
+            - self.user_input.reserved_memory_gb
         )
 
         print(f"Total device memory: {self.total_device_memory_gb:.3f} GB")
@@ -112,7 +119,6 @@ class ModelRunner:
         print(f"  Model activation size: {model_activation_size_gb:.3f} GB")
         print(f"  Reserved memory: {self.user_input.reserved_memory_gb} GB")
         print(f"  Memory available: {device_memory_available_gb} GB")
-
 
         print("Stats breakdowns:")
         for breakdown_name, breakdown in runtime.get_breakdowns().items():

@@ -5,23 +5,39 @@
 @Author :  Qinghua Wang
 @Email  :  597935261@qq.com
 """
+
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import Dict, Optional, List, Any,Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
 from tensor_cast.device import DeviceProfile
-from tensor_cast.layers.attention import AttentionTensorCast, AttentionMetadataTensorCast
+from tensor_cast.layers.attention import (
+    AttentionMetadataTensorCast,
+    AttentionTensorCast,
+)
 from tensor_cast.layers.mla import MultiheadLatentAttentionTensorCast
 from tensor_cast.layers.quant_linear import TensorCastQuantLinear
 from tensor_cast.layers.sampler import SamplingMetadata
-from tensor_cast.model_config import ParallelConfig, QuantConfig, LinearQuantConfig, \
-    MultiheadLatentAttentionQuantConfig, ModelConfig, MlaConfig, MtpConfig
+from tensor_cast.model_config import (
+    LinearQuantConfig,
+    MlaConfig,
+    ModelConfig,
+    MtpConfig,
+    MultiheadLatentAttentionQuantConfig,
+    ParallelConfig,
+    QuantConfig,
+)
 from tensor_cast.performance_model import bytes_of_tensor
-from tensor_cast.quantize_utils import LinearQuantType, AttentionQuantType
-from tensor_cast.transformers.utils import AutoModelConfigLoader, get_moe_config, get_mla_module_name, \
-    get_mtp_block_module_name, get_attention_quant_config
+from tensor_cast.quantize_utils import AttentionQuantType, LinearQuantType
+from tensor_cast.transformers.utils import (
+    AutoModelConfigLoader,
+    get_attention_quant_config,
+    get_mla_module_name,
+    get_moe_config,
+    get_mtp_block_module_name,
+)
 from tensor_cast.utils import exact_division
 from ..compilation import get_backend
 from ..transformers.model import TransformerModel
@@ -31,7 +47,7 @@ from ..transformers.model import TransformerModel
 class RequestInfo:
     query_len: int
     seq_len: int
-    is_decode: bool =True
+    is_decode: bool = True
     num_input_tokens: int = None
     num_output_tokens: int = None
     concurrency: int = 1
@@ -80,10 +96,10 @@ def get_available_memory_gb(device_profile, runtime, reserved_memory_size_gb=0):
     :param reserved_memory_size_gb: The reserved memory size on top of the consumption of the models.
     :return: The minimum available memory during execution.
     """
-    total_device_memory_gb = device_profile.memory_size_bytes / 1024 ** 3
-    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024 ** 3
+    total_device_memory_gb = device_profile.memory_size_bytes / 1024**3
+    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
     device_memory_available_gb = (
-            total_device_memory_gb - peak_memory_usage_gb - reserved_memory_size_gb
+        total_device_memory_gb - peak_memory_usage_gb - reserved_memory_size_gb
     )
     return device_memory_available_gb
 
@@ -148,10 +164,10 @@ def create_attention_quant_config(quantize_attention_action: QuantizeAttentionAc
 
 
 def create_quant_config(
-        quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.DISABLED,
-        quantize_lmhead: bool = False,
-        quantize_attention_action: QuantizeAttentionAction = QuantizeAttentionAction.DISABLED,
-        **kwargs,
+    quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.DISABLED,
+    quantize_lmhead: bool = False,
+    quantize_attention_action: QuantizeAttentionAction = QuantizeAttentionAction.DISABLED,
+    **kwargs,
 ):
     quant_config = QuantConfig()
     if quantize_linear_action != QuantizeLinearAction.DISABLED:
@@ -192,15 +208,15 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
     )
     parallel_config = model_config.parallel_config
     batch_size = (
-                         concurrency + parallel_config.data_parallel_size - 1
-                 ) // parallel_config.data_parallel_size
+        concurrency + parallel_config.data_parallel_size - 1
+    ) // parallel_config.data_parallel_size
 
     max_context_length = seq_len + num_mtp_tokens + 1
 
     # Paged attention parameters (can be adjusted)
     num_blocks = (
-                         max_context_length * batch_size + block_size - 1
-                 ) // block_size  # Total number of blocks available in the KV cache
+        max_context_length * batch_size + block_size - 1
+    ) // block_size  # Total number of blocks available in the KV cache
 
     # Prepare Attention Metadata for Paged Attention
     # `query_start_loc` indicates the start of each query in the concatenated input tensor.
@@ -233,7 +249,7 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
     padding_tokens = 0
     if batch_size * query_len % parallel_config.tensor_parallel_size != 0:
         padding_tokens = parallel_config.tensor_parallel_size - (
-                batch_size * query_len % parallel_config.tensor_parallel_size
+            batch_size * query_len % parallel_config.tensor_parallel_size
         )
 
     query_start_loc[-1] = query_start_loc[-1] + padding_tokens
@@ -250,7 +266,9 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
     num_tokens = batch_size * query_len + padding_tokens
     input_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
     position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-    kv_cache_by_layers,kv_cache_per_token = _get_kv_cache_info(model, num_blocks, block_size)
+    kv_cache_by_layers, kv_cache_per_token = _get_kv_cache_info(
+        model, num_blocks, block_size
+    )
     sampling_metadata = SamplingMetadata(
         query_start_loc=attn_meta.query_start_loc,
     )
@@ -273,11 +291,13 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
     return kwargs
 
 
-def _get_kv_cache_info(model, num_blocks: int ,block_size:int) -> Tuple[dict[Any, Any],int]:
+def _get_kv_cache_info(
+    model, num_blocks: int, block_size: int
+) -> Tuple[dict[Any, Any], int]:
     model_config = model.model_config
-    parallel_config=model.model_config.parallel_config
+    parallel_config = model.model_config.parallel_config
     # Initialize the KV cache structure (also on 'meta' device).
-    kv_cache_per_token= 0
+    kv_cache_per_token = 0
     kv_cache_by_layers = {}
     for i in range(model.num_hidden_layers):
         kvcache_dtype = model_config.dtype
@@ -298,8 +318,8 @@ def _get_kv_cache_info(model, num_blocks: int ,block_size:int) -> Tuple[dict[Any
         else:
             # Shape: [2 (K/V), num_blocks, block_size, num_heads, head_dim]
             if (
-                    model.text_config.num_key_value_heads
-                    >= parallel_config.tensor_parallel_size
+                model.text_config.num_key_value_heads
+                >= parallel_config.tensor_parallel_size
             ):
                 kv_heads = exact_division(
                     model.text_config.num_key_value_heads,
@@ -307,9 +327,9 @@ def _get_kv_cache_info(model, num_blocks: int ,block_size:int) -> Tuple[dict[Any
                 )
             else:
                 assert (
-                        parallel_config.tensor_parallel_size
-                        % model.text_config.num_key_value_heads
-                        == 0
+                    parallel_config.tensor_parallel_size
+                    % model.text_config.num_key_value_heads
+                    == 0
                 )
                 kv_heads = 1
 
@@ -325,9 +345,9 @@ def _get_kv_cache_info(model, num_blocks: int ,block_size:int) -> Tuple[dict[Any
                 device="meta",
             )
         kv_cache_per_token += bytes_of_tensor(kv_cache_by_layers[i]) / (
-                num_blocks * block_size
+            num_blocks * block_size
         )
-    return kv_cache_by_layers,kv_cache_per_token
+    return kv_cache_by_layers, kv_cache_per_token
 
 
 def get_kv_cache_info(model, num_blocks, block_size):
@@ -365,7 +385,7 @@ def get_kv_cache_info(model, num_blocks, block_size):
                 device="meta",
             )
         kv_cache_per_token += bytes_of_tensor(kv_cache_by_layers[i]) / (
-                num_blocks * block_size
+            num_blocks * block_size
         )
 
     return kv_cache_by_layers, kv_cache_per_token
@@ -397,8 +417,8 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     query_len_t = torch.tensor(query_lens, dtype=torch.long)
 
     num_blocks = (
-                         sum(seq_lens) + batch_size * (num_mtp_tokens + 1) + block_size - 1
-                 ) // block_size
+        sum(seq_lens) + batch_size * (num_mtp_tokens + 1) + block_size - 1
+    ) // block_size
     max_num_blocks_per_seq = (max(seq_lens) + block_size - 1) // block_size
     block_table_tensor = torch.empty(
         (batch_size, max_num_blocks_per_seq), dtype=torch.long, device="meta"
@@ -565,7 +585,7 @@ class UserInputConfig:
     def _init_batch_size_and_seq_len(self):
         self.batch_size = (self.num_queries + self.dp_size - 1) // self.dp_size
         self.seq_len = (
-                self.context_length + self.query_len
+            self.context_length + self.query_len
         )  # Total sequence length for each query
 
     def get_parallel_config(self) -> ParallelConfig:
@@ -586,8 +606,8 @@ class UserInputConfig:
 
     def get_quant_config(self) -> QuantConfig:
         if (
-                self.quantize_linear_action == QuantizeLinearAction.DISABLED
-                and self.quantize_attention_action == QuantizeAttentionAction.DISABLED
+            self.quantize_linear_action == QuantizeLinearAction.DISABLED
+            and self.quantize_attention_action == QuantizeAttentionAction.DISABLED
         ):
             return QuantConfig()
         extra_kwargs = {}
@@ -606,9 +626,9 @@ class UserInputConfig:
         )
 
     def get_request_info(self) -> RequestInfo:
-        return RequestInfo(query_len=self.query_len,
-                           seq_len=self.seq_len,
-                           concurrency=self.num_queries)
+        return RequestInfo(
+            query_len=self.query_len, seq_len=self.seq_len, concurrency=self.num_queries
+        )
 
     @classmethod
     def from_args(cls, args) -> "UserInputConfig":
@@ -667,11 +687,11 @@ class ConfigResolver:
     """
 
     def __init__(
-            self,
-            model_id: str = "",
-            user_input: UserInputConfig = None,
-            parallel_config: ParallelConfig = None,
-            quant_config: QuantConfig = None,
+        self,
+        model_id: str = "",
+        user_input: UserInputConfig = None,
+        parallel_config: ParallelConfig = None,
+        quant_config: QuantConfig = None,
     ):
         """
         Initialize the ConfigResolver.
@@ -735,11 +755,11 @@ class ConfigResolver:
         return self.model_config
 
     def update_moe_config(
-            self,
-            model_type: str = "",
-            enable_redundant_experts: bool = False,
-            enable_external_shared_experts: bool = False,
-            host_external_shared_experts: bool = False,
+        self,
+        model_type: str = "",
+        enable_redundant_experts: bool = False,
+        enable_external_shared_experts: bool = False,
+        host_external_shared_experts: bool = False,
     ):
         """
         Update the Mixture of Experts (MoE) configuration.
@@ -795,7 +815,7 @@ class ConfigResolver:
             self.model_config.mtp_config = mtp_config
 
     def update_hf_config(
-            self, enable_repetition: bool = False, num_hidden_layers_override: int = 0
+        self, enable_repetition: bool = False, num_hidden_layers_override: int = 0
     ):
         """
         Update the HuggingFace configuration settings.
@@ -813,7 +833,7 @@ class ConfigResolver:
 
 
 def build_model(
-        user_input: UserInputConfig = None,
+    user_input: UserInputConfig = None,
 ) -> TransformerModel:
     """
     Build a transformer model based on the given args
