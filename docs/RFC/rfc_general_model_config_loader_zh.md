@@ -122,12 +122,13 @@ graph TD
 - [x] 抽取一个模型加载类，职责分离
 - [x] 支持各种场景的模型加载
 - [ ] 使用model_type而非model_id作为模型结构映射字典的key
-
+- [ ] 统一使用ModelRunner
+- [ ] generate_input 归一
 ### ModelConfig重构
 
 - [x] 删除enable_lmhead
 - [x] 删除disable_auto_map
-- [ ] 删除hf_config_json
+- [x] 删除hf_config_json
 - [ ] 根据变化持续优化
 
 ### 用户交互重构
