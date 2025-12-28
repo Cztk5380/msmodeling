@@ -12,13 +12,12 @@ from typing import Callable, List, Optional
 
 import torch
 
-from tensor_cast.device import DeviceProfile
-from tensor_cast.layers.sampler import Sampler
-from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
-from tensor_cast.performance_model.memory_tracker import MemoryTracker
-from tensor_cast.performance_model.utils import bytes_of_tensor
-from tensor_cast.runtime import Runtime
-from tensor_cast.scripts.utils import build_model
+from ..device import DeviceProfile
+from ..layers.sampler import Sampler
+from ..performance_model.analytic import AnalyticPerformanceModel
+from ..performance_model.memory_tracker import MemoryTracker
+from ..performance_model.utils import bytes_of_tensor
+from ..runtime import Runtime
 from .utils import (
     build_model,
     generate_inputs_varlen,
@@ -65,6 +64,13 @@ class ModelRunner:
         generate_inputs_func: Callable = generate_inputs_varlen,
         with_sampler: bool = False,
     ) -> ModelRunnerMetrics:
+        batch_size = (
+            self.user_input.num_queries
+            + self.model.model_config.parallel_config.data_parallel_size
+            - 1
+        ) // self.model.model_config.parallel_config.data_parallel_size
+        print(f"Number of Queries per DP rank: {batch_size}")
+
         print("Preparing dummy input tensors...")
         if requests is None:
             requests = self.request_info_default
@@ -73,6 +79,7 @@ class ModelRunner:
             requests,
             block_size=self.user_input.block_size,
         )
+
         print("Running simulated inference...")
         run_start = time.perf_counter()
 

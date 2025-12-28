@@ -6,21 +6,19 @@
 @Email  :  597935261@qq.com
 """
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from enum import StrEnum
 from typing import Any, Dict, List, Optional, Tuple
 
 import torch
 
-from tensor_cast.device import DeviceProfile
-from tensor_cast.layers.attention import (
-    AttentionMetadataTensorCast,
-    AttentionTensorCast,
-)
-from tensor_cast.layers.mla import MultiheadLatentAttentionTensorCast
-from tensor_cast.layers.quant_linear import TensorCastQuantLinear
-from tensor_cast.layers.sampler import SamplingMetadata
-from tensor_cast.model_config import (
+from ..compilation import get_backend
+from ..device import DeviceProfile
+from ..layers.attention import AttentionMetadataTensorCast, AttentionTensorCast
+from ..layers.mla import MultiheadLatentAttentionTensorCast
+from ..layers.quant_linear import TensorCastQuantLinear
+from ..layers.sampler import SamplingMetadata
+from ..model_config import (
     LinearQuantConfig,
     MlaConfig,
     ModelConfig,
@@ -29,18 +27,17 @@ from tensor_cast.model_config import (
     ParallelConfig,
     QuantConfig,
 )
-from tensor_cast.performance_model import bytes_of_tensor
-from tensor_cast.quantize_utils import AttentionQuantType, LinearQuantType
-from tensor_cast.transformers.utils import (
+from ..performance_model import bytes_of_tensor
+from ..quantize_utils import AttentionQuantType, LinearQuantType
+from ..transformers.model import TransformerModel
+from ..transformers.utils import (
     AutoModelConfigLoader,
     get_attention_quant_config,
     get_mla_module_name,
     get_moe_config,
     get_mtp_block_module_name,
 )
-from tensor_cast.utils import exact_division
-from ..compilation import get_backend
-from ..transformers.model import TransformerModel
+from ..utils import exact_division
 
 
 @dataclass
@@ -102,12 +99,6 @@ def get_available_memory_gb(device_profile, runtime, reserved_memory_size_gb=0):
         total_device_memory_gb - peak_memory_usage_gb - reserved_memory_size_gb
     )
     return device_memory_available_gb
-
-
-def get_parallel_config(world_size: int, tp_size: int = 1, ep: bool = False):
-    return ParallelConfig(
-        world_size=world_size, tensor_parallel_size=tp_size, expert_parallel=ep
-    )
 
 
 def create_linear_quant_config(quantize_linear_action: QuantizeLinearAction, **kwargs):
@@ -510,6 +501,9 @@ class UserInputConfig:
     )
     decode: bool = False
     num_mtp_tokens: int = 0
+    mtp_acceptance_rate: List[float] = field(
+        default_factory=lambda: [0.9, 0.6, 0.4, 0.2]
+    )
     num_hidden_layers_override: int = 0
     disable_repetition: bool = False
     reserved_memory_gb: float = 0
@@ -530,13 +524,7 @@ class UserInputConfig:
     host_external_shared_experts: bool = False
     block_size: int = 128
 
-    # internal
-    batch_size: int = 1
-    seq_len: int = 1
-
     def __post_init__(self):
-        self._init_dp_size()
-        self._init_batch_size_and_seq_len()
         self._validate_device()
         self._validate_quantize_action()
 
@@ -563,7 +551,6 @@ class UserInputConfig:
         print(f"Device: {self.device}")
         print(f"Model ID: {self.model_id}")
         print(f"Number of Queries: {self.num_queries}")
-        print(f"Number of Queries per DP rank: {self.batch_size}")
         print(f"Input Length (per query): {self.query_len}")
         print(f"Context Length (per query): {self.context_length}")
 
@@ -577,16 +564,6 @@ class UserInputConfig:
         if self.chrome_trace:
             print(f"Chrome trace output file: {self.chrome_trace}")
         print("---------------------\n")
-
-    def _init_dp_size(self):
-        if self.dp_size is None:
-            self.dp_size = self.world_size // self.tp_size // self.pp_size
-
-    def _init_batch_size_and_seq_len(self):
-        self.batch_size = (self.num_queries + self.dp_size - 1) // self.dp_size
-        self.seq_len = (
-            self.context_length + self.query_len
-        )  # Total sequence length for each query
 
     def get_parallel_config(self) -> ParallelConfig:
         return ParallelConfig(
@@ -627,47 +604,34 @@ class UserInputConfig:
 
     def get_request_info(self) -> RequestInfo:
         return RequestInfo(
-            query_len=self.query_len, seq_len=self.seq_len, concurrency=self.num_queries
+            query_len=self.query_len,
+            seq_len=self.context_length + self.query_len,
+            concurrency=self.num_queries,
         )
 
     @classmethod
     def from_args(cls, args) -> "UserInputConfig":
-        return cls(
-            device=args.device,
-            model_id=args.model_id,
-            num_queries=args.num_queries,
-            query_len=args.query_length,
-            context_length=args.context_length,
-            do_compile=args.compile,
-            allow_graph_break=args.compile_allow_graph_break,
-            dump_input_shapes=args.dump_input_shapes,
-            chrome_trace=args.chrome_trace,
-            graph_log_url=args.graph_log_url,
-            log_level=args.log_level,
-            quantize_linear_action=args.quantize_linear_action,
-            quantize_lmhead=args.quantize_lmhead,
-            mxfp4_group_size=args.mxfp4_group_size,
-            quantize_attention_action=args.quantize_attention_action,
-            decode=args.decode,
-            num_mtp_tokens=args.num_mtp_tokens,
-            num_hidden_layers_override=args.num_hidden_layers_override,
-            disable_repetition=args.disable_repetition,
-            reserved_memory_gb=args.reserved_memory_gb,
-            world_size=args.world_size,
-            tp_size=args.tp_size,
-            dp_size=args.dp_size,
-            o_proj_tp_size=args.o_proj_tp_size,
-            o_proj_dp_size=args.o_proj_dp_size,
-            mlp_tp_size=args.mlp_tp_size,
-            mlp_dp_size=args.mlp_dp_size,
-            lmhead_tp_size=args.lmhead_tp_size,
-            lmhead_dp_size=args.lmhead_dp_size,
-            ep=args.ep,
-            word_embedding_tp=args.word_embedding_tp,
-            enable_redundant_experts=args.enable_redundant_experts,
-            enable_external_shared_experts=args.enable_external_shared_experts,
-            host_external_shared_experts=args.host_external_shared_experts,
-        )
+        # get all names of cls
+        field_names = {_field.name for _field in fields(cls)}
+
+        # Extract only the fields that exist in the cls from args.
+
+        # Handle the special case where the input arguments differ
+        # from the command-line arguments by implementing backward compatibility first.
+        # input_key:target_key
+        special_input_key_map = {
+            "compile": "do_compile",
+            "compile_allow_graph_break": "allow_graph_break",
+            "query_length": "query_len",
+            "num_devices": "world_size",
+        }
+        filtered_kwargs = {}
+        for field_name, field_value in vars(args).items():
+            if field_name in special_input_key_map:
+                filtered_kwargs[special_input_key_map[field_name]] = field_value
+            elif field_name in field_names:
+                filtered_kwargs[field_name] = field_value
+        return cls(**filtered_kwargs)
 
 
 class ConfigResolver:
@@ -807,7 +771,7 @@ class ConfigResolver:
         if not model_type:
             model_type = self.hf_config.model_type
         mtp_block_module_name = get_mtp_block_module_name(model_type)
-        if num_mtp_tokens > 0 and mtp_block_module_name:
+        if num_mtp_tokens > 0:
             mtp_config = MtpConfig(
                 num_mtp_layers=num_mtp_tokens,
                 mtp_block_module_name=mtp_block_module_name,
@@ -832,16 +796,13 @@ class ConfigResolver:
             self.model_config.parallel_config.expert_parallel = False
 
 
-def build_model(
-    user_input: UserInputConfig = None,
-) -> TransformerModel:
+def build_model(user_input: UserInputConfig = None) -> TransformerModel:
     """
     Build a transformer model based on the given args
 
     :param user_input: user_input
     :return: The loaded (and possibly compiled) Transformer model.
     """
-
     config_resolver = ConfigResolver(user_input=user_input)
     model_config = config_resolver.resolve()
     model = TransformerModel(user_input.model_id, model_config)
