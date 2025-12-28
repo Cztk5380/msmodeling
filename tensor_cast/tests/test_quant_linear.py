@@ -5,15 +5,27 @@ from parameterized import parameterized
 
 from ..core.utils import build_model, QuantizeLinearAction, UserInputConfig
 from ..device import TEST_DEVICE
+from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
 from ..layers.sampler import SamplingMetadata
-from ..model_config import LinearQuantConfig, ModelConfig, ParallelConfig, QuantConfig
+from ..model_config import (
+    LinearQuantConfig,
+    MlaConfig,
+    ModelConfig,
+    MtpConfig,
+    ParallelConfig,
+    QuantConfig,
+)
 from ..patch_torch import patch_torch
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import get_mtp_block_module_name
+from ..transformers.utils import (
+    AutoModelConfigLoader,
+    get_moe_config,
+    get_mtp_block_module_name,
+)
 from ..utils import DTYPE_FP8
 from .test_common import (
     create_mla_metadata_and_kv_cache,
@@ -165,11 +177,16 @@ class TestQuantLinear(unittest.TestCase):
         ]
     )
     def test_model_quant_wildcard(self, model_id):
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         model_config_with_quant = ModelConfig(
             ParallelConfig(),
             get_quant_config(),
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
         num_linear_modules = sum(
@@ -195,10 +212,15 @@ class TestQuantLinear(unittest.TestCase):
         ]
     )
     def test_model_quant_base(self, model_id):
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         model = TransformerModel(model_id, model_config)
         num_linear_modules = sum(
@@ -212,6 +234,8 @@ class TestQuantLinear(unittest.TestCase):
             get_quant_config(model.unwrap()),
             quant_linear_cls=QuantLinearBase,
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
         num_qlinear_modules = sum(
@@ -238,7 +262,15 @@ class TestQuantLinear(unittest.TestCase):
         ]
     )
     def test_model_quant_tensorcast_dynamic_w4a8(self, model_id, symmetric, per_sample):
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
+        model_config = ModelConfig(
+            ParallelConfig(),
+            QuantConfig(),
+            moe_config=moe_config,
+            hf_config=hf_config,
+        )
         model = TransformerModel(model_id, model_config)
 
         model_config_with_quant = ModelConfig(
@@ -255,6 +287,8 @@ class TestQuantLinear(unittest.TestCase):
             ),
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
 
@@ -281,7 +315,15 @@ class TestQuantLinear(unittest.TestCase):
         ]
     )
     def test_model_quant_tensorcast_static_w8a8(self, model_id):
-        model_config = ModelConfig(ParallelConfig(), QuantConfig())
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
+        model_config = ModelConfig(
+            ParallelConfig(),
+            QuantConfig(),
+            moe_config=moe_config,
+            hf_config=hf_config,
+        )
         model = TransformerModel(model_id, model_config)
 
         num_tokens = 100
@@ -299,6 +341,8 @@ class TestQuantLinear(unittest.TestCase):
             ),
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         qmodel = TransformerModel(model_id, model_config_with_quant)
         machine_config = TEST_DEVICE
@@ -392,26 +436,45 @@ class TestQuantLinear(unittest.TestCase):
 
     def test_quantize_lmhead_mtp(self):
         model_id = "deepseek-ai/DeepSeek-V3.1"
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
+        linear_quant_config = get_linear_quant_config(
+            LinearQuantType.W8A8,
+            torch.randn(1),
+        )
+        quant_config = QuantConfig()
+        quant_config.linear_configs["*.lm_head"] = linear_quant_config
+        quant_config.modules_to_not_convert = []
+        model_config = ModelConfig(
+            ParallelConfig(),
+            quant_config,
+            quant_linear_cls=TensorCastQuantLinear,
+            enable_repetition=True,
+            moe_config=moe_config,
+            hf_config=hf_config,
+            trust_remote_code=False,
+        )
+        mla_config = MlaConfig(
+            module_name="DeepseekV3Attention",
+            mla_cls=MultiheadLatentAttentionTensorCast,
+        )
+        model_config.mla_config = mla_config
         num_mtp_layers = 1
-        user_config = UserInputConfig(
-            model_id=model_id,
-            num_mtp_tokens=num_mtp_layers,
-            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            quantize_lmhead=True,
-        )
-
-        model = build_model(user_config)
-
-        mtp_block_module_name = get_mtp_block_module_name(
-            model.model_config.hf_config.model_type
-        )
+        mtp_block_module_name = get_mtp_block_module_name(hf_config.model_type)
         self.assertIsNotNone(mtp_block_module_name)
+        mtp_config = MtpConfig(
+            num_mtp_layers=num_mtp_layers,
+            mtp_block_module_name=mtp_block_module_name,
+        )
+        model_config.mtp_config = mtp_config
+        model = TransformerModel(model_id, model_config)
         # make sure all original attention modules have been replaced
         self.assertTrue(
             has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
         )
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
-            model, model.model_config
+            model, model_config
         )
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
@@ -532,6 +595,9 @@ class TestQuantLinear(unittest.TestCase):
     )
     def test_model_quant_tensorcast_fp8(self, model_id):
         """Test FP8 quantization on full model."""
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         # Create FP8 quantization config
         fp8_quant_config = get_quant_config(
             quant_type=LinearQuantType.FP8,
@@ -541,6 +607,8 @@ class TestQuantLinear(unittest.TestCase):
             fp8_quant_config,
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         qmodel = TransformerModel(model_id, model_config_with_fp8)
 
@@ -578,11 +646,16 @@ class TestQuantLinear(unittest.TestCase):
             weight_quant_granularity=QuantGranularity.PER_GROUP,
             weight_quant_scheme=QuantScheme.SYMMETRIC,
         )
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         model_config_with_mxfp4 = ModelConfig(
             ParallelConfig(),
             mxfp4_quant_config,
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         qmodel = TransformerModel(model_id, model_config_with_mxfp4)
 

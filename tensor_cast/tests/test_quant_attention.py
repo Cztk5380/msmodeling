@@ -23,7 +23,11 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..quantize_utils import AttentionQuantType, LinearQuantType
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import get_mtp_block_module_name
+from ..transformers.utils import (
+    AutoModelConfigLoader,
+    get_moe_config,
+    get_mtp_block_module_name,
+)
 from .test_common import (
     create_attn_metadata_and_kv_cache,
     create_mla_metadata_and_kv_cache,
@@ -78,11 +82,16 @@ class TestQuantAttention(unittest.TestCase):
     def test_standard_attention_int8(self, model_id):
         kv_quant_start_idx = 0
         kv_quant_end_idx = 1
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         model_config = ModelConfig(
             ParallelConfig(),
             get_quant_config(kv_quant_start_idx, kv_quant_end_idx),
             attention_cls=AttentionTensorCast,
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         model = TransformerModel(model_id, model_config)
         attn_meta, kv_cache_by_layers, num_tokens = create_attn_metadata_and_kv_cache(

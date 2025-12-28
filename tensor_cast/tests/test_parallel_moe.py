@@ -10,6 +10,7 @@ from ..model_config import ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
+from ..transformers.utils import AutoModelConfigLoader, get_moe_config
 from .test_common import create_mla_metadata_and_kv_cache
 
 
@@ -54,11 +55,16 @@ class ParallelMoETestCase(unittest.TestCase):
         ]
     )
     def test_model_with_ep(self, model_id, parallel_configuration):
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         parallel_config = get_parallel_config(parallel_configuration)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
             enable_repetition=True,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         model = TransformerModel(model_id, model_config)
 

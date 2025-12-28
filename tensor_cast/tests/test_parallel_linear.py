@@ -13,6 +13,7 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
+from ..transformers.utils import AutoModelConfigLoader, get_moe_config
 from .test_common import create_mla_metadata_and_kv_cache
 from .test_quant_linear import get_quant_config
 
@@ -93,12 +94,17 @@ class ParallelLinearTestCase(unittest.TestCase):
         ]
     )
     def test_model_with_tp_and_dp(self, model_id, parallel_configuration):
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         parallel_config = get_parallel_config(parallel_configuration)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
             attention_cls=AttentionTensorCast,
             enable_repetition=True,
+            hf_config=hf_config,
+            moe_config=moe_config,
         )
         model = TransformerModel(model_id, model_config)
 
@@ -122,12 +128,18 @@ class ParallelLinearTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_with_tp_and_dp(self, model_id, parallel_configuration):
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         parallel_config = get_parallel_config(parallel_configuration)
 
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
             enable_repetition=True,
+            moe_config=moe_config,
+            hf_config=hf_config,
+            trust_remote_code=False,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -168,11 +180,17 @@ class ParallelLinearTestCase(unittest.TestCase):
     )
     def test_model_quant_with_tp_and_dp(self, model_id, parallel_configuration):
         parallel_config = get_parallel_config(parallel_configuration)
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
             attention_cls=AttentionTensorCast,
             enable_repetition=True,
+            moe_config=moe_config,
+            hf_config=hf_config,
+            trust_remote_code=False,
         )
         model = TransformerModel(model_id, model_config)
 
@@ -204,12 +222,18 @@ class ParallelLinearTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_quant_with_tp_and_dp(self, model_id, parallel_configuration):
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         parallel_config = get_parallel_config(parallel_configuration)
 
         model_config = ModelConfig(
             parallel_config,
             QuantConfig(),
             enable_repetition=True,
+            moe_config=moe_config,
+            hf_config=hf_config,
+            trust_remote_code=False,
         )
         mla_config = MlaConfig(
             module_name="DeepseekV3Attention",
@@ -254,6 +278,9 @@ class ParallelLinearTestCase(unittest.TestCase):
         ]
     )
     def test_model_quant_mxfp4_with_tp_and_dp(self, model_id, parallel_configuration):
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         parallel_config = get_parallel_config(parallel_configuration)
         mxfp4_quant_config = get_quant_config(
             quant_type=LinearQuantType.MXFP4,
@@ -266,6 +293,8 @@ class ParallelLinearTestCase(unittest.TestCase):
             mxfp4_quant_config,
             quant_linear_cls=TensorCastQuantLinear,
             num_hidden_layers_override=2,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         qmodel = TransformerModel(model_id, model_config_with_mxfp4)
 
