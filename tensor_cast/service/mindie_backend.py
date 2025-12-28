@@ -16,8 +16,7 @@ from collections import defaultdict
 
 import pandas as pd
 
-from tensor_cast.scripts.utils import generate_inputs
-
+from tensor_cast.core.utils import generate_inputs, RequestInfo
 from tensor_cast.service.base_backend import BaseBackend
 from tensor_cast.service.report_and_save import Summary
 from tensor_cast.service.utils import AGG_COLUMNS, logger, run_static
@@ -143,9 +142,15 @@ class MindIEAggBackend(BaseBackend):
         seq_len = query_len
         if is_concurrency:
             batch_size = batch_size * self.dp * self.pp
-        input_kwargs = generate_inputs(
-            self.model, query_len, seq_len, batch_size, is_decode=False
-        )
+        requests = [
+            RequestInfo(
+                query_len=query_len,
+                seq_len=seq_len,
+                concurrency=batch_size,
+                is_decode=False,
+            )
+        ]
+        input_kwargs = generate_inputs(self.model, requests)
 
         return run_static(self.model, input_kwargs, device_profile)
 
@@ -155,13 +160,15 @@ class MindIEAggBackend(BaseBackend):
         device_profile = data_config.device_profile
         if is_concurrency:
             batch_size = batch_size * self.dp * self.pp
-        inputs_kwargs = generate_inputs(
-            self.model,
-            query_len,
-            seq_len,
-            batch_size,
-            is_decode=True,
-        )
+        requests = [
+            RequestInfo(
+                query_len=query_len,
+                seq_len=seq_len,
+                concurrency=batch_size,
+                is_decode=False,
+            )
+        ]
+        inputs_kwargs = generate_inputs(self.model, requests)
         return run_static(self.model, inputs_kwargs, device_profile)
 
     def _get_or_compute_prefill_latency(

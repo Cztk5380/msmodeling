@@ -1,106 +1,15 @@
 import argparse
 import logging
-import time
 
-import torch
-
-from .. import config, device_profiles  # noqa: F401
-from ..device import DeviceProfile
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..performance_model.memory_tracker import MemoryTracker
-from ..performance_model.utils import bytes_of_tensor
-from ..runtime import Runtime
-from .utils import (
-    build_model,
+from .. import config
+from ..core.model_runner import ModelRunner
+from ..core.utils import (
     generate_inputs,
     QuantizeAttentionAction,
     QuantizeLinearAction,
     UserInputConfig,
 )
-
-
-def run_inference(user_input: UserInputConfig):
-    """
-    Sets up and runs a simulated LLM inference pass.
-    """
-
-    device_profile = DeviceProfile.all_device_profiles[user_input.device]
-
-    # Initialize Model
-    print("Initializing model on 'meta' device...")
-    perf_model = AnalyticPerformanceModel(device_profile)
-    model = build_model(user_input=user_input).eval()
-    print("Preparing dummy input tensors...")
-    input_kwargs = generate_inputs(
-        model, user_input.query_len, user_input.seq_len, user_input.num_queries
-    )
-    print("Running simulated inference...")
-    run_start = time.perf_counter()
-    with (
-        Runtime(
-            perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
-        ) as runtime,
-        torch.no_grad(),
-    ):
-        _ = model.forward(**input_kwargs)
-    run_end = time.perf_counter()
-    execution_time_s = runtime.total_execution_time_s()[perf_model.name]
-    print()
-    print(f"Model compilation and execution time: {run_end - run_start}s")
-    result = runtime.table_averages(group_by_input_shapes=user_input.dump_input_shapes)
-    print(result)
-    # Print memory usage
-    total_device_memory_gb = device_profile.memory_size_bytes / 1024**3
-    model_weight_size_gb = model.weight_size / 1024**3
-    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
-    total_kv_cache_size_gb = (
-        sum(
-            bytes_of_tensor(kv_cache)
-            for kv_cache in input_kwargs["kv_cache_by_layers"].values()
-        )
-        / 1024**3
-    )
-    model_activation_size_gb = (
-        peak_memory_usage_gb - total_kv_cache_size_gb - model_weight_size_gb
-    )
-    device_memory_available_gb = (
-        total_device_memory_gb - peak_memory_usage_gb - user_input.reserved_memory_gb
-    )
-    print(f"Total device memory: {total_device_memory_gb:.3f} GB")
-    print(f"  Model weight size: {model_weight_size_gb:.3f} GB")
-    print(f"  KV cache: {total_kv_cache_size_gb:.3f} GB")
-    print(f"  Model activation size: {model_activation_size_gb:.3f} GB")
-    print(f"  Reserved memory: {user_input.reserved_memory_gb} GB")
-    print(f"  Memory available: {device_memory_available_gb} GB")
-
-    print("Stats breakdowns:")
-    for breakdown_name, breakdown in runtime.get_breakdowns().items():
-        total = sum(breakdown.values())
-        if total == 0:
-            continue
-        percentage_breakdown = [value * 100 / total for value in breakdown.values()]
-        print(f"  {breakdown_name}: ", end="")
-        print(
-            [
-                f"{key}: {percentage:.2f}"
-                for key, percentage in zip(breakdown.keys(), percentage_breakdown)
-            ]
-        )
-    if user_input.chrome_trace:
-        runtime.export_chrome_trace(user_input.chrome_trace)
-
-    # Return metrics for validation
-    return {
-        "total_device_memory_gb": total_device_memory_gb,
-        "model_weight_size_gb": model_weight_size_gb,
-        "peak_memory_usage_gb": peak_memory_usage_gb,
-        "kv_cache_size_gb": total_kv_cache_size_gb,
-        "model_activation_size_gb": model_activation_size_gb,
-        "device_memory_available_gb": device_memory_available_gb,
-        "execution_time_s": execution_time_s,
-        "table_result": result,
-        "breakdowns": runtime.get_breakdowns(),
-    }
+from ..device import DeviceProfile
 
 
 def main():
@@ -222,7 +131,7 @@ def main():
         "--disable-repetition",
         action="store_true",
         help="Preserve the original behavior of the transformer models. Do not leverage the repetition "
-        "pattern of the transformer models to save runtime cost",
+             "pattern of the transformer models to save runtime cost",
     )
     parser.add_argument(
         "--reserved-memory-gb",
@@ -298,10 +207,10 @@ def main():
         "--enable-redundant-experts",
         action="store_true",
         help="Whether or not to use redundant experts. When this flag is True: "
-        "if the externalization of shared experts is not enabled at this time, "
-        "each device will add one redundant expert. If the externalization of shared experts is enabled "
-        "and the number of routing experts on each device is the same, "
-        "then each device hosting the routing experts will also add one redundant expert.",
+             "if the externalization of shared experts is not enabled at this time, "
+             "each device will add one redundant expert. If the externalization of shared experts is enabled "
+             "and the number of routing experts on each device is the same, "
+             "then each device hosting the routing experts will also add one redundant expert.",
     )
     parser.add_argument(
         "--enable-external-shared-experts",
@@ -323,7 +232,8 @@ def main():
         config.compilation.debug.graph_log_url = args.graph_log_url
 
     user_input = UserInputConfig.from_args(args)
-    run_inference(user_input)
+    model_runner = ModelRunner(user_input)
+    model_runner.run_inference(generate_inputs_func=generate_inputs)
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@
 import unittest
 from typing import List
 
-from tensor_cast.core.model_runner_v2 import ModelRunner
+from tensor_cast.core.model_runner import ModelRunner
 from tensor_cast.core.utils import RequestInfo, UserInputConfig
 
 

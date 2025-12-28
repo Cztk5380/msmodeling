@@ -17,7 +17,7 @@ import time
 
 from tensor_cast.device import DeviceProfile
 
-from tensor_cast.scripts.utils import QuantizeAttentionAction, QuantizeLinearAction
+from tensor_cast.core.utils import QuantizeLinearAction, QuantizeAttentionAction
 from tensor_cast.service.task import TaskRunner
 from tensor_cast.service.utils import (
     BackendName,

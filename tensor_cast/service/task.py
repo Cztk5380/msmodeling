@@ -2,25 +2,16 @@
 
 import copy
 from concurrent.futures import as_completed, ProcessPoolExecutor
+from typing import Generator
 
 import pandas as pd
 import torch
 
+from tensor_cast.core.utils import build_model, UserInputConfig
 from tensor_cast.device import DeviceProfile
-
-from tensor_cast.model_config import ParallelConfig
-from tensor_cast.quantize_utils import QuantGranularity
-from tensor_cast.scripts.utils import (
-    build_model,
-    create_quant_config,
-    QuantConfig,
-    QuantizeAttentionAction,
-    QuantizeLinearAction,
-)
 from tensor_cast.service.backend_factory import StrategyFactory
 from tensor_cast.service.report_and_save import Summary
 from tensor_cast.service.utils import DataConfig, LIMIT_TIME, logger
-from tensor_cast.transformers.utils import model_id_to_moe_config
 
 
 class TaskRunner:
@@ -37,6 +28,8 @@ class TaskRunner:
         self.backend = self.args.backend
         self.num_devices = self.args.num_devices
         self.max_prefill_tokens = self.args.max_prefill_tokens
+        self.user_input = UserInputConfig.from_args(args)
+
         self.summary_result = []
         self.device_profile = DeviceProfile.all_device_profiles[self.device]
         self.data_config = DataConfig(
@@ -73,10 +66,10 @@ class TaskRunner:
                 future_to_config = {
                     executor.submit(
                         self._process_parallel_config,
-                        parallel_config,
+                        user_config,
                         overwrite_data_config,
-                    ): parallel_config
-                    for parallel_config in self._get_parallel_config()
+                    ): user_config
+                    for user_config in self._get_user_config()
                 }
 
                 for future in as_completed(future_to_config):
@@ -95,49 +88,18 @@ class TaskRunner:
 
         return self.summary_result
 
-    def _get_quant_config(self):
-        if (
-            self.quantize_linear_action != QuantizeLinearAction.DISABLED
-            or self.quantize_attention_action != QuantizeAttentionAction.DISABLED
-        ):
-            extra_kwargs = {}
-            if self.quantize_linear_action == QuantizeLinearAction.MXFP4:
-                extra_kwargs.update(
-                    weight_group_size=self.mxfp4_group_size,
-                    weight_quant_granularity=QuantGranularity.PER_GROUP,
-                )
-            quant_config = create_quant_config(
-                self.quantize_linear_action,
-                quantize_attention_action=self.quantize_attention_action,
-                **extra_kwargs,
-            )
-        else:
-            quant_config = QuantConfig()
-
-        return quant_config
-
-    def _get_model(self, parallel_config: ParallelConfig, quant_config: QuantConfig):
+    def _get_model(self, user_input: UserInputConfig):
         torch.compiler.reset()
         model = None
         try:
-            model = build_model(
-                self.model_id,
-                parallel_config,
-                quant_config,
-                num_mtp_tokens=self.num_mtp_tokens,
-                compile=self.compile,
-                allow_graph_break=self.compile_allow_graph_break,
-            )
+            model = build_model(user_input).eval()
         except Exception:
             logger.error("Failed to build model %r", self.model_id)
 
         return model
 
-    def _get_parallel_config(self):
+    def _get_user_config(self) -> Generator[UserInputConfig]:
         default_tp_list = [1 << i for i in range(self.num_devices.bit_length())]
-
-        moe_config = model_id_to_moe_config(self.model_id)
-        ep = moe_config is not None
         # get tp list
         tp_list = getattr(self.args, "tp", None)
         if not tp_list:
@@ -146,23 +108,24 @@ class TaskRunner:
             tp_list = [tp_list]
 
         for tp in tp_list:
-            yield ParallelConfig(
-                world_size=self.num_devices, tensor_parallel_size=tp, expert_parallel=ep
-            )
+            tmp_user_input = copy.deepcopy(self.user_input)
+            tmp_user_input.tp_size = tp
+            # TODO num_devices is frozen，do not need to change every time
+            tmp_user_input.world_size = self.num_devices
+            yield tmp_user_input
 
-    def _process_parallel_config(self, parallel_config, overwrite_data_config):
+    def _process_parallel_config(
+        self, user_input: UserInputConfig, overwrite_data_config
+    ):
         # 1. get model config
-        logger.info(
-            "Start processing TP size: %d", parallel_config.tensor_parallel_size
-        )
-        quant_config = self._get_quant_config()
-        model = self._get_model(parallel_config, quant_config)
+        logger.info("Start processing TP size: %d", user_input.tp_size)
+        model = self._get_model(user_input)
         if model is None:
             return None
         if (
             model.model_config.mla_config is None
             and model.text_config.num_key_value_heads
-            % parallel_config.tensor_parallel_size
+            % model.model_config.parallel_config.tensor_parallel_size
             != 0
         ):
             logger.warning(
@@ -175,13 +138,14 @@ class TaskRunner:
         if not isinstance(result, Summary) or len(result.get_summary_df()) == 0:
             logger.warning(
                 "No result found with TP %d for tpot %sms",
-                parallel_config.tensor_parallel_size,
+                model.model_config.parallel_config.tensor_parallel_size,
                 overwrite_data_config.tpot_limits,
             )
             return None
         result_df = result.get_summary_df()
         logger.info(
-            "Finish processing TP size: %d", parallel_config.tensor_parallel_size
+            "Finish processing TP size: %d",
+            model.model_config.parallel_config.tensor_parallel_size,
         )
 
         return result_df

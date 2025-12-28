@@ -6,24 +6,20 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import yaml
 
-from .. import device_profiles  # noqa: F401
-from ..device import DeviceProfile
-from ..model_config import QuantConfig
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..performance_model.memory_tracker import MemoryTracker
-from ..quantize_utils import QuantGranularity
-from ..runtime import Runtime
-from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_moe_config
-from .utils import (
+from ..core.utils import (
     build_model,
-    create_quant_config,
     generate_inputs,
     get_available_memory_gb,
-    get_parallel_config,
     QuantizeAttentionAction,
     QuantizeLinearAction,
+    RequestInfo,
+    UserInputConfig,
 )
+from ..device import DeviceProfile
+from ..performance_model.analytic import AnalyticPerformanceModel
+from ..performance_model.memory_tracker import MemoryTracker
+from ..runtime import Runtime
+from ..transformers.model import TransformerModel
 
 logger = logging.getLogger(__name__)
 
@@ -85,12 +81,17 @@ def find_best_throughput(
                 is_decode=is_decode,
                 num_mtp_tokens=num_mtp_tokens,
             )
+
             inputs = generate_inputs(
                 model,
-                query_len,
-                seq_len,
-                concurrency,
-                is_decode=is_decode,
+                [
+                    RequestInfo(
+                        query_len=query_len,
+                        seq_len=seq_len,
+                        concurrency=concurrency,
+                        is_decode=is_decode,
+                    )
+                ],
             )
             perf_model = AnalyticPerformanceModel(device_profile)
             with (
@@ -306,18 +307,11 @@ models:
             )
         device_list = [DeviceProfile.all_device_profiles[args.device]]
         model_id_to_decode_device_num = {args.model_id: [args.num_devices]}
-
-    compile = args.compile
-    if compile:
+    user_input = UserInputConfig.from_args(args)
+    if user_input.do_compile:
         torch._dynamo.config.recompile_limit = 1000000
         torch._dynamo.config.accumulated_recompile_limit = 1000000
-    allow_graph_break = args.compile_allow_graph_break
 
-    mtp = args.num_mtp_tokens
-    mtp_acceptance_rate = args.mtp_acceptance_rate
-    quantize_linear_action = args.quantize_linear_action
-    quantize_attention_action = args.quantize_attention_action
-    mxfp4_group_size = args.mxfp4_group_size
     input_length = args.input_length
     output_length = args.output_length
     ttft_limits = args.ttft_limits
@@ -344,42 +338,13 @@ models:
                 for num_devices in device_num_list:
                     if device_profile.comm_grid.grid.nelement() < num_devices:
                         continue
-                    moe_config = model_id_to_moe_config(model_id)
+                    user_input.model_id = model_id
                     tp_size_list = [1 << i for i in range(num_devices.bit_length())]
-                    ep = moe_config is not None
                     for tp_size in tp_size_list:
                         torch.compiler.reset()
-                        parallel_config = get_parallel_config(
-                            world_size=num_devices,
-                            tp_size=tp_size,
-                            ep=ep,
-                        )
-                        if (
-                            quantize_linear_action != QuantizeLinearAction.DISABLED
-                            or quantize_attention_action
-                            != QuantizeAttentionAction.DISABLED
-                        ):
-                            extra_kwargs = {}
-                            if quantize_linear_action == QuantizeLinearAction.MXFP4:
-                                extra_kwargs.update(
-                                    weight_group_size=mxfp4_group_size,
-                                    weight_quant_granularity=QuantGranularity.PER_GROUP,
-                                )
-                            quant_config = create_quant_config(
-                                quantize_linear_action,
-                                quantize_attention_action=quantize_attention_action,
-                                **extra_kwargs,
-                            )
-                        else:
-                            quant_config = QuantConfig()
-                        model = build_model(
-                            model_id,
-                            parallel_config,
-                            quant_config,
-                            num_mtp_tokens=mtp,
-                            compile=compile,
-                            allow_graph_break=allow_graph_break,
-                        ).eval()
+                        user_input.tp_size = tp_size
+                        model = build_model(user_input).eval()
+
                         num_mtp_tokens = (
                             model.model_config.mtp_config.num_mtp_layers
                             if model.model_config.mtp_config is not None
@@ -404,7 +369,7 @@ models:
                                     output_length,
                                     slo_limit,
                                     is_decode,
-                                    mtp_acceptance_rate=mtp_acceptance_rate,
+                                    mtp_acceptance_rate=user_input.mtp_acceptance_rate,
                                 )
                             )
                             TPS = concurrency / latency if latency != 0 else 0
@@ -419,7 +384,8 @@ models:
                             ]
                             print(
                                 f"{device_profile.name}, {num_devices}, {input_length}, {output_length}, {model_id}, "
-                                f"{quantize_linear_action}, {quantize_attention_action}, {tp_size}, {ep}, "
+                                f"{user_input.quantize_linear_action}, {user_input.quantize_attention_action}, "
+                                f"{tp_size}, {model.model_config.parallel_config.expert_parallel}, "
                                 f"{num_mtp_tokens}, {slo_limit * 1000:.3f}, {concurrency}, {latency * 1000:.3f}, "
                                 f"{TPS:.1f}, {TPS / num_devices:.1f}, {','.join(percentage_breakdown)}, {err_msg}",
                                 flush=True,
