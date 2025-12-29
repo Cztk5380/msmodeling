@@ -438,9 +438,7 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     num_tokens = sum(query_lens)
     
     # padding query to make sure total num_tokens is divisible by tp_size in each dp domain
-    padding_nums = 0
-    if num_tokens % parallel_config.tensor_parallel_size != 0:
-        padding_nums = parallel_config.tensor_parallel_size - (num_tokens % parallel_config.tensor_parallel_size)
+    padding_nums = parallel_config.tensor_parallel_size - (num_tokens % parallel_config.tensor_parallel_size)
     num_tokens += padding_nums
 
     query_start_loc = [0]

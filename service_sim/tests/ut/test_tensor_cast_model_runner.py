@@ -49,7 +49,7 @@ class TestModelRunner(unittest.TestCase):
 
     def test_run_inference_with_ep(self):
         model_runner = ModelRunner(
-            device="ATLAS_800_A2_280T_64G",
+            device="ATLAS_800_A3_752T_128G_DIE",
             model_id="deepseek-ai/DeepSeek-V3.1",
             quantize_linear_action="FP8",
             quantize_attention_action="INT8",
