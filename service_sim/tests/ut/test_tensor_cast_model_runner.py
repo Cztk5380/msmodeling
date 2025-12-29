@@ -3,7 +3,7 @@ import unittest
 from typing import List
 
 from tensor_cast.core.model_runner import ModelRunner
-from tensor_cast.core.utils import RequestInfo, UserInputConfig
+from tensor_cast.core.utils import RequestInfo, UserInputConfig,QuantizeLinearAction,QuantizeAttentionAction
 
 
 class TestModelRunner(unittest.TestCase):
@@ -48,6 +48,24 @@ class TestModelRunner(unittest.TestCase):
         )
 
         metrics = runner.run_inference(mock_requests)
+        self.assertIsNotNone(metrics)
+
+
+
+    def test_run_inference_with_ep(self):
+        model_runner = ModelRunner(UserInputConfig(
+            device="TEST_DEVICE",
+            model_id="deepseek-ai/DeepSeek-V3.1",
+            quantize_linear_action=QuantizeLinearAction.FP8,
+            quantize_attention_action=QuantizeAttentionAction.INT8,
+            world_size=8,
+            tp_size=8,
+            dp_size=1,
+            ep=True,
+        )
+        )
+        requests = [RequestInfo(1, 65, True)]
+        metrics = model_runner.run_inference(requests)
         self.assertIsNotNone(metrics)
 
 
