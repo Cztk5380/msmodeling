@@ -69,7 +69,9 @@ def flash_attention_forward(
     if attention_by_layers is None:
         # Obtained from the configuration
         is_vision_attention = True
-        attention_by_layers = getattr(module.config,'attention_by_layers',None)
+        context = getattr(module, 'context', None)
+        if context is not None:
+            attention_by_layers = context.get('attention_by_layers', None)
 
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
     if is_vision_attention:

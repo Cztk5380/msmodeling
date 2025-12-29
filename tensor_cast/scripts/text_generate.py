@@ -150,14 +150,19 @@ def run_inference(
         host_external_shared_experts=host_external_shared_experts,
     ).eval()
     print("Preparing dummy input tensors...")
-    image_kwargs = generate_image_inputs(model, image_batch_size, image_height, image_width)
-    num_image_tokens = image_kwargs.pop("num_image_tokens", 0)
-    if is_decode:
-        # In the decode phase, the image input is removed, but the image token needs to be added to content_length
-        image_kwargs = {}
-        context_length += num_image_tokens
+    image_kwargs = {}
+    if model.is_vl_model:
+        image_kwargs = generate_image_inputs(model, image_batch_size, image_height, image_width)
+        num_image_tokens = image_kwargs.pop("num_image_tokens", 0)
+        if is_decode:
+            # In the decode phase, the image input is removed, but the image token needs to be added to content_length
+            image_kwargs = {}
+            context_length += num_image_tokens
+        else:
+            query_len += num_image_tokens
     else:
-        query_len += num_image_tokens
+        if image_batch_size is not None or image_height is not None or image_width is not None:
+            print("For non-VL models, the parameter input of the image is ignored")
     seq_len = context_length + query_len  # Total sequence length for each query
     input_kwargs = generate_inputs(model, query_len, seq_len, num_queries)
     input_kwargs.update(image_kwargs)
@@ -180,6 +185,10 @@ def run_inference(
     # Print memory usage
     total_device_memory_gb = device_profile.memory_size_bytes / 1024**3
     model_weight_size_gb = model.weight_size / 1024**3
+    if model.get_visual() and len(image_kwargs) == 0:
+        # If there is no image input, the visual part does not participate in the calculation and needs to be removed
+        visual_weight_size_gb = model.get_weight_size_nested([model.get_visual()]) / 1024 ** 3
+        model_weight_size_gb = model_weight_size_gb - visual_weight_size_gb
     peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
     total_kv_cache_size_gb = (
         sum(

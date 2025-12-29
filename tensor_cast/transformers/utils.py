@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import os
+from operator import attrgetter
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -161,6 +162,66 @@ def get_attention_quant_config(model, layer_idx) -> Optional[AttentionQuantConfi
         return model.attention_by_layers[layer_idx].quant_config
     return None
 
+
+_VISUAL_FAMILY = {
+    "qwen3_vl": {
+        "visual": attrgetter("visual"),
+        "language_model": attrgetter("language_model"),
+        "visual.layers": attrgetter("visual.blocks"),
+        "language_model.layers": lambda _: "language_model.layers",
+    },
+    "internvl": {
+        "visual": attrgetter("vision_tower"),
+        "language_model": attrgetter("language_model"),
+        "visual.layers": attrgetter("vision_tower.encoder.layer"),
+        "language_model.layers": lambda _: "language_model.layers",
+    },
+}
+
+_MODEL_TYPE_TO_FAMILY = {
+    "qwen3_vl": "qwen3_vl",
+    "qwen3_vl_moe": "qwen3_vl",
+    "internvl": "internvl",
+}
+
+
+def patch_method_for_vl():
+    """
+      Patch Qwen3-VL 模型以解决 meta 模式下的仿真问题。
+
+      问题背景：
+      1. Qwen3-VL 模型使用了基于布尔掩码的张量索引操作（inputs_embeds[special_image_mask]、hidden_states[visual_pos_masks, :]）
+      2. 这些操作在 meta 模式下无法正常执行，因为：
+         - 内部调用 nonzero()，其输出形状依赖于实际值，无法在 meta 模式下推断
+         - 即使启用 meta_nonzero_assume_all_nonzero，会导致维度不匹配错误
+
+      解决方案：
+      - 在 get_placeholder_mask 中跳过张量数量验证
+      - 在 _deepstack_process 中跳过深度堆栈融合操作
+      """
+
+    from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel, Qwen3VLTextModel
+    from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeModel,Qwen3VLMoeTextModel
+    # Class to be patched
+    TARGET_CLASSES = [Qwen3VLModel, Qwen3VLMoeModel]
+    # Save the original method of each class.
+    ORIGINAL_METHODS = {cls: cls.get_placeholder_mask for cls in TARGET_CLASSES}
+
+    def patched_get_placeholder_mask(self, *args, **kwargs):
+        # Forcibly skip image_features
+        kwargs["image_features"] = None
+        # Invoke the original method of the corresponding class.
+        return ORIGINAL_METHODS[type(self)](self, *args, **kwargs)
+
+    for cls in TARGET_CLASSES:
+        cls.get_placeholder_mask = patched_get_placeholder_mask
+
+    DEEPSTACK_PROCESS_TARGET_CLASSES = [Qwen3VLTextModel, Qwen3VLMoeTextModel]
+    def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
+        return hidden_states
+
+    for cls in DEEPSTACK_PROCESS_TARGET_CLASSES:
+        cls._deepstack_process = _patched_deepstack_process
 
 # Copied from `accelerate`
 @contextlib.contextmanager

@@ -399,8 +399,6 @@ def img_smart_resize(
 
 
 def generate_image_inputs(model, image_batch_size, image_height, image_width):
-    if not model.is_vl_model:
-        return {}
     if image_batch_size is None or image_height is None or image_width is None:
         print("For vision-language models,without image input")
         return {}

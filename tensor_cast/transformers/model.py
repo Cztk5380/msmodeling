@@ -37,6 +37,8 @@ from .utils import (
     model_id_to_mla_module_name,
     model_id_to_moe_config,
     strip_module_name,
+    _MODEL_TYPE_TO_FAMILY, _VISUAL_FAMILY,
+    patch_method_for_vl,
 )
 
 if typing.TYPE_CHECKING:
@@ -106,43 +108,21 @@ class VLModelWrapper(ModelWrapperBase):
 
     def forward(
             self,
-            input_ids: torch.LongTensor = None,
-            attention_mask: Optional[torch.Tensor] = None,
-            position_ids: Optional[torch.LongTensor] = None,
-            past_key_values=None,
-            inputs_embeds: Optional[torch.FloatTensor] = None,
-            pixel_values: Optional[torch.Tensor] = None,
-            pixel_values_videos: Optional[torch.FloatTensor] = None,
-            image_grid_thw: Optional[torch.LongTensor] = None,
-            video_grid_thw: Optional[torch.LongTensor] = None,
-            cache_position: Optional[torch.LongTensor] = None,
-            **kwargs,
+            input_ids: Optional[torch.Tensor],
+            position_ids: torch.Tensor,
+            inputs_embeds: Optional[torch.Tensor] = None,
+            **kwargs: object,
     ) -> Union[torch.Tensor, TensorDict]:
-        """
-        multimodal forward
-        Args:
-            input_ids: text token IDs
-            position_ids: position code.
-            inputs_embeds: text embedding
-            past_key_values: It is a [`Cache`] instance.
-            pixel_values: image input (batch_size, num_images, channels, height, width)
-            pixel_values_videos: video input
-            image_grid_thw: image_grid_thw (`torch.LongTensor` of shape `(num_images, 3)`, *optional*):
-                The temporal, height and width of feature shape of each image in LLM.
-            video_grid_thw (`torch.LongTensor` of shape `(num_videos, 3)`, *optional*):
-                The temporal, height and width of feature shape of each video in LLM.
-            attention_mask: attention mask
-            cache_position: cache location
-
-        Returns:
-            logits: generation probability logits
-        """
         # The number of attention layers at the vision layer is image_batch_size x vision_config.depth.
         # Therefore, the preceding configurations are performed here
+        image_grid_thw = kwargs.get('image_grid_thw', None)
         if image_grid_thw is not None:
             attention_by_layers: Optional[dict] = kwargs.get('attention_by_layers', None)
             if attention_by_layers is not None:
-                self._inner.config.vision_config.update(kwargs)
+                pattern = 'blocks.*.attn'
+                for name, module in self._inner.visual.named_modules():
+                    if fnmatch.fnmatchcase(strip_module_name(name), pattern):
+                        module.context = kwargs
                 exist_length = len(attention_by_layers)
                 num_vision_layers = self._inner.config.vision_config.depth * image_grid_thw.shape[0]
                 self._inner.config.vision_config.update({"depth_layer_idx": exist_length})
@@ -151,20 +131,14 @@ class VLModelWrapper(ModelWrapperBase):
                 for i in range(num_vision_layers):
                     attention_by_layers[i + exist_length] = attn_cls()
 
-            self.patch_source_for_meta()
+            patch_method_for_vl()
 
         outputs = self._inner(
             input_ids=input_ids,
-            attention_mask=attention_mask,
+            use_cache=False,
             position_ids=position_ids,
-            past_key_values=past_key_values,
             inputs_embeds=inputs_embeds,
-            pixel_values=pixel_values,
-            pixel_values_videos=pixel_values_videos,
-            image_grid_thw=image_grid_thw,
-            video_grid_thw=video_grid_thw,
-            cache_position=cache_position,
-            **kwargs
+            **kwargs,
         )
 
         hidden_states = outputs.last_hidden_state
@@ -176,31 +150,6 @@ class VLModelWrapper(ModelWrapperBase):
         logits = self.lm_head(hidden_states)
 
         return logits
-
-    def patch_source_for_meta(self):
-        from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel, Qwen3VLTextModel
-        from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeModel,Qwen3VLMoeTextModel
-        # Class to be patched
-        TARGET_CLASSES = [Qwen3VLModel, Qwen3VLMoeModel]
-        # Save the original method of each class.
-        ORIGINAL_METHODS = {cls: cls.get_placeholder_mask for cls in TARGET_CLASSES}
-
-        def patched_get_placeholder_mask(self, *args, **kwargs):
-            # Forcibly skip image_features
-            kwargs["image_features"] = None
-            # Invoke the original method of the corresponding class.
-            return ORIGINAL_METHODS[type(self)](self, *args, **kwargs)
-
-        for cls in TARGET_CLASSES:
-            cls.get_placeholder_mask = patched_get_placeholder_mask
-
-        DEEPSTACK_PROCESS_TARGET_CLASSES = [Qwen3VLTextModel, Qwen3VLMoeTextModel]
-        def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
-            return hidden_states
-
-        for cls in DEEPSTACK_PROCESS_TARGET_CLASSES:
-            cls._deepstack_process = _patched_deepstack_process
-
 
 
 class ModelWrapper(ModelWrapperBase):
@@ -381,11 +330,10 @@ class TransformerModel(ModelWrapperBase):
         unwrapped = self.unwrap()
         if hasattr(unwrapped, "layers"):
             repeat_layers(unwrapped.layers)
-        if self.is_vl_model:
-            visual = unwrapped.visual
-            if hasattr(visual, "blocks"):
-                repeat_layers(visual.blocks)
-            language_model = unwrapped.language_model
+        visual_layers = self.get_visual_layers()
+        if visual_layers is not None:
+            repeat_layers(visual_layers)
+            language_model = self.get_vl_language_model()
             if hasattr(language_model, "layers"):
                 repeat_layers(language_model.layers)
 
@@ -400,6 +348,9 @@ class TransformerModel(ModelWrapperBase):
         """
         # cache rotary embedding to avoid computing it each time per forward
         unwrapped = self.unwrap()
+        vl_language_model = self.get_vl_language_model()
+        if vl_language_model is not None:
+            unwrapped = vl_language_model
         if self.model_config.cache_rotary_embedding and hasattr(
             unwrapped, "rotary_emb"
         ):
@@ -408,17 +359,6 @@ class TransformerModel(ModelWrapperBase):
                 act_dtype=self.model_config.dtype,
                 max_position_embeddings=self.text_config.max_position_embeddings,
             )
-        if self.is_vl_model:
-            language_model = unwrapped.language_model
-            if self.model_config.cache_rotary_embedding and hasattr(
-                    language_model, "rotary_emb"
-            ):
-                language_model.rotary_emb = CachingRotaryEmb(
-                    language_model.rotary_emb,
-                    act_dtype=self.model_config.dtype,
-                    max_position_embeddings=self.text_config.max_position_embeddings,
-                    is_vl_model=True
-                )
         # replace attention with custom implementation if defined
         if self.model_config.attention_cls is not None:
             self.attention_by_layers = {}
@@ -534,9 +474,7 @@ class TransformerModel(ModelWrapperBase):
                 "global_tp_group": tp_group,
             }
             config_info = self.hf_config if not self.is_vl_model else self.text_config
-            layers_keyword = "layers"
-            if self.is_vl_model:
-                layers_keyword = "language_model.layers"
+            layers_path = self.get_layers_prefix()
             if self.model_config.mla_config:
                 params.update({"head_num": config_info.num_attention_heads})
                 tp_plan.update(
@@ -548,7 +486,7 @@ class TransformerModel(ModelWrapperBase):
                 )
             else:
                 params.update({"head_num": config_info.num_attention_heads})
-                tp_plan.update({f"{layers_keyword}.*.self_attn.q_proj": (COLWISE_LINEAR, params)})
+                tp_plan.update({f"{layers_path}.*.self_attn.q_proj": (COLWISE_LINEAR, params)})
                 params = params.copy()
                 params.update(
                     {
@@ -558,8 +496,8 @@ class TransformerModel(ModelWrapperBase):
                 )
                 tp_plan.update(
                     {
-                        f"{layers_keyword}.*.self_attn.k_proj": (COLWISE_LINEAR, params),
-                        f"{layers_keyword}.*.self_attn.v_proj": (COLWISE_LINEAR, params),
+                        f"{layers_path}.*.self_attn.k_proj": (COLWISE_LINEAR, params),
+                        f"{layers_path}.*.self_attn.v_proj": (COLWISE_LINEAR, params),
                     }
                 )
 
@@ -568,29 +506,20 @@ class TransformerModel(ModelWrapperBase):
                 "global_tp_group": tp_group,
                 "head_num": config_info.num_attention_heads,
             }
-            tp_plan.update({f"{layers_keyword}.*.self_attn.o_proj": (ROWWISE_LINEAR, params)})
+            tp_plan.update({f"{layers_path}.*.self_attn.o_proj": (ROWWISE_LINEAR, params)})
 
             params = {
                 "tp_group": mlp_tp_group,
                 "global_tp_group": tp_group,
             }
-            if self.is_vl_model:
-                tp_plan.update(
-                    {
-                        # todo 先完成language_model的tp，vision的并行后续需要处理
-                        "language_model.layers.*.mlp.gate_proj": (COLWISE_LINEAR, params),
-                        "language_model.layers.*.mlp.up_proj": (COLWISE_LINEAR, params),
-                        "language_model.layers.*.mlp.down_proj": (ROWWISE_LINEAR, params),
-                    }
-                )
-            else:
-                tp_plan.update(
-                    {
-                        "layers.*.mlp.gate_proj": (COLWISE_LINEAR, params),
-                        "layers.*.mlp.up_proj": (COLWISE_LINEAR, params),
-                        "layers.*.mlp.down_proj": (ROWWISE_LINEAR, params),
-                    }
-                )
+            tp_plan.update(
+                {
+                    # todo 先完成language_model的tp，vision的并行后续需要处理
+                    f"{layers_path}.*.mlp.gate_proj": (COLWISE_LINEAR, params),
+                    f"{layers_path}.*.mlp.up_proj": (COLWISE_LINEAR, params),
+                    f"{layers_path}.*.mlp.down_proj": (ROWWISE_LINEAR, params),
+                }
+            )
 
             if not self.model_config.parallel_config.has_ep():
                 params = {
@@ -796,6 +725,51 @@ class TransformerModel(ModelWrapperBase):
             parent_module = self._inner.get_submodule(parent_name)
         setattr(parent_module, child_name, new_module)
 
+    def _get_vl_model_spec(self):
+        model_type = self.hf_config.model_type
+        family = _MODEL_TYPE_TO_FAMILY.get(model_type)
+        if family is None:
+            return None
+        return _VISUAL_FAMILY[family]
+
+    def get_visual(self):
+        spec = self._get_vl_model_spec()
+        if spec is None:
+            return None
+        return spec["visual"](self.unwrap())
+
+    def get_vl_language_model(self):
+        spec = self._get_vl_model_spec()
+        if spec is None:
+            return None
+        return spec["language_model"](self.unwrap())
+
+    def get_visual_layers(self):
+        spec = self._get_vl_model_spec()
+        if spec is None:
+            return None
+        return spec["visual.layers"](self.unwrap())
+
+    def get_layers_prefix(self) -> str:
+        """
+        Return the string prefix of transformer layers:
+          - "language_model.layers"
+          - "layers"
+        """
+        spec = self._get_vl_model_spec()
+        if spec is None:
+            return "layers"
+        return spec["language_model.layers"](self.unwrap())
+
+    def get_weight_size_nested(self, modules):
+        total_size = 0
+        for mod in modules:
+            for _, param in mod.named_parameters():
+                total_size += bytes_of_tensor(param)
+            for _, buffer in mod.named_buffers():
+                total_size += bytes_of_tensor(buffer)
+        return total_size
+
     @property
     def num_hidden_layers(self):
         num_hidden_layers = self.text_config.num_hidden_layers
@@ -825,15 +799,7 @@ class TransformerModel(ModelWrapperBase):
 
     @property
     def weight_size(self):
-        def get_weight_size_nested(mod):
-            total_size = 0
-            for _, param in mod.named_parameters():
-                total_size += bytes_of_tensor(param)
-            for _, buffer in mod.named_buffers():
-                total_size += bytes_of_tensor(buffer)
-            return total_size
-
-        return get_weight_size_nested(self)
+        return self.get_weight_size_nested([self])
 
     def forward(
         self,

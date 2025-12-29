@@ -945,5 +945,38 @@ class TestTextGenerate(unittest.TestCase):
         )
         self._validate_inference_result(result, "test_qwen3_vl_with_basic_prefill")
 
+    def test_qwen3_vl_without_img_prefill(self):
+        """Test qwen3_vl without image input prefill operation."""
+        result = run_inference(
+            device=self.device,
+            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            num_queries=self.num_queries,
+            query_len=self.query_len,
+            context_length=self.context_length,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+        )
+        self._validate_inference_result(result, "test_qwen3_vl_without_img_prefill")
+
+    def test_qwen3_vl_decode_mode(self):
+        """Test qwen3_vl decode mode """
+        result = run_inference(
+            device=self.device,
+            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            num_queries=self.num_queries,
+            query_len=self.query_len,
+            context_length=self.context_length,
+            image_batch_size=1,
+            image_width=1920,
+            image_height=1080,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            is_decode=True,
+        )
+        self._validate_inference_result(result, "test_qwen3_vl_decode_mode")
+
+
 if __name__ == "__main__":
     unittest.main()
