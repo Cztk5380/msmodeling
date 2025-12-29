@@ -54,15 +54,10 @@ In the `flash_attention_forward` function, additional logic is introduced to dis
 
 * Specialized attention computation methods for visual features
 * Adaptation of interactions between visual tokens and textual tokens
-* Optimization of KV cache management for the vision component
 
 **Rotary Position Embedding Adaptation**
 
-In the `CachingRotaryEmb` class, an `is_vl_model` parameter is added to indicate whether the model is a vision-language model, and the position embedding logic is adjusted accordingly:
-
-* Separate position embedding strategies for visual tokens and textual tokens
-* Support for position embedding computation in multimodal mixed sequences
-* Ensuring that position embeddings for vision and text components do not interfere with each other
+In the `CachingRotaryEmb` class, We handle it uniformly by judging the dimension of 'position_ids' and converting it to text_position_ids if it is VL
 
 ---
 
@@ -93,6 +88,7 @@ In the `CachingRotaryEmb` class, an `is_vl_model` parameter is added to indicate
 ### Future Optimizations
 
 * [ ] Parallelization strategies for the vision component in multi-GPU setups
+* [ ] prefill stage compile support
 * [ ] Support for MoE and corresponding parallelization strategies
 * [ ] Add support for Qwen2.5-VL
 * [ ] Add support for video inputs
