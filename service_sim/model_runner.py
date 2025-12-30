@@ -14,8 +14,12 @@ from scipy.interpolate import LinearNDInterpolator
 from service_sim.config import Config
 from service_sim.request import Request, RequestState
 
-from tensor_cast.core.model_runner import ModelRunner as TensorCastModelRunner
-from tensor_cast.core.utils import ModelRunnerMetrics, RequestInfo, UserInputConfig
+from tensor_cast.core.input_generator import RequestInfo
+from tensor_cast.core.model_runner import (
+    ModelRunner as TensorCastModelRunner,
+    ModelRunnerMetrics,
+)
+from tensor_cast.core.user_config import UserInputConfig
 
 logger = stime.get_logger(__name__)
 

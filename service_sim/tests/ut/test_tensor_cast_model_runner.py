@@ -2,13 +2,13 @@
 import unittest
 from typing import List
 
+from tensor_cast.core.input_generator import RequestInfo
 from tensor_cast.core.model_runner import ModelRunner
-from tensor_cast.core.utils import (
+from tensor_cast.core.quantization.datatypes import (
     QuantizeAttentionAction,
     QuantizeLinearAction,
-    RequestInfo,
-    UserInputConfig,
 )
+from tensor_cast.core.user_config import UserInputConfig
 
 
 class TestModelRunner(unittest.TestCase):

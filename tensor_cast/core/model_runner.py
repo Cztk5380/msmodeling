@@ -8,7 +8,8 @@ ModelRuner
 from __future__ import annotations
 
 import time
-from typing import Callable, List, Optional
+from dataclasses import dataclass, field
+from typing import Callable, Dict, List, Optional
 
 import torch
 
@@ -18,15 +19,14 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..performance_model.utils import bytes_of_tensor
 from ..runtime import Runtime
-from .utils import (
-    build_model,
+from .input_generator import (
     generate_inputs_varlen,
     get_inputs_num_bytes,
     get_kv_cache_info,
-    ModelRunnerMetrics,
     RequestInfo,
-    UserInputConfig,
 )
+from .model_builder import build_model
+from .user_config import UserInputConfig
 
 
 class ModelRunner:
@@ -162,3 +162,18 @@ class ModelRunner:
 
     def get_kv_cache_num_bytes(self, num_tokens: int) -> int:
         return get_kv_cache_info(self.model, 1, 1) * num_tokens
+
+
+@dataclass
+class ModelRunnerMetrics:
+    total_device_memory_gb: float
+    model_weight_size_gb: float
+    peak_memory_usage_gb: float
+    kv_cache_size_gb: float
+    kv_cache_per_token_gb: float
+    model_activation_size_gb: float
+    reserved_memory_gb: float
+    device_memory_available_gb: float
+    execution_time_s: float
+    table_result: str = ""
+    breakdowns: Dict[str, Dict[str, float]] = field(default_factory=dict)
