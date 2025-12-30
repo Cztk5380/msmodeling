@@ -2,7 +2,7 @@
 #!/usr/bin/env python
 # _*_coding:utf-8_*_
 """
-ModelRuner v2
+ModelRuner
 """
 
 from __future__ import annotations

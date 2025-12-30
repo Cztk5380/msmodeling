@@ -1,9 +1,7 @@
 #!/usr/bin/env python
 # _*_coding:utf-8_*_
 """
-@Time   :  2025/12/28 13:32
-@Author :  Qinghua Wang
-@Email  :  597935261@qq.com
+utils
 """
 
 from dataclasses import dataclass, field, fields
