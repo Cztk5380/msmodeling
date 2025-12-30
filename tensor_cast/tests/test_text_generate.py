@@ -5,14 +5,10 @@ from typing import Union
 import torch
 from parameterized import parameterized
 
-from ..core.model_runner import ModelRunner
-from ..core.utils import (
-    generate_inputs,
-    ModelRunnerMetrics,
-    QuantizeAttentionAction,
-    QuantizeLinearAction,
-    UserInputConfig,
-)
+from ..core.input_generator import generate_inputs
+from ..core.model_runner import ModelRunner, ModelRunnerMetrics
+from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
+from ..core.user_config import UserInputConfig
 
 
 class TestTextGenerate(unittest.TestCase):

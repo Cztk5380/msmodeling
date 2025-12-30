@@ -2,7 +2,7 @@ import random
 
 import torch
 
-from ..core.utils import UserInputConfig
+from ..core.user_config import UserInputConfig
 from ..layers.attention import AttentionMetadataTensorCast
 from ..model_config import LinearQuantConfig, ModelConfig, QuantConfig
 from ..quantize_utils import LinearQuantType

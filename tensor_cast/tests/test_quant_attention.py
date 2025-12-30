@@ -3,12 +3,9 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..core.utils import (
-    build_model,
-    QuantizeAttentionAction,
-    QuantizeLinearAction,
-    UserInputConfig,
-)
+from ..core.model_builder import build_model
+from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
+from ..core.user_config import UserInputConfig
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
 from ..layers.sampler import SamplingMetadata

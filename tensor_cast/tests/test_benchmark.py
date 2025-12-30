@@ -1,13 +1,10 @@
 import copy
 import unittest
 
-from ..core.utils import (
-    build_model,
-    create_quant_config,
-    QuantizeAttentionAction,
-    QuantizeLinearAction,
-    UserInputConfig,
-)
+from ..core.model_builder import build_model
+from ..core.quantization.config import create_quant_config
+from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
+from ..core.user_config import UserInputConfig
 from ..device import DeviceProfile
 from ..scripts.benchmark import find_best_throughput, get_benchmark_query_and_seq_length
 from ..transformers.utils import get_moe_config

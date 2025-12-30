@@ -3,7 +3,8 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..core.utils import build_model, UserInputConfig
+from ..core.model_builder import build_model
+from ..core.user_config import UserInputConfig
 from ..layers.sampler import SamplingMetadata
 from ..patch_torch import patch_torch
 from ..transformers.utils import get_mtp_block_module_name

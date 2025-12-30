@@ -7,7 +7,7 @@ from unittest.mock import MagicMock
 import torch
 from parameterized import parameterized
 
-from ..core.utils import QuantizeLinearAction
+from ..core.quantization.datatypes import QuantizeLinearAction
 from ..scripts.video_generate import process_input, run_inference
 
 

@@ -4,7 +4,8 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..core.utils import build_model, UserInputConfig
+from ..core.model_builder import build_model
+from ..core.user_config import UserInputConfig
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
 from ..layers.internal import CopyLayerWrapper

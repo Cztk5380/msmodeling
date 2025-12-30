@@ -3,7 +3,9 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..core.utils import build_model, QuantizeLinearAction, UserInputConfig
+from ..core.model_builder import build_model
+from ..core.quantization.datatypes import QuantizeLinearAction
+from ..core.user_config import UserInputConfig
 from ..device import TEST_DEVICE
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear

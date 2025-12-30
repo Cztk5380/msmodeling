@@ -5,7 +5,8 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..core.utils import build_model, UserInputConfig
+from ..core.model_builder import build_model
+from ..core.user_config import UserInputConfig
 from ..device import TEST_DEVICE
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.empirical import EmpiricalPerformanceModel

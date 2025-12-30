@@ -7,7 +7,8 @@ from typing import Generator
 import pandas as pd
 import torch
 
-from tensor_cast.core.utils import build_model, UserInputConfig
+from tensor_cast.core.model_builder import build_model
+from tensor_cast.core.user_config import UserInputConfig
 from tensor_cast.device import DeviceProfile
 from tensor_cast.service.backend_factory import StrategyFactory
 from tensor_cast.service.report_and_save import Summary

@@ -4,7 +4,8 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
-from ..core.utils import build_model, UserInputConfig
+from ..core.model_builder import build_model
+from ..core.user_config import UserInputConfig
 from ..patch_torch import patch_torch
 from .test_common import (
     create_attn_metadata_and_kv_cache,
