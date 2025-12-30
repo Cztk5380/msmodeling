@@ -49,28 +49,28 @@ graph TD
 
 #### 2.0.1 Core Component Descriptions
 
-**1. UserInputConfig** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/core/utils.py#L437-L566))
+**1. UserInputConfig** ([user_config.py](../../tensor_cast/core/user_config.py))
 - User input configuration class containing all user-configurable parameters
 - Supports device configuration, model configuration, parallel configuration, quantization configuration, etc.
 - Provides `get_parallel_config()` and `get_quant_config()` methods to generate runtime configurations
 
-**2. ConfigResolver** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/core/utils.py#L637-L795))
+**2. ConfigResolver** ([config_resolver.py](../../tensor_cast/core/config_resolver.py))
 - Configuration resolver responsible for converting user input into runtime configuration
 - Uses `AutoModelConfigLoader` to load HuggingFace configuration
 - Automatically parses and configures special modules like MoE, MLA, MTP
 - Supports automatic matching of model features based on `model_type`
 
-**3. ModelRunner** ([model_runner.py](file:///g:/msit/liuren_modeling/tensor_cast/core/model_runner.py#L1-L164))
+**3. ModelRunner** ([model_runner.py](../../tensor_cast/core/model_runner.py))
 - Model runner responsible for executing inference and collecting performance metrics
 - Encapsulates initialization logic for device configuration, performance model, model construction, etc.
 - Provides `run_inference()` method to execute inference and return detailed performance metrics
 
-**4. build_model()** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/core/utils.py#L799-L814))
+**4. build_model()** ([model_builder.py](../../tensor_cast/core/model_builder.py))
 - Model construction entry function
 - Coordinates ConfigResolver and TransformerModel to complete model construction
 - Supports optional torch.compile compilation
 
-**5. RequestInfo & ModelRunnerMetrics** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/core/utils.py#L30-L72))
+**5. RequestInfo & ModelRunnerMetrics** ([input_generator.py](../../tensor_cast/core/input_generator.py))
 - `RequestInfo`: Encapsulates request information (query_len, seq_len, concurrency, etc.)
 - `ModelRunnerMetrics`: Encapsulates inference performance metrics (memory usage, execution time, etc.)
 
@@ -112,7 +112,7 @@ graph TD
 
 After refactoring, `model_type` is used as the key for model feature mapping, supporting the following mappings:
 
-- **MoE Configuration Mapping** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/transformers/utils.py#L17-L68)):
+- **MoE Configuration Mapping** ([utils.py](../../tensor_cast/transformers/utils.py)):
   - `deepseek_v3` → `DeepseekV3MoE`
   - `glm4_moe` → `Glm4MoeMoE`
   - `minimax_m2` → `MiniMaxM2SparseMoeBlock`
@@ -121,10 +121,10 @@ After refactoring, `model_type` is used as the key for model feature mapping, su
   - `mimo_v2_flash` → `MiMoV2MoE`
   - `ernie4_5_moe` → `Ernie4_5_MoeSparseMoeBlock`
 
-- **MLA Module Mapping** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/transformers/utils.py#L70-L78)):
+- **MLA Module Mapping** ([utils.py](../../tensor_cast/transformers/utils.py)):
   - `deepseek_v3` → `DeepseekV3Attention`
 
-- **MTP Module Mapping** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/transformers/utils.py#L80-L88)):
+- **MTP Module Mapping** ([utils.py](../../tensor_cast/transformers/utils.py)):
   - `deepseek_v3` → `DeepseekV3DecoderLayer`
   - `glm4_moe` → `Glm4MoeDecoderLayer`
   - `mimo_v2_flash` → `MiMoV2DecoderLayer`
@@ -367,15 +367,22 @@ user_input = UserInputConfig(
 
 ```
 tensor_cast/
-├── core/                      # Core modules (newly added)
-│   ├── model_runner.py        # Model runner
-│   └── utils.py              # Core utility functions
-├── transformers/             # Transformers integration
-│   ├── model.py              # TransformerModel
-│   └── utils.py              # AutoModelConfigLoader, etc.
-├── model_config.py           # Configuration data classes
-├── layers/                   # Custom layer implementations
-├── ops/                      # Custom operators
+├── core/                      # Core modules
+│   ├── config_resolver.py     # Configuration resolver
+│   ├── input_generator.py     # Input generator (contains RequestInfo)
+│   ├── model_builder.py       # Model builder (contains build_model)
+│   ├── model_runner.py        # Model runner (contains ModelRunnerMetrics)
+│   ├── user_config.py         # User input configuration class
+│   ├── utils.py               # Utility functions
+│   └── quantization/          # Quantization configuration
+│       ├── config.py          # Quantization configuration creation functions
+│       └── datatypes.py       # Quantization datatype definitions
+├── transformers/              # Transformers integration
+│   ├── model.py               # TransformerModel
+│   └── utils.py               # AutoModelConfigLoader, model type mappings, etc.
+├── model_config.py            # Configuration data classes
+├── layers/                    # Custom layer implementations
+├── ops/                       # Custom operators
 └── ...
 ```
 

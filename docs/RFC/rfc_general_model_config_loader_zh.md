@@ -49,28 +49,28 @@ graph TD
 
 #### 2.0.1 核心组件说明
 
-**1. UserInputConfig** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/core/utils.py#L437-L566))
+**1. UserInputConfig** ([user_config.py](../../tensor_cast/core/user_config.py))
 - 用户输入配置类，包含所有用户可配置的参数
 - 支持设备配置、模型配置、并行配置、量化配置等
 - 提供 `get_parallel_config()` 和 `get_quant_config()` 方法生成运行时配置
 
-**2. ConfigResolver** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/core/utils.py#L637-L795))
+**2. ConfigResolver** ([config_resolver.py](../../tensor_cast/core/config_resolver.py))
 - 配置解析器，负责将用户输入转换为运行时配置
 - 使用 `AutoModelConfigLoader` 加载 HuggingFace 配置
 - 自动解析并配置 MoE、MLA、MTP 等特殊模块
 - 支持根据 `model_type` 自动匹配模型特性
 
-**3. ModelRunner** ([model_runner.py](file:///g:/msit/liuren_modeling/tensor_cast/core/model_runner.py#L1-L164))
+**3. ModelRunner** ([model_runner.py](../../tensor_cast/core/model_runner.py))
 - 模型运行器，负责执行推理并收集性能指标
 - 封装了设备配置、性能模型、模型构建等初始化逻辑
 - 提供 `run_inference()` 方法执行推理并返回详细的性能指标
 
-**4. build_model()** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/core/utils.py#L799-L814))
+**4. build_model()** ([model_builder.py](../../tensor_cast/core/model_builder.py))
 - 模型构建入口函数
 - 协调 ConfigResolver 和 TransformerModel 完成模型构建
 - 支持可选的 torch.compile 编译
 
-**5. RequestInfo & ModelRunnerMetrics** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/core/utils.py#L30-L72))
+**5. RequestInfo & ModelRunnerMetrics** ([input_generator.py](../../tensor_cast/core/input_generator.py))
 - `RequestInfo`: 封装请求信息（query_len、seq_len、concurrency等）
 - `ModelRunnerMetrics`: 封装推理性能指标（内存使用、执行时间等）
 
@@ -112,7 +112,7 @@ graph TD
 
 重构后使用 `model_type` 作为键值进行模型特性映射，支持以下映射：
 
-- **MoE 配置映射** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/transformers/utils.py#L17-L68)):
+- **MoE 配置映射** ([utils.py](../../tensor_cast/transformers/utils.py)):
   - `deepseek_v3` → `DeepseekV3MoE`
   - `glm4_moe` → `Glm4MoeMoE`
   - `minimax_m2` → `MiniMaxM2SparseMoeBlock`
@@ -121,10 +121,10 @@ graph TD
   - `mimo_v2_flash` → `MiMoV2MoE`
   - `ernie4_5_moe` → `Ernie4_5_MoeSparseMoeBlock`
 
-- **MLA 模块映射** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/transformers/utils.py#L70-L78)):
+- **MLA 模块映射** ([utils.py](../../tensor_cast/transformers/utils.py)):
   - `deepseek_v3` → `DeepseekV3Attention`
 
-- **MTP 模块映射** ([utils.py](file:///g:/msit/liuren_modeling/tensor_cast/transformers/utils.py#L80-L88)):
+- **MTP 模块映射** ([utils.py](../../tensor_cast/transformers/utils.py)):
   - `deepseek_v3` → `DeepseekV3DecoderLayer`
   - `glm4_moe` → `Glm4MoeDecoderLayer`
   - `mimo_v2_flash` → `MiMoV2DecoderLayer`
@@ -367,15 +367,22 @@ user_input = UserInputConfig(
 
 ```
 tensor_cast/
-├── core/                      # 核心模块（新增）
-│   ├── model_runner.py        # 模型运行器
-│   └── utils.py              # 核心工具函数
-├── transformers/             # Transformers集成
-│   ├── model.py              # TransformerModel
-│   └── utils.py              # AutoModelConfigLoader等
-├── model_config.py           # 配置数据类
-├── layers/                   # 自定义层实现
-├── ops/                      # 自定义算子
+├── core/                      # 核心模块
+│   ├── config_resolver.py     # 配置解析器
+│   ├── input_generator.py     # 输入生成器（包含 RequestInfo）
+│   ├── model_builder.py       # 模型构建器（包含 build_model）
+│   ├── model_runner.py        # 模型运行器（包含 ModelRunnerMetrics）
+│   ├── user_config.py         # 用户输入配置类
+│   ├── utils.py               # 通用工具函数
+│   └── quantization/          # 量化配置
+│       ├── config.py          # 量化配置创建函数
+│       └── datatypes.py       # 量化数据类型定义
+├── transformers/              # Transformers集成
+│   ├── model.py               # TransformerModel
+│   └── utils.py               # AutoModelConfigLoader、模型类型映射等
+├── model_config.py            # 配置数据类
+├── layers/                    # 自定义层实现
+├── ops/                       # 自定义算子
 └── ...
 ```
 
