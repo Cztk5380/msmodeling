@@ -5,7 +5,6 @@ import torch
 
 from ..device import DeviceProfile
 from ..performance_model import OpInvokeInfo
-
 from .utils import bytes_of_tensor
 
 

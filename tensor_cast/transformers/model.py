@@ -19,15 +19,13 @@ from ..layers import (
 )
 from ..layers.attention import flash_attention_forward
 from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
-from ..layers.mla import (
-    MultiheadLatentAttentionBase,
-)
+from ..layers.mla import MultiheadLatentAttentionBase
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 from ..layers.quant_linear import QuantLinearBase
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
-from ..model_config import  ModelConfig, MoEConfig
+from ..model_config import ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
 from ..quantize_utils import quantize_linear_modules
@@ -316,8 +314,8 @@ class TransformerModel(ModelWrapperBase):
         return True
 
     def patch_mla(self):
-        mla_config=self.model_config.mla_config
-        if  mla_config is None:
+        mla_config = self.model_config.mla_config
+        if mla_config is None:
             return
         named_modules = list(self._inner.named_modules())
         for name, module in named_modules:

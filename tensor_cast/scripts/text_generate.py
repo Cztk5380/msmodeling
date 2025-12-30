@@ -2,15 +2,12 @@ import argparse
 import logging
 
 from .. import config
+from ..core.input_generator import generate_inputs
 from ..core.model_runner import ModelRunner
-from ..core.utils import (
-    generate_inputs,
-    QuantizeAttentionAction,
-    QuantizeLinearAction,
-    UserInputConfig,
-)
-from .utils import  check_positive_integer
+from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
+from ..core.user_config import UserInputConfig
 from ..device import DeviceProfile
+from .utils import check_positive_integer
 
 
 def main():
@@ -132,7 +129,7 @@ def main():
         "--disable-repetition",
         action="store_true",
         help="Preserve the original behavior of the transformer models. Do not leverage the repetition "
-             "pattern of the transformer models to save runtime cost",
+        "pattern of the transformer models to save runtime cost",
     )
     parser.add_argument(
         "--reserved-memory-gb",
@@ -208,10 +205,10 @@ def main():
         "--enable-redundant-experts",
         action="store_true",
         help="Whether or not to use redundant experts. When this flag is True: "
-             "if the externalization of shared experts is not enabled at this time, "
-             "each device will add one redundant expert. If the externalization of shared experts is enabled "
-             "and the number of routing experts on each device is the same, "
-             "then each device hosting the routing experts will also add one redundant expert.",
+        "if the externalization of shared experts is not enabled at this time, "
+        "each device will add one redundant expert. If the externalization of shared experts is enabled "
+        "and the number of routing experts on each device is the same, "
+        "then each device hosting the routing experts will also add one redundant expert.",
     )
     parser.add_argument(
         "--enable-external-shared-experts",
