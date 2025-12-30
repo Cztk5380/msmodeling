@@ -6,7 +6,7 @@ import random
 import threading
 from dataclasses import dataclass
 from multiprocessing import Event, Manager
-from typing import List, Optional
+from typing import List, Optional,Tuple
 
 import numpy as np
 import stime
@@ -297,7 +297,7 @@ class ModelRunner:
         x, y = [], []
         for batch in batches:
             interpolation_point = self.get_interpolation_point(batch)
-            dt = self.tensor_cast_model_runner.run_inference(batch).execution_time_s
+            dt = self.tensor_cast_model_runner.run_inference(batch,with_sampler=True).execution_time_s
             if dt <= 0:
                 raise ValueError(f"run_inference get negative execution time: {dt}")
             x.append(
@@ -349,7 +349,7 @@ class ModelRunner:
                 f"consume {duration} seconds"
             )
 
-    def warmup(self) -> int:
+    def warmup(self) -> Tuple[int,int]:
         """
         use max length to try warmup get num_blocks
         """
@@ -363,7 +363,7 @@ class ModelRunner:
                 num_output_tokens=2 * serving_config.max_tokens_budget,
             )
         ]
-        inference_metrics = self.tensor_cast_model_runner.run_inference(batch)
+        inference_metrics = self.tensor_cast_model_runner.run_inference(batch,with_sampler=True)
         block_size = self.common_config.serving_config.block_size
         all_mem_for_kv_cache = (
             inference_metrics.device_memory_available_gb
@@ -391,7 +391,7 @@ class ModelRunner:
             estimated_time = self.apply_interpolation_model(batch)
         else:
             estimated_time = self.tensor_cast_model_runner.run_inference(
-                batch
+                batch,with_sampler=True
             ).execution_time_s
         return estimated_time
 
@@ -606,7 +606,7 @@ class AsyncTaskManager:
                     raise RuntimeError("AsyncTaskManager get task failed") from e
 
                 try:
-                    result = tensor_cast_model_runner.run_inference(task.batch)
+                    result = tensor_cast_model_runner.run_inference(task.batch,with_sampler=True)
                 except Exception as e:
                     raise RuntimeError("AsyncTaskManager execute task failed") from e
 
