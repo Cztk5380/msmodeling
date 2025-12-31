@@ -152,7 +152,7 @@ def run_inference(
     print("Preparing dummy input tensors...")
     image_kwargs = {}
     if model.is_vl_model:
-        image_kwargs = generate_image_inputs(model, image_batch_size, image_height, image_width)
+        image_kwargs = generate_image_inputs(model, image_batch_size, image_height, image_width, num_queries)
         num_image_tokens = image_kwargs.pop("num_image_tokens", 0)
         if is_decode:
             # In the decode phase, the image input is removed, but the image token needs to be added to content_length

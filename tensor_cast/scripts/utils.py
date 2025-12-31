@@ -398,7 +398,7 @@ def img_smart_resize(
     return h_bar, w_bar
 
 
-def generate_image_inputs(model, image_batch_size, image_height, image_width):
+def generate_image_inputs(model, image_batch_size, image_height, image_width, concurrency):
     if image_batch_size is None or image_height is None or image_width is None:
         print("For vision-language models,without image input")
         return {}
@@ -423,6 +423,12 @@ def generate_image_inputs(model, image_batch_size, image_height, image_width):
     # Calculate the token embedded in the text.
     merge_length = merge_size ** 2
     num_image_tokens = image_batch_size * (tokens // merge_length + 2)
+    parallel_config = model.model_config.parallel_config
+    batch_size = (
+        concurrency + parallel_config.data_parallel_size - 1
+    ) // parallel_config.data_parallel_size
+    pixel_values = pixel_values.repeat(batch_size, 1)
+    image_grid_thw = image_grid_thw.repeat(batch_size, 1)
     return {"pixel_values": pixel_values, "image_grid_thw": image_grid_thw, "num_image_tokens": num_image_tokens}
 
 @dataclass
