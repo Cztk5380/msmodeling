@@ -7,8 +7,9 @@ from unittest.mock import MagicMock
 import torch
 from parameterized import parameterized
 
+from ..core.quantization.datatypes import QuantizeLinearAction
 from ..scripts.video_generate import process_input, run_inference
-from ..scripts.utils import QuantizeLinearAction
+
 
 class TestVideoGeneration(unittest.TestCase):
     """Unit tests for video_generate.py script."""
@@ -62,7 +63,9 @@ class TestVideoGeneration(unittest.TestCase):
             "z_dim": 16,
         }
 
-        self.temp_dir, self.model_id = self._create_mock_model_dir(transformer_config, vae_config)
+        self.temp_dir, self.model_id = self._create_mock_model_dir(
+            transformer_config, vae_config
+        )
         self.device = "TEST_DEVICE"
         self.batch_size = 2
         self.seq_len = 10
@@ -214,8 +217,6 @@ class TestVideoGeneration(unittest.TestCase):
                 f"test_video_inference_with_world_{world_size}_ulysses_{ulysses_size} failed with exception: {str(e)}"
             )
 
-
-
     @parameterized.expand(
         [
             (
@@ -262,7 +263,7 @@ class TestVideoGeneration(unittest.TestCase):
                     "norm_num_groups": 32,
                     "temporal_compression_ratio": 4,
                     "z_dim": 16,
-                }
+                },
             ),
             (
                 "WAN",
@@ -280,15 +281,11 @@ class TestVideoGeneration(unittest.TestCase):
                     "num_attention_heads": 40,
                     "num_layers": 40,
                     "out_channels": 16,
-                    "patch_size": [
-                        1,
-                        2,
-                        2
-                    ],
+                    "patch_size": [1, 2, 2],
                     "pos_embed_seq_len": None,
                     "qk_norm": "rms_norm_across_heads",
                     "rope_max_seq_len": 1024,
-                    "text_dim": 4096
+                    "text_dim": 4096,
                 },
                 {
                     "_class_name": "AutoencoderKLWan",
@@ -298,16 +295,45 @@ class TestVideoGeneration(unittest.TestCase):
                     "dim_mult": [1, 2, 4, 4],
                     "dropout": 0.0,
                     "latents_mean": [
-                        -0.7571, -0.7089, -0.9113, 0.1075, -0.1745, 0.9653, -0.1517, 1.5508, 0.4134, -0.0715,
+                        -0.7571,
+                        -0.7089,
+                        -0.9113,
+                        0.1075,
+                        -0.1745,
+                        0.9653,
+                        -0.1517,
+                        1.5508,
+                        0.4134,
+                        -0.0715,
                         0.5517,
-                        -0.3632, -0.1922, -0.9497, 0.2503, -0.2921],
+                        -0.3632,
+                        -0.1922,
+                        -0.9497,
+                        0.2503,
+                        -0.2921,
+                    ],
                     "latents_std": [
-                        2.8184, 1.4541, 2.3275, 2.6558, 1.2196, 1.7708, 2.6052, 2.0743, 3.2687,
-                        2.1526, 2.8652, 1.5579, 1.6382, 1.1253, 2.8251, 1.916],
+                        2.8184,
+                        1.4541,
+                        2.3275,
+                        2.6558,
+                        1.2196,
+                        1.7708,
+                        2.6052,
+                        2.0743,
+                        3.2687,
+                        2.1526,
+                        2.8652,
+                        1.5579,
+                        1.6382,
+                        1.1253,
+                        2.8251,
+                        1.916,
+                    ],
                     "num_res_blocks": 2,
                     "temperal_downsample": [False, True, True],
-                    "z_dim": 16
-                }
+                    "z_dim": 16,
+                },
             ),
             (
                 "hunyuan_video15",
@@ -351,9 +377,11 @@ class TestVideoGeneration(unittest.TestCase):
         ]
     )
     def test_video_inference_with_model_configs(
-            self, config_name, transformer_config, vae_config
+        self, config_name, transformer_config, vae_config
     ):
-        temp_dir, model_dir = self._create_mock_model_dir(transformer_config, vae_config)
+        temp_dir, model_dir = self._create_mock_model_dir(
+            transformer_config, vae_config
+        )
         try:
             run_inference(
                 device="TEST_DEVICE",
@@ -379,6 +407,7 @@ class TestVideoGeneration(unittest.TestCase):
             )
         finally:
             import shutil
+
             shutil.rmtree(temp_dir, ignore_errors=True)
 
 

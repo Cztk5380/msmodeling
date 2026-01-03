@@ -3,19 +3,11 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..compilation import get_backend
-from ..layers.mla import MultiheadLatentAttentionTensorCast
+from ..core.model_builder import build_model
+from ..core.user_config import UserInputConfig
 from ..layers.sampler import SamplingMetadata
-from ..model_config import (
-    MlaConfig,
-    ModelConfig,
-    MtpConfig,
-    ParallelConfig,
-    QuantConfig,
-)
 from ..patch_torch import patch_torch
-from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_mtp_block_module_name
+from ..transformers.utils import get_mtp_block_module_name
 from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 
 
@@ -35,33 +27,21 @@ class MtpTestCase(unittest.TestCase):
         self, model_id, parallel_configuration, do_compile
     ):
         num_tokens = 100
-        parallel_config = ParallelConfig(
-            world_size=parallel_configuration[0],
-            expert_parallel=parallel_configuration[1],
-        )
-        model_config = ModelConfig(
-            parallel_config,
-            QuantConfig(),
-            enable_repetition=True,
-        )
-        mla_config = MlaConfig(
-            module_name="DeepseekV3Attention",
-            mla_cls=MultiheadLatentAttentionTensorCast,
-        )
-        model_config.mla_config = mla_config
+
         num_mtp_layers = 3
-        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
-        self.assertIsNotNone(mtp_block_module_name)
-        mtp_config = MtpConfig(
-            num_mtp_layers=num_mtp_layers,
-            mtp_block_module_name=mtp_block_module_name,
+        user_config = UserInputConfig(
+            model_id=model_id,
+            num_mtp_tokens=num_mtp_layers,
+            do_compile=do_compile,
+            world_size=parallel_configuration[0],
+            ep=parallel_configuration[1],
         )
-        model_config.mtp_config = mtp_config
-        model = TransformerModel(model_id, model_config)
-        if do_compile:
-            model = torch.compile(
-                model, backend=get_backend(), dynamic=True, fullgraph=True
-            )
+        model = build_model(user_config)
+        mtp_block_module_name = get_mtp_block_module_name(
+            model.model_config.hf_config.model_type
+        )
+        self.assertIsNotNone(mtp_block_module_name)
+
         # make sure all original attention modules have been replaced
         self.assertTrue(
             has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
@@ -85,35 +65,21 @@ class MtpTestCase(unittest.TestCase):
     def test_deepseek_prefill_with_kvcache(
         self, model_id, parallel_configuration, do_compile
     ):
-        parallel_config = ParallelConfig(
-            world_size=parallel_configuration[0],
-            expert_parallel=parallel_configuration[1],
-        )
-        model_config = ModelConfig(
-            parallel_config,
-            QuantConfig(),
-            enable_repetition=True,
-        )
-        mla_config = MlaConfig(
-            module_name="DeepseekV3Attention",
-            mla_cls=MultiheadLatentAttentionTensorCast,
-        )
-        model_config.mla_config = mla_config
         num_mtp_layers = 3
-        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
-        self.assertIsNotNone(mtp_block_module_name)
-        mtp_config = MtpConfig(
-            num_mtp_layers=num_mtp_layers,
-            mtp_block_module_name=mtp_block_module_name,
+        user_config = UserInputConfig(
+            model_id=model_id,
+            num_mtp_tokens=num_mtp_layers,
+            do_compile=do_compile,
+            world_size=parallel_configuration[0],
+            ep=parallel_configuration[1],
         )
-        model_config.mtp_config = mtp_config
-        model = TransformerModel(model_id, model_config)
-        if do_compile:
-            model = torch.compile(
-                model, backend=get_backend(), dynamic=True, fullgraph=True
-            )
+        model = build_model(user_config)
+        mtp_block_module_name = get_mtp_block_module_name(
+            model.model_config.hf_config.model_type
+        )
+        self.assertIsNotNone(mtp_block_module_name)
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
-            model, model_config
+            model, model.model_config
         )
         # make sure all original attention modules have been replaced
         self.assertTrue(
@@ -145,36 +111,22 @@ class MtpTestCase(unittest.TestCase):
     def test_deepseek_decode_with_kvcache(
         self, model_id, parallel_configuration, do_compile
     ):
-        parallel_config = ParallelConfig(
-            world_size=parallel_configuration[0],
-            expert_parallel=parallel_configuration[1],
-        )
-        model_config = ModelConfig(
-            parallel_config,
-            QuantConfig(),
-            enable_repetition=True,
-        )
-        mla_config = MlaConfig(
-            module_name="DeepseekV3Attention",
-            mla_cls=MultiheadLatentAttentionTensorCast,
-        )
-        model_config.mla_config = mla_config
         num_mtp_layers = 3
-        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
-        self.assertIsNotNone(mtp_block_module_name)
-        mtp_config = MtpConfig(
-            num_mtp_layers=num_mtp_layers,
-            mtp_block_module_name=mtp_block_module_name,
+        user_config = UserInputConfig(
+            model_id=model_id,
+            num_mtp_tokens=num_mtp_layers,
+            do_compile=do_compile,
+            world_size=parallel_configuration[0],
+            ep=parallel_configuration[1],
         )
-        model_config.mtp_config = mtp_config
-        model = TransformerModel(model_id, model_config)
-        if do_compile:
-            model = torch.compile(
-                model, backend=get_backend(), dynamic=True, fullgraph=True
-            )
+        model = build_model(user_config)
+        mtp_block_module_name = get_mtp_block_module_name(
+            model.model_config.hf_config.model_type
+        )
+        self.assertIsNotNone(mtp_block_module_name)
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
             model,
-            model_config,
+            model.model_config,
             query_len_1=num_mtp_layers + 1,
             query_len_2=num_mtp_layers + 1,
         )

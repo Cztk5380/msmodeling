@@ -509,12 +509,18 @@ def _attention_properties_helper(
         if key.dtype.is_floating_point
         else torch.iinfo(key.dtype).bits // 8
     )
-    kv_cache_bytes = batch_size * key_len_per_seq * 2 * kv_head_num * head_size * element_size
+    kv_cache_bytes = (
+        batch_size * key_len_per_seq * 2 * kv_head_num * head_size * element_size
+    )
     properties.memory_read_bytes += kv_cache_bytes
 
-    compute_ops = properties.compute_ops.setdefault(query.dtype, OpInvokeInfo.ComputeOps())
+    compute_ops = properties.compute_ops.setdefault(
+        query.dtype, OpInvokeInfo.ComputeOps()
+    )
     compute_ops.mma_ops = bmm1_ops + bmm2_ops
-    compute_ops = properties.compute_ops.setdefault(softmax_dtype, OpInvokeInfo.ComputeOps())
+    compute_ops = properties.compute_ops.setdefault(
+        softmax_dtype, OpInvokeInfo.ComputeOps()
+    )
     compute_ops.gp_ops = softmax_ops
 
     return properties
