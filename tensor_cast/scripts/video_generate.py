@@ -5,8 +5,8 @@ from typing import Optional
 
 import torch
 
+from ..core.quantization.config import create_quant_config, QuantizeLinearAction
 from ..device import DeviceProfile
-
 from ..diffusers.diffusers_attention import set_sp_group, use_custom_sdpa
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (
@@ -14,19 +14,14 @@ from ..diffusers.diffusers_utils import (
     model_class_to_input,
     model_class_to_vae_stride,
 )
-
 from ..model_config import ParallelConfig, QuantConfig
-
 from ..parallel_group import ParallelGroup
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..quantize_utils import QuantGranularity
-
 from ..runtime import Runtime
-
 from ..utils import str_to_dtype
-
-from .utils import check_positive_integer, create_quant_config, QuantizeLinearAction
+from .utils import check_positive_integer
 
 
 def generate_diffusers_inputs(
