@@ -224,19 +224,19 @@ def main():
     # Image parameters
     parser.add_argument(
         "--image-batch-size",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="Batch size for image processing",
     )
     parser.add_argument(
         "--image-height",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="Height of the input images",
     )
     parser.add_argument(
         "--image-width",
-        type=int,
+        type=check_positive_integer,
         default=None,
         help="Width of the input images",
     )

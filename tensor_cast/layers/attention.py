@@ -69,15 +69,17 @@ def flash_attention_forward(
     if attention_by_layers is None:
         # Obtained from the configuration
         is_vision_attention = True
-        context = getattr(module, 'context', None)
-        if context is not None:
-            attention_by_layers = context.get('attention_by_layers', None)
+        _tensor_cast_context = getattr(module, '_tensor_cast_context', None)
+        if _tensor_cast_context is not None:
+            attention_by_layers = _tensor_cast_context.get('attention_by_layers', None)
 
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
     if is_vision_attention:
-        layer_idx = module.config.depth_layer_idx
-        module.config.update({'depth_layer_idx': layer_idx + 1})
-        self_attn = attention_by_layers[layer_idx]
+        _tensor_cast_context = getattr(module, '_tensor_cast_context')
+        depth_layer_idx = _tensor_cast_context.get('depth_layer_idx')
+        print(f"depth_layer_idx is {depth_layer_idx}")
+        _tensor_cast_context.update({'depth_layer_idx': depth_layer_idx + 1})
+        self_attn = attention_by_layers[depth_layer_idx]
         kv_cache = None
         attention_meta = None
         query, key, value = (x.transpose(1, 2) for x in (query, key, value))

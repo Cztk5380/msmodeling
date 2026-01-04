@@ -141,19 +141,18 @@ _MODEL_TYPE_TO_FAMILY = {
 }
 
 
-def patch_method_for_vl():
+def patch_method_for_qwen3_vl():
     """
-      Patch Qwen3-VL 模型以解决 meta 模式下的仿真问题。
+      Patch the Qwen3-VL model to fix simulation issues in meta mode.
+        Problem background:
+        1. The Qwen3-VL model uses boolean-mask-based tensor indexing operations (e.g., inputs_embeds[special_image_mask], hidden_states[visual_pos_masks, :]).
+        2. These operations cannot run correctly in meta mode because:
+           * They internally call nonzero(), whose output shape depends on actual values and cannot be inferred in meta mode.
+           * Even with meta_nonzero_assume_all_nonzero enabled, dimension mismatch errors still occur.
 
-      问题背景：
-      1. Qwen3-VL 模型使用了基于布尔掩码的张量索引操作（inputs_embeds[special_image_mask]、hidden_states[visual_pos_masks, :]）
-      2. 这些操作在 meta 模式下无法正常执行，因为：
-         - 内部调用 nonzero()，其输出形状依赖于实际值，无法在 meta 模式下推断
-         - 即使启用 meta_nonzero_assume_all_nonzero，会导致维度不匹配错误
-
-      解决方案：
-      - 在 get_placeholder_mask 中跳过张量数量验证
-      - 在 _deepstack_process 中跳过深度堆栈融合操作
+        Solution:
+        * Skip tensor count validation in get_placeholder_mask.
+        * Skip the deep stack fusion logic in _deepstack_process.
       """
 
     from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel, Qwen3VLTextModel

@@ -57,6 +57,9 @@ class UserInputConfig:
     enable_external_shared_experts: bool = False
     host_external_shared_experts: bool = False
     block_size: int = 128
+    image_batch_size: Optional[int] = None
+    image_height: Optional[int] = None
+    image_width: Optional[int] = None
 
     def __post_init__(self):
         self._validate_device()
@@ -97,6 +100,10 @@ class UserInputConfig:
         print(f"Group table averages by input shapes: {self.dump_input_shapes}")
         if self.chrome_trace:
             print(f"Chrome trace output file: {self.chrome_trace}")
+        if self.image_batch_size:
+            print(f"image_batch_size: {self.image_batch_size}")
+            print(f"image_height: {self.image_height}")
+            print(f"image_width: {self.image_width}")
         print("---------------------\n")
 
     def get_parallel_config(self) -> ParallelConfig:
@@ -141,6 +148,10 @@ class UserInputConfig:
             query_len=self.query_len,
             seq_len=self.context_length + self.query_len,
             concurrency=self.num_queries,
+            is_decode=self.decode,
+            image_batch_size=self.image_batch_size,
+            image_height=self.image_height,
+            image_width=self.image_width,
         )
 
     @classmethod

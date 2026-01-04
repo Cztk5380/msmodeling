@@ -8,11 +8,12 @@ from dataclasses import dataclass
 from typing import Any, List, Tuple
 
 import torch
+from transformers.models.qwen2_vl.image_processing_qwen2_vl import smart_resize
 
 from ..layers.attention import AttentionMetadataTensorCast
 from ..layers.sampler import SamplingMetadata
 from ..performance_model import bytes_of_tensor
-from ..transformers.utils import get_attention_quant_config
+from ..transformers.utils import get_attention_quant_config, logger
 from ..utils import exact_division
 
 
@@ -24,6 +25,9 @@ class RequestInfo:
     num_input_tokens: int = None
     num_output_tokens: int = None
     concurrency: int = 1
+    image_batch_size: int = None,
+    image_height: int = None,
+    image_width: int = None,
 
 
 def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
@@ -34,7 +38,20 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
     seq_len = request.seq_len
     query_len = request.query_len
     is_decode = request.is_decode
-
+    image_kwargs = {}
+    if model.is_vl_model:
+        image_kwargs = generate_image_inputs(model, request.image_batch_size, request.image_height, request.image_width,
+                                             concurrency)
+        num_image_tokens = image_kwargs.pop("num_image_tokens", 0)
+        if is_decode:
+            # In the decode phase, the image input is removed, but the image token needs to be added to content_length
+            image_kwargs = {}
+            seq_len += num_image_tokens
+        else:
+            query_len += num_image_tokens
+    else:
+        if request.image_batch_size is not None or request.image_height is not None or request.image_width is not None:
+            logger.warn("For non-VL models, the parameter input of the image is ignored")
     model_config = model.model_config
     num_mtp_tokens = (
         model_config.mtp_config.num_mtp_layers if model_config.mtp_config else 0
@@ -121,7 +138,36 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
         kwargs["cache_position"] = torch.arange(
             0, num_tokens, dtype=torch.long, device="cpu"
         )
+    kwargs.update(image_kwargs)
     return kwargs
+
+
+def generate_image_inputs(model, image_batch_size, image_height, image_width, concurrency):
+    if image_batch_size is None or image_height is None or image_width is None:
+        print("For vision-language models,without image input")
+        return {}
+    vision_config = model.model_config.hf_config.vision_config
+    patch_size = vision_config.patch_size
+    merge_size = vision_config.spatial_merge_size if vision_config.spatial_merge_size else 2
+    # Rescales the image
+    resized_height, resized_width = smart_resize(image_height, image_width, factor=patch_size * merge_size)
+    # For images, the value of grid_t is 1.
+    grid_t = 1
+    grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
+    image_grid_thw = torch.tensor([[grid_t, grid_h, grid_w]], dtype=torch.long).expand(image_batch_size, 3)
+    channel = vision_config.in_channels if vision_config.in_channels else 3
+    temporal_patch_size = vision_config.temporal_patch_size if vision_config.temporal_patch_size else 2
+    hidden_dim = channel * temporal_patch_size * patch_size * patch_size
+    tokens = grid_t * grid_h * grid_w
+    pixel_values = torch.empty(image_batch_size * tokens, hidden_dim, dtype=model.model_config.dtype, device="meta")
+    # Calculate the token embedded in the text.
+    merge_length = merge_size ** 2
+    num_image_tokens = image_batch_size * (tokens // merge_length + 2)
+    parallel_config = model.model_config.parallel_config
+    batch_size = (concurrency + parallel_config.data_parallel_size - 1) // parallel_config.data_parallel_size
+    pixel_values = pixel_values.repeat(batch_size, 1)
+    image_grid_thw = image_grid_thw.repeat(batch_size, 1)
+    return {"pixel_values": pixel_values, "image_grid_thw": image_grid_thw, "num_image_tokens": num_image_tokens}
 
 
 def _get_kv_cache_info(

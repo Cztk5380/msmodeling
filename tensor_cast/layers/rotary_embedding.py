@@ -41,7 +41,8 @@ class CachingRotaryEmb(torch.nn.Module):
     def forward(self, x: torch.Tensor, position_ids: torch.Tensor) -> torch.Tensor:
         if self.cos_sin_cache is not None and x.dtype == self.act_dtype:
             if position_ids.ndim == 3:
-                # 通过维度判断是文本还是多模态,如果为多模态，取文本的(B, S)
+                # Determine whether the input is text-only or multimodal based on tensor dimensions.
+                # If it is multimodal, use the text shape (B, S).
                 # position_ids is (3, batch, seq_len), where 3--> (T/H/W)
                 position_ids = position_ids[0]
             return (
