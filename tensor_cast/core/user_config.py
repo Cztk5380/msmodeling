@@ -11,7 +11,7 @@ from ..core.input_generator import RequestInfo
 from ..core.quantization.config import create_quant_config
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..device import DeviceProfile
-from ..model_config import ParallelConfig, QuantConfig
+from ..model_config import ParallelConfig, QuantConfig, RemoteSource
 
 
 @dataclass
@@ -57,6 +57,7 @@ class UserInputConfig:
     enable_external_shared_experts: bool = False
     host_external_shared_experts: bool = False
     block_size: int = 128
+    remote_source: str = RemoteSource.huggingface
 
     def __post_init__(self):
         self._validate_device()

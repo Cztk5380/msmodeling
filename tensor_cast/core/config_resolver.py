@@ -60,7 +60,9 @@ class ConfigResolver:
         """
         self.model_id = model_id or user_input.model_id
         auto_loader = AutoModelConfigLoader()
-        self.hf_config = auto_loader.load_config(self.model_id)
+        self.hf_config = auto_loader.load_config(
+            self.model_id, remote_source=user_input.remote_source
+        )
         self.user_input = user_input
 
         if user_input is not None:
@@ -105,6 +107,8 @@ class ConfigResolver:
         self.update_mla_config()
         self.update_mtp_config(num_mtp_tokens=self.user_input.num_mtp_tokens)
         self.update_parallel_config()
+        # Apply remote source configuration
+        self.model_config.remote_source = self.user_input.remote_source
         return self.model_config
 
     def update_moe_config(

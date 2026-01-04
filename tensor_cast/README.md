@@ -51,7 +51,7 @@ usage: text_generate.py [-h]
                         [--reserved-memory-gb RESERVED_MEMORY_GB] [--world-size WORLD_SIZE] [--tp-size TP_SIZE] [--dp-size DP_SIZE] [--mlp-tp-size MLP_TP_SIZE]
                         [--mlp-dp-size MLP_DP_SIZE] [--lmhead-tp-size LMHEAD_TP_SIZE] [--lmhead-dp-size LMHEAD_DP_SIZE] [--o-proj-tp-size O_PROJ_TP_SIZE]
                         [--o-proj-dp-size O_PROJ_DP_SIZE] [--word-embedding-tp] [--ep] [--enable-redundant-experts] [--enable-external-shared-experts]
-                        [--host-external-shared-experts] 
+                        [--host-external-shared-experts] [--remote-source {huggingface,modelscope}]
                         model_id
 
 Run a simulated LLM inference pass and dump the perf result.
