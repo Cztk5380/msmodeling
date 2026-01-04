@@ -123,7 +123,7 @@ def get_attention_quant_config(model, layer_idx) -> Optional[AttentionQuantConfi
 def init_on_device_without_buffers(device: torch.device):
     """
     A context manager under which models are initialized with all
-    parameters on the specified device. However buffers are not
+    parameters on the specified device. However, buffers are not
     initialized on specified device.
 
     Args:
@@ -255,6 +255,8 @@ class AutoModelConfigLoader:
         """
         if remote_source == RemoteSource.modelscope:
             from modelscope import AutoConfig
+        else:
+            from transformers import AutoConfig
         check_model_path_res = self.check_model_path(model_id)
         if (
             check_model_path_res["has_config_json"]
@@ -341,6 +343,8 @@ class AutoModelConfigLoader:
         *args, remote_source: str = RemoteSource.huggingface, **kwarg
     ):
         if remote_source == RemoteSource.modelscope:
+            from modelscope import AutoModel
+        else:
             from modelscope import AutoModel
         try:
             hf_model = AutoModel.from_config(*args, **kwarg)
