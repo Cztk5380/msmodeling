@@ -75,9 +75,8 @@ def flash_attention_forward(
 
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
     if is_vision_attention:
-        _tensor_cast_context = getattr(module, '_tensor_cast_context')
+        _tensor_cast_context = getattr(module, '_tensor_cast_context', None)
         depth_layer_idx = _tensor_cast_context.get('depth_layer_idx')
-        print(f"depth_layer_idx is {depth_layer_idx}")
         _tensor_cast_context.update({'depth_layer_idx': depth_layer_idx + 1})
         self_attn = attention_by_layers[depth_layer_idx]
         kv_cache = None

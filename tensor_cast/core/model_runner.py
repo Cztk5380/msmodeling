@@ -1,5 +1,5 @@
-# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 #!/usr/bin/env python
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 # _*_coding:utf-8_*_
 """
 ModelRuner
@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -26,7 +27,9 @@ from .input_generator import (
     RequestInfo,
 )
 from .model_builder import build_model
-from .user_config import UserInputConfig
+
+if TYPE_CHECKING:
+    from .user_config import UserInputConfig
 
 
 class ModelRunner:

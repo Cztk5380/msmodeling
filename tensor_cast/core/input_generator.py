@@ -51,7 +51,7 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
             query_len += num_image_tokens
     else:
         if request.image_batch_size is not None or request.image_height is not None or request.image_width is not None:
-            logger.warn("For non-VL models, the parameter input of the image is ignored")
+            logger.warning("For non-VL models, the parameter input of the image is ignored")
     model_config = model.model_config
     num_mtp_tokens = (
         model_config.mtp_config.num_mtp_layers if model_config.mtp_config else 0
