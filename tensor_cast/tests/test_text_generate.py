@@ -1,11 +1,14 @@
 import unittest
+from dataclasses import asdict
+from typing import Union
 
 import torch
 from parameterized import parameterized
 
-from ..scripts.text_generate import run_inference
-
-from ..scripts.utils import QuantizeAttentionAction, QuantizeLinearAction
+from ..core.input_generator import generate_inputs
+from ..core.model_runner import ModelRunner, ModelRunnerMetrics
+from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
+from ..core.user_config import UserInputConfig
 
 
 class TestTextGenerate(unittest.TestCase):
@@ -20,7 +23,9 @@ class TestTextGenerate(unittest.TestCase):
         self.context_length = 0
         torch.compiler.reset()
 
-    def _validate_inference_result(self, result: dict, test_name: str = ""):
+    def _validate_inference_result(
+        self, result: Union[dict, ModelRunnerMetrics], test_name: str = ""
+    ):
         """
         Validate the result from run_inference.
 
@@ -28,6 +33,8 @@ class TestTextGenerate(unittest.TestCase):
             result: Dictionary containing inference metrics
             test_name: Name of the test for better error messages
         """
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         # Check that result is a dictionary
         self.assertIsInstance(result, dict, f"{test_name}: Result should be a dict")
 
@@ -110,7 +117,7 @@ class TestTextGenerate(unittest.TestCase):
 
     def test_basic_prefill(self):
         """Test basic prefill operation without quantization."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=self.num_queries,
@@ -120,11 +127,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_basic_prefill")
 
     def test_prefill_with_context(self):
         """Test prefill with context length (similar to README example)."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -134,11 +143,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_prefill_with_context")
 
     def test_prefill_with_w8a8_dynamic_quant(self):
         """Test prefill with W8A8 dynamic quantization (README example)."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -148,11 +159,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_prefill_with_w8a8_dynamic_quant")
 
     def test_decode_with_w8a8_static_quant(self):
         """Test decode with W8A8 static quantization (README example)."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=10,
@@ -161,13 +174,14 @@ class TestTextGenerate(unittest.TestCase):
             do_compile=False,
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            is_decode=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_decode_with_w8a8_static_quant")
 
     def test_decode_mode(self):
         """Test decode mode with single token input."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=5,
@@ -176,13 +190,14 @@ class TestTextGenerate(unittest.TestCase):
             do_compile=False,
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
-            is_decode=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_decode_mode")
 
     def test_with_compilation(self):
         """Test with torch.compile enabled."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -192,11 +207,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_with_compilation")
 
     def test_with_compilation_and_graph_break(self):
         """Test with torch.compile and allow graph break."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -206,11 +223,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=True,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_with_compilation_and_graph_break")
 
     def test_w4a8_dynamic_quantization(self):
         """Test with W4A8 dynamic quantization."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -220,11 +239,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.W4A8_DYNAMIC,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_w4a8_dynamic_quantization")
 
     def test_w4a8_static_quantization(self):
         """Test with W4A8 static quantization."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -234,11 +255,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.W4A8_STATIC,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_w4a8_static_quantization")
 
     def test_fp8_quantization(self):
         """Test with FP8 quantization."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -248,11 +271,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.FP8,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_fp8_quantization")
 
     def test_fp8_with_context(self):
         """Test FP8 quantization with context length."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -262,13 +287,16 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.FP8,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_fp8_with_context")
-        # Should have KV cache due to context
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertGreater(result["kv_cache_size_gb"], 0)
 
     def test_fp8_decode_mode(self):
         """Test FP8 quantization in decode mode."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=5,
@@ -277,13 +305,14 @@ class TestTextGenerate(unittest.TestCase):
             do_compile=False,
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.FP8,
-            is_decode=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_fp8_decode_mode")
 
     def test_mxfp4_quantization(self):
         """Test with MXFP4 quantization."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -293,11 +322,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.MXFP4,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_mxfp4_quantization")
 
     def test_mxfp4_with_context(self):
         """Test MXFP4 quantization with context length."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -307,13 +338,16 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.MXFP4,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_mxfp4_with_context")
-        # Should have KV cache due to context
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertGreater(result["kv_cache_size_gb"], 0)
 
     def test_mxfp4_decode_mode(self):
         """Test MXFP4 quantization in decode mode."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=5,
@@ -322,13 +356,14 @@ class TestTextGenerate(unittest.TestCase):
             do_compile=False,
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.MXFP4,
-            is_decode=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_mxfp4_decode_mode")
 
     def test_kvcache_int8_quantization(self):
         """Test with INT8 KV cache quantization."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -339,14 +374,17 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             quantize_attention_action=QuantizeAttentionAction.INT8,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_kvcache_int8_quantization")
-        # Should have KV cache due to context
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertGreater(result["kv_cache_size_gb"], 0)
         self.assertIn("tensor_cast.attention_quant", result["table_result"])
 
     def test_kvcache_int8_with_linear_quant(self):
         """Test INT8 KV cache quantization combined with linear quantization."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -357,14 +395,17 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
             quantize_attention_action=QuantizeAttentionAction.INT8,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_kvcache_int8_with_linear_quant")
-        # Should have KV cache due to context
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertGreater(result["kv_cache_size_gb"], 0)
         self.assertIn("tensor_cast.attention_quant", result["table_result"])
 
     def test_kvcache_int8_decode_mode(self):
         """Test INT8 KV cache quantization in decode mode."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=5,
@@ -374,9 +415,12 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
             quantize_attention_action=QuantizeAttentionAction.INT8,
-            is_decode=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_kvcache_int8_decode_mode")
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertIn("tensor_cast.attention_quant", result["table_result"])
 
     @parameterized.expand(
@@ -386,7 +430,7 @@ class TestTextGenerate(unittest.TestCase):
     )
     def test_mla_int8_with_linear_quant(self, model_id):
         """Test INT8 KV cache quantization combined with linear quantization."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=model_id,
             num_queries=2,
@@ -397,8 +441,11 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
             quantize_attention_action=QuantizeAttentionAction.INT8,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_kvcache_int8_with_linear_quant")
-        # Should have KV cache due to context
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertGreater(result["kv_cache_size_gb"], 0)
         self.assertIn(
             "tensor_cast.multihead_latent_attention_quant", result["table_result"]
@@ -411,7 +458,7 @@ class TestTextGenerate(unittest.TestCase):
     )
     def test_mla_int8_decode_mode(self, model_id):
         """Test INT8 KV cache quantization in decode mode."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=model_id,
             num_queries=5,
@@ -421,16 +468,19 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
             quantize_attention_action=QuantizeAttentionAction.INT8,
-            is_decode=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_kvcache_int8_decode_mode")
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertIn(
             "tensor_cast.multihead_latent_attention_quant", result["table_result"]
         )
 
     def test_with_quantized_lmhead(self):
         """Test with LM head quantization enabled."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -441,11 +491,13 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
             quantize_lmhead=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_with_quantized_lmhead")
 
     def test_tensor_parallel(self):
         """Test with tensor parallelism."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -457,11 +509,13 @@ class TestTextGenerate(unittest.TestCase):
             world_size=2,
             tp_size=2,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_tensor_parallel")
 
     def test_data_parallel(self):
         """Test with data parallelism."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=4,
@@ -474,11 +528,13 @@ class TestTextGenerate(unittest.TestCase):
             tp_size=1,
             dp_size=2,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_data_parallel")
 
     def test_mixed_parallelism(self):
         """Test with mixed TP and DP."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=4,
@@ -491,12 +547,13 @@ class TestTextGenerate(unittest.TestCase):
             tp_size=2,
             dp_size=2,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_mixed_parallelism")
 
     def test_with_mtp_tokens(self):
         """Test with MTP (Multi-Token Prediction) tokens."""
-        # Use DeepSeek-V3.1 which supports MTP
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id="deepseek-ai/DeepSeek-V3.1",
             num_queries=2,
@@ -507,12 +564,13 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             num_mtp_tokens=2,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_with_mtp_tokens")
 
     def test_with_auto_mtp(self):
         """Test with MTP (Multi-Token Prediction) tokens with auto mode."""
-        # Use Qwen3-32B to test the MTP auto mode
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id="Qwen/Qwen3-32B",
             num_queries=2,
@@ -523,11 +581,13 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             num_mtp_tokens=2,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_with_auto_mtp")
 
     def test_disable_repetition(self):
         """Test with repetition disabled."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -538,12 +598,14 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             disable_repetition=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_disable_repetition")
 
     def test_with_reserved_memory(self):
         """Test with reserved memory configuration."""
         reserved_gb = 5
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -554,8 +616,11 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             reserved_memory_gb=reserved_gb,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_with_reserved_memory")
-        # Verify reserved memory reduces available memory
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         expected_available = (
             result["total_device_memory_gb"]
             - result["peak_memory_usage_gb"]
@@ -567,7 +632,7 @@ class TestTextGenerate(unittest.TestCase):
 
     def test_num_hidden_layers_override(self):
         """Test with overridden number of hidden layers."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -578,11 +643,13 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             num_hidden_layers_override=2,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_num_hidden_layers_override")
 
     def test_mlp_specific_parallelism(self):
         """Test with MLP-specific tensor/data parallelism."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -596,11 +663,13 @@ class TestTextGenerate(unittest.TestCase):
             mlp_tp_size=2,
             mlp_dp_size=2,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_mlp_specific_parallelism")
 
     def test_lmhead_specific_parallelism(self):
         """Test with LM head-specific tensor/data parallelism."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -614,12 +683,13 @@ class TestTextGenerate(unittest.TestCase):
             lmhead_tp_size=2,
             lmhead_dp_size=2,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_lmhead_specific_parallelism")
 
     def test_expert_parallel(self):
         """Test with expert parallelism enabled."""
-        # Use Qwen3-235B-A22B MoE model for EP testing
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id="Qwen/Qwen3-235B-A22B",
             num_queries=2,
@@ -632,12 +702,14 @@ class TestTextGenerate(unittest.TestCase):
             tp_size=1,
             ep=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_expert_parallel")
 
     def test_invalid_device(self):
         """Test with invalid device name."""
         with self.assertRaises(ValueError):
-            run_inference(
+            user_input = UserInputConfig(
                 device="INVALID_DEVICE",
                 model_id=self.model_id,
                 num_queries=self.num_queries,
@@ -647,10 +719,12 @@ class TestTextGenerate(unittest.TestCase):
                 allow_graph_break=False,
                 quantize_linear_action=QuantizeLinearAction.DISABLED,
             )
+            model_runner = ModelRunner(user_input)
+            model_runner.run_inference(generate_inputs_func=generate_inputs)
 
     def test_large_batch_size(self):
         """Test with large batch size."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=32,
@@ -660,11 +734,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_large_batch_size")
 
     def test_long_context(self):
         """Test with long context length."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -674,11 +750,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_long_context")
 
     def test_qwen3_32b_4_a3die_decode_result(self):
         """Make sure the result of qwen3-32b model on 4 A3 dies is as expected in some range"""
-        result = run_inference(
+        user_input = UserInputConfig(
             device="ATLAS_800_A3_560T_128G_DIE",
             model_id="Qwen/Qwen3-32B",
             num_queries=60,
@@ -690,12 +768,16 @@ class TestTextGenerate(unittest.TestCase):
             world_size=4,
             tp_size=4,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "qwen3_32b_4_a3die_decode")
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertLess(result["execution_time_s"], 0.0328)
 
     def test_deepseek_v3_1_a3_ep64_decode_result(self):
         """Make sure the result of deepseek v3.1 model on 64 A3 dies with EP 64 is as expected in some range"""
-        result = run_inference(
+        user_input = UserInputConfig(
             device="ATLAS_800_A3_560T_128G_DIE",
             model_id="deepseek-ai/DeepSeek-V3.1",
             num_queries=256,
@@ -708,12 +790,16 @@ class TestTextGenerate(unittest.TestCase):
             num_mtp_tokens=3,
             ep=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_deepseek_v3_1_a3_ep64_decode")
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertLess(result["execution_time_s"], 0.063)
 
     def test_padding(self):
         """Test with padding tokens."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id="Qwen/Qwen3-235B-A22B",
             num_queries=1,
@@ -726,11 +812,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_padding")
 
     def test_fullmesh_subgroup_bandwidth_result(self):
         """Full Mesh with subgroup bandwidth is smaller than CLOS"""
-        result_a3 = run_inference(
+        user_input_a3 = UserInputConfig(
             device="ATLAS_800_A3_752T_128G_DIE",
             model_id="Qwen/Qwen3-32B",
             num_queries=60,
@@ -742,8 +830,10 @@ class TestTextGenerate(unittest.TestCase):
             world_size=4,
             tp_size=4,
         )
+        model_runner_a3 = ModelRunner(user_input_a3)
+        result_a3 = model_runner_a3.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result_a3)
-        result_a2 = run_inference(
+        user_input_a2 = UserInputConfig(
             device="ATLAS_800_A2_376T_64G",
             model_id="Qwen/Qwen3-32B",
             num_queries=60,
@@ -755,12 +845,18 @@ class TestTextGenerate(unittest.TestCase):
             world_size=4,
             tp_size=4,
         )
+        model_runner_a2 = ModelRunner(user_input_a2)
+        result_a2 = model_runner_a2.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result_a2)
+        if isinstance(result_a3, ModelRunnerMetrics):
+            result_a3 = asdict(result_a3)
+        if isinstance(result_a2, ModelRunnerMetrics):
+            result_a2 = asdict(result_a2)
         self.assertLess(result_a3["execution_time_s"], result_a2["execution_time_s"])
 
     def test_fullmesh_fullgroup_bandwidth_result(self):
         """Full Mesh with full group bandwidth is smaller than CLOS"""
-        result_a3 = run_inference(
+        user_input_a3 = UserInputConfig(
             device="ATLAS_800_A3_752T_128G_DIE",
             model_id="Qwen/Qwen3-32B",
             num_queries=60,
@@ -772,8 +868,10 @@ class TestTextGenerate(unittest.TestCase):
             world_size=8,
             tp_size=8,
         )
+        model_runner_a3 = ModelRunner(user_input_a3)
+        result_a3 = model_runner_a3.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result_a3)
-        result_a2 = run_inference(
+        user_input_a2 = UserInputConfig(
             device="ATLAS_800_A2_376T_64G",
             model_id="Qwen/Qwen3-32B",
             num_queries=60,
@@ -785,7 +883,13 @@ class TestTextGenerate(unittest.TestCase):
             world_size=8,
             tp_size=8,
         )
+        model_runner_a2 = ModelRunner(user_input_a2)
+        result_a2 = model_runner_a2.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result_a2)
+        if isinstance(result_a3, ModelRunnerMetrics):
+            result_a3 = asdict(result_a3)
+        if isinstance(result_a2, ModelRunnerMetrics):
+            result_a2 = asdict(result_a2)
         self.assertEqual(result_a3["execution_time_s"], result_a2["execution_time_s"])
 
     @parameterized.expand(
@@ -796,7 +900,7 @@ class TestTextGenerate(unittest.TestCase):
         ]
     )
     def test_qwen2_5_with_compile(self, quant_linear_action):
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id="Qwen/Qwen2.5-7B",
             num_queries=2,
@@ -806,11 +910,13 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=quant_linear_action,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_qwen2_5_with_compile")
 
     def test_o_proj_specific_parallelism(self):
         """Test with o_proj-specific tensor/data parallelism."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -823,11 +929,13 @@ class TestTextGenerate(unittest.TestCase):
             tp_size=2,
             o_proj_tp_size=4,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_o_proj_specific_parallelism")
 
     def test_word_embedding_parallel(self):
         """Test with word embedding parallel."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -840,11 +948,13 @@ class TestTextGenerate(unittest.TestCase):
             tp_size=2,
             word_embedding_tp=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_word_embedding_parallel")
 
     def test_qwen3_32b_tp16(self):
         """Make sure tp_size can be greater than num_key_value_heads."""
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id=self.model_id,
             num_queries=2,
@@ -856,6 +966,8 @@ class TestTextGenerate(unittest.TestCase):
             world_size=16,
             tp_size=16,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "qwen3_32b_tp16")
 
     @parameterized.expand(
@@ -872,7 +984,7 @@ class TestTextGenerate(unittest.TestCase):
         ]
     )
     def test_gmm_fusion(self, quant_linear_action, enable_ep, enable_tp):
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id="Qwen/Qwen3-235B-A22B",
             num_queries=2,
@@ -885,10 +997,14 @@ class TestTextGenerate(unittest.TestCase):
             ep=enable_ep,
             tp_size=8 if enable_tp else 1,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
         self.assertIn("tensor_cast.grouped_matmul", result["table_result"])
 
     def test_redundant_experts(self):
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id="Qwen/Qwen3-235B-A22B",
             num_queries=2,
@@ -902,6 +1018,8 @@ class TestTextGenerate(unittest.TestCase):
             ep=True,
             enable_redundant_experts=True,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_redundant_experts")
 
     @parameterized.expand(
@@ -911,7 +1029,7 @@ class TestTextGenerate(unittest.TestCase):
         ]
     )
     def test_external_shared_experts(self, host_external_shared_experts):
-        result = run_inference(
+        user_input = UserInputConfig(
             device=self.device,
             model_id="deepseek-ai/DeepSeek-V3.1",
             num_queries=2,
@@ -926,6 +1044,8 @@ class TestTextGenerate(unittest.TestCase):
             enable_external_shared_experts=True,
             host_external_shared_experts=host_external_shared_experts,
         )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_external_shared_experts")
 
     def test_qwen3_vl_with_basic_prefill(self):

@@ -8,6 +8,7 @@ import typing
 from typing import Dict, Optional, Union
 
 import torch
+from transformers import PreTrainedModel
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
 from ..layers import (
@@ -18,24 +19,19 @@ from ..layers import (
 )
 from ..layers.attention import flash_attention_forward
 from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
-from ..layers.mla import (
-    MultiheadLatentAttentionBase,
-    MultiheadLatentAttentionTensorCast,
-)
+from ..layers.mla import MultiheadLatentAttentionBase
 from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.mtp import MtpWrapper
 from ..layers.quant_linear import QuantLinearBase
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
-from ..model_config import MlaConfig, ModelConfig, MoEConfig
+from ..model_config import ModelConfig, MoEConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
-from ..utils import pattern_match
+from ..quantize_utils import quantize_linear_modules
 from .utils import (
     AutoModelConfigLoader,
     init_on_device_without_buffers,
-    model_id_to_mla_module_name,
-    model_id_to_moe_config,
     strip_module_name,
     _MODEL_TYPE_TO_FAMILY, _VISUAL_FAMILY,
     patch_method_for_vl,
@@ -176,9 +172,7 @@ class ModelWrapper(ModelWrapperBase):
 
 class TransformerModel(ModelWrapperBase):
     def __init__(
-        self,
-        model_id: str,
-        model_config: ModelConfig,
+        self, model_id: str, model_config: ModelConfig, hf_model: PreTrainedModel = None
     ):
         """
         Construct a transformer model wrapper that auto-loads a transformer model and converts
@@ -187,6 +181,8 @@ class TransformerModel(ModelWrapperBase):
         Args:
             model_id: transformer model id, (`str` or `os.PathLike`)
             model_config: specify how we should load and convert the transformer model
+            hf_model: native model
+            #TODO: native model + running config(model_config) = running model,do not need model_id
         """
         super().__init__(None)
         self.model_id = model_id
@@ -402,16 +398,8 @@ class TransformerModel(ModelWrapperBase):
 
     def patch_mla(self):
         mla_config = self.model_config.mla_config
-        if not mla_config:
-            mla_module_name = model_id_to_mla_module_name(self.hf_config.model_type)
-            if not mla_module_name:
-                return
-            mla_config = MlaConfig(
-                module_name=mla_module_name,
-                mla_cls=MultiheadLatentAttentionTensorCast,
-            )
-            self.model_config.mla_config = mla_config
-
+        if mla_config is None:
+            return
         named_modules = list(self._inner.named_modules())
         for name, module in named_modules:
             if type(module).__name__ == mla_config.module_name:
@@ -424,8 +412,6 @@ class TransformerModel(ModelWrapperBase):
                 self._replace_module(name, mla)
 
     def get_moe_config(self):
-        if not self.model_config.moe_config:
-            return model_id_to_moe_config(self.model_id, self.hf_config.model_type)
         return self.model_config.moe_config
 
     def patch_moe(self, moe_config: Optional[MoEConfig]):
@@ -645,46 +631,15 @@ class TransformerModel(ModelWrapperBase):
         Replaces all nn.Linear modules with QuantLinear modules based on the
         quantization configuration stored in self.model_config.
         """
-        if self.model_config.quant_linear_cls is None:
+        if not self.model_config.quant_linear_cls:
             return
-
-        # get all the wildcard names from the configuration
-        wildcard_linear_configs = {}
-        for name in self.model_config.quant_config.linear_configs:
-            if "*" in name or "?" in name:
-                wildcard_linear_configs[name] = (
-                    self.model_config.quant_config.linear_configs[name]
-                )
-
-        def get_quant_config(name):
-            quant_config = None
-            if name in self.model_config.quant_config.linear_configs:
-                quant_config = self.model_config.quant_config.linear_configs[name]
-            else:
-                for wildcard_name in wildcard_linear_configs:
-                    if fnmatch.fnmatch(name, wildcard_name):
-                        # we only count in the first match
-                        quant_config = wildcard_linear_configs[wildcard_name]
-                        break
-            return quant_config
-
-        for name, module in self._inner.named_modules():
-            if pattern_match(
-                name, self.model_config.quant_config.modules_to_not_convert
-            ):
-                continue
-            # We need to find the parent module to replace the child
-            if isinstance(module, torch.nn.Linear):
-                # remove "_inner" from the module path since we may wrap original
-                # module with "_inner".
-                # TODO(jgong5): avoid name clashing?
-                quant_config = get_quant_config(strip_module_name(name))
-                if quant_config:
-                    # Create and set the new quantized module
-                    quantized_module = self.model_config.quant_linear_cls(
-                        module, quant_config
-                    )
-                    self._replace_module(name, quantized_module)
+        quantize_linear_modules(
+            self._inner,
+            self.model_config.quant_linear_cls,
+            self.model_config.quant_config,
+            default_config_name=None,
+            strip_module_fn=lambda n: n.replace("_inner.", "") if "_inner." in n else n,
+        )
 
     def quantize_attention(self):
         attention_configs = self.model_config.quant_config.attention_configs

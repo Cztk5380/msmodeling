@@ -13,8 +13,8 @@ from ..performance_model.memory_tracker import MemoryTracker
 from ..quantize_utils import LinearQuantType, QuantGranularity
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
+from ..transformers.utils import AutoModelConfigLoader, get_moe_config
 from .test_common import count_events, get_quant_config
-# ok
 
 
 class GmmPassTestCase(unittest.TestCase):
@@ -23,12 +23,17 @@ class GmmPassTestCase(unittest.TestCase):
 
     def test_qwen3_fp(self):
         model_id = "Qwen/Qwen3-235B-A22B"
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         num_tokens = 100
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
             attention_cls=AttentionTensorCast,
             num_hidden_layers_override=1,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         model = TransformerModel(model_id, model_config)
         model = torch.compile(model, backend=get_backend(), fullgraph=True)
@@ -50,6 +55,9 @@ class GmmPassTestCase(unittest.TestCase):
 
     def test_qwen3_static_int8(self):
         model_id = "Qwen/Qwen3-235B-A22B"
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         num_tokens = 100
         model_config = ModelConfig(
             ParallelConfig(),
@@ -60,6 +68,8 @@ class GmmPassTestCase(unittest.TestCase):
             quant_linear_cls=TensorCastQuantLinear,
             attention_cls=AttentionTensorCast,
             num_hidden_layers_override=1,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         model = TransformerModel(model_id, model_config)
         model = torch.compile(model, backend=get_backend(), fullgraph=True)
@@ -90,6 +100,9 @@ class GmmPassTestCase(unittest.TestCase):
     def test_qwen3_dynamic_quant(self, quant_type):
         model_id = "Qwen/Qwen3-235B-A22B"
         num_tokens = 100
+        auto_loader = AutoModelConfigLoader()
+        hf_config = auto_loader.load_config(model_id)
+        moe_config = get_moe_config(hf_config.model_type)
         model_config = ModelConfig(
             ParallelConfig(),
             get_quant_config(
@@ -102,6 +115,8 @@ class GmmPassTestCase(unittest.TestCase):
             quant_linear_cls=TensorCastQuantLinear,
             attention_cls=AttentionTensorCast,
             num_hidden_layers_override=1,
+            moe_config=moe_config,
+            hf_config=hf_config,
         )
         model = TransformerModel(model_id, model_config)
         model = torch.compile(model, backend=get_backend(), fullgraph=True)

@@ -2,6 +2,7 @@ import random
 
 import torch
 
+from ..core.user_config import UserInputConfig
 from ..layers.attention import AttentionMetadataTensorCast
 from ..model_config import LinearQuantConfig, ModelConfig, QuantConfig
 from ..quantize_utils import LinearQuantType
@@ -169,3 +170,11 @@ def get_quant_config(model=None, quant_type=LinearQuantType.W4A8, **kwargs):
                 **kwargs,
             )
     return quant_config
+
+
+def update_parallel_parameter(
+    user_input: UserInputConfig, world_size=1, tp_size=1, ep=False
+):
+    user_input.world_size = world_size
+    user_input.tp_size = tp_size
+    user_input.ep = ep

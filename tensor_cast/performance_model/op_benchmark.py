@@ -4,7 +4,7 @@ from typing import Optional
 import torch
 from torch.utils._cxx_pytree import tree_map
 
-from liuren_modeling.tensor_cast.device import DeviceProfile
+from ..device import DeviceProfile
 from ..config import performance_model as perf_config
 
 from . import OpInvokeInfo, PerformanceModel

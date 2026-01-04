@@ -4,27 +4,18 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
+from ..core.model_builder import build_model
+from ..core.user_config import UserInputConfig
 from ..device import TEST_DEVICE
-
 from ..layers.attention import AttentionTensorCast
-
 from ..layers.internal import CopyLayerWrapper
-from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..layers.sampler import SamplingMetadata
-
-from ..model_config import (
-    MlaConfig,
-    ModelConfig,
-    MtpConfig,
-    ParallelConfig,
-    QuantConfig,
-)
+from ..model_config import ModelConfig, ParallelConfig, QuantConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
 from ..transformers.model import TransformerModel
-from ..transformers.utils import model_id_to_json, model_id_to_mtp_block_module_name
-
+from ..transformers.utils import get_mtp_block_module_name
 from .test_common import (
     assert_close,
     create_mla_metadata_and_kv_cache,
@@ -134,33 +125,23 @@ class RepetitionTestCase(unittest.TestCase):
         ]
     )
     def test_deepseek_with_kvcache(self, model_id):
-        hf_config_json = model_id_to_json(model_id)
-        self.assertIsNotNone(hf_config_json)
-        model_config = ModelConfig(
-            ParallelConfig(),
-            QuantConfig(),
-            attention_cls=AttentionTensorCast,
-            hf_config_json=hf_config_json,
-            enable_repetition=True,
-        )
-        mla_config = MlaConfig(
-            module_name="DeepseekV3Attention",
-            mla_cls=MultiheadLatentAttentionTensorCast,
-        )
-        model_config.mla_config = mla_config
         num_mtp_layers = 3
-        mtp_block_module_name = model_id_to_mtp_block_module_name(model_id)
-        self.assertIsNotNone(mtp_block_module_name)
-        mtp_config = MtpConfig(
-            num_mtp_layers=num_mtp_layers,
-            mtp_block_module_name=mtp_block_module_name,
+        user_config = UserInputConfig(
+            model_id=model_id,
+            num_mtp_tokens=num_mtp_layers,
         )
-        model_config.mtp_config = mtp_config
-        model = TransformerModel(model_id, model_config)
+
+        model = build_model(user_config)
+
+        mtp_block_module_name = get_mtp_block_module_name(
+            model.model_config.hf_config.model_type
+        )
+        self.assertIsNotNone(mtp_block_module_name)
+
         self.check_num_effective_layers(model.unwrap().layers, 2)
         self.check_num_effective_layers(model._inner.mtp.layers, 1)
         attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
-            model, model_config
+            model, model.model_config
         )
         # make sure all original attention modules have been replaced
         self.assertTrue(
