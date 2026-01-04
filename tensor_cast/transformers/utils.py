@@ -4,13 +4,7 @@ import os
 from typing import Dict, List, Optional, Tuple
 
 import torch
-from transformers import (
-    AutoConfig,
-    AutoModel,
-    AutoModelForCausalLM,
-    PretrainedConfig,
-    PreTrainedModel,
-)
+from transformers import AutoModelForCausalLM, PretrainedConfig, PreTrainedModel
 from transformers.quantizers.auto import AutoQuantizationConfig
 from transformers.utils.quantization_config import (
     CompressedTensorsConfig,
@@ -19,7 +13,13 @@ from transformers.utils.quantization_config import (
 )
 
 from ..layers.mla import MultiheadLatentAttentionBase
-from ..model_config import AttentionQuantConfig, ModelConfig, MoEConfig, MoEFieldNames
+from ..model_config import (
+    AttentionQuantConfig,
+    ModelConfig,
+    MoEConfig,
+    MoEFieldNames,
+    RemoteSource,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -247,10 +247,14 @@ class AutoModelConfigLoader:
 
         return result
 
-    def load_config(self, model_id: str) -> Optional[PretrainedConfig]:
+    def load_config(
+        self, model_id: str, remote_source: str = RemoteSource.huggingface
+    ) -> Optional[PretrainedConfig]:
         """
         load config
         """
+        if remote_source == RemoteSource.modelscope:
+            from modelscope import AutoConfig
         check_model_path_res = self.check_model_path(model_id)
         if (
             check_model_path_res["has_config_json"]
@@ -287,14 +291,21 @@ class AutoModelConfigLoader:
         return hf_config
 
     def load_model(
-        self, hf_config: PretrainedConfig, dtype: torch.dtype, **kwargs
+        self,
+        hf_config: PretrainedConfig,
+        dtype: torch.dtype,
+        remote_source: str = RemoteSource.huggingface,
+        **kwargs,
     ) -> Optional[PreTrainedModel]:
         trust_remote_code = not self.is_transformers_natively_supported
         if "trust_remote_code" in kwargs:
             trust_remote_code = kwargs.pop("trust_remote_code")
 
         return self.try_to_load_model(
-            hf_config, dtype=dtype, trust_remote_code=trust_remote_code
+            hf_config,
+            dtype=dtype,
+            trust_remote_code=trust_remote_code,
+            remote_source=remote_source,
         )
 
     @staticmethod
@@ -317,14 +328,20 @@ class AutoModelConfigLoader:
         """
         Load the model and config using model_id and model_config.
         """
-        hf_config = self.load_config(model_id)
+        hf_config = self.load_config(model_id, remote_source=model_config.remote_source)
         if model_config.num_hidden_layers_override:
             hf_config.num_hidden_layers = model_config.num_hidden_layers_override
-        hf_model = self.load_model(hf_config, model_config.dtype)
+        hf_model = self.load_model(
+            hf_config, model_config.dtype, remote_source=model_config.remote_source
+        )
         return hf_config, hf_model
 
     @staticmethod
-    def try_to_load_model(*args, **kwarg):
+    def try_to_load_model(
+        *args, remote_source: str = RemoteSource.huggingface, **kwarg
+    ):
+        if remote_source == RemoteSource.modelscope:
+            from modelscope import AutoModel
         try:
             hf_model = AutoModel.from_config(*args, **kwarg)
         except Exception:

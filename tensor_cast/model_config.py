@@ -1,4 +1,5 @@
 import dataclasses
+from enum import StrEnum
 from typing import Dict, List, Optional, Type
 
 import torch
@@ -397,6 +398,11 @@ class MtpConfig:
     mtp_block_module_name: Optional[str] = None
 
 
+class RemoteSource(StrEnum):
+    huggingface = "huggingface"
+    modelscope = "modelscope"
+
+
 @dataclasses.dataclass
 class ModelConfig:
     parallel_config: ParallelConfig
@@ -410,6 +416,7 @@ class ModelConfig:
     quant_linear_cls: Optional[Type["QuantLinearBase"]] = None  # noqa: F821
     hf_config: Optional[PretrainedConfig] = None
     trust_remote_code: bool = True
+    remote_source: str = RemoteSource.huggingface
 
     num_hidden_layers_override: int = 0
     """Override hf_config.num_hidden_layers, useful for speeding up sanity tests
