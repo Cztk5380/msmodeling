@@ -179,6 +179,14 @@ class ConfigResolver:
         """
         self.model_config.enable_repetition = enable_repetition
         self.model_config.num_hidden_layers_override = num_hidden_layers_override
+        if hasattr(self.hf_config, "vision_config"):
+            # This update of the dtype in the configuration ensures that the visual and language modules
+            # use the same dtype during both initialization and execution,
+            # thereby avoiding dtype mismatches in subsequent execution paths.
+            dtype = self.model_config.dtype
+            for sub_config_key in self.hf_config.sub_configs:
+                sub_config = getattr(self.hf_config, sub_config_key)
+                sub_config.dtype = dtype
 
     def update_parallel_config(self):
         if self.model_config.moe_config is None:

@@ -109,26 +109,6 @@ class VLModelWrapper(ModelWrapperBase):
             inputs_embeds: Optional[torch.Tensor] = None,
             **kwargs: object,
     ) -> Union[torch.Tensor, TensorDict]:
-        # The number of attention layers at the vision layer is image_batch_size x vision_config.depth.
-        # Therefore, the preceding configurations are performed here
-        image_grid_thw = kwargs.get('image_grid_thw', None)
-        if image_grid_thw is not None:
-            attention_by_layers: Optional[dict] = kwargs.get('attention_by_layers')
-            if attention_by_layers is not None:
-                exist_length = len(attention_by_layers)
-                kwargs.update({"depth_layer_idx": exist_length})
-                pattern = 'blocks.*.attn'
-                for name, module in self._inner.visual.named_modules():
-                    if fnmatch.fnmatchcase(strip_module_name(name), pattern):
-                        module._tensor_cast_context = kwargs
-                num_vision_layers = self._inner.config.vision_config.depth * image_grid_thw.shape[0]
-                # Get cls from the first one and instantiate
-                attn_cls = attention_by_layers[0].__class__
-                for i in range(num_vision_layers):
-                    attention_by_layers[i + exist_length] = attn_cls()
-
-            patch_method_for_qwen3_vl()
-
         outputs = self._inner(
             input_ids=input_ids,
             use_cache=False,
@@ -208,10 +188,6 @@ class TransformerModel(ModelWrapperBase):
 
             self.text_config = self.hf_config.get_text_config()
             self.is_vl_model = hasattr(self.hf_config, "vision_config")
-            if self.is_vl_model:
-                # Change the value of type in model_config. Otherwise, the value of type in cache_rotary_embedding
-                # cannot be matched.
-                self.model_config.dtype = self.text_config.dtype
             if (
                 self.model_config.attention_cls
                 and self.model_config.attention_cls.attn_implmentation
@@ -347,6 +323,7 @@ class TransformerModel(ModelWrapperBase):
         vl_language_model = self.get_vl_language_model()
         if vl_language_model is not None:
             unwrapped = vl_language_model
+            patch_method_for_qwen3_vl()
         if self.model_config.cache_rotary_embedding and hasattr(
             unwrapped, "rotary_emb"
         ):
@@ -360,6 +337,25 @@ class TransformerModel(ModelWrapperBase):
             self.attention_by_layers = {}
             for i in range(self.num_hidden_layers):
                 self.attention_by_layers[i] = self.model_config.attention_cls()
+            visual_model = self.get_visual()
+            if visual_model is not None:
+                pattern = 'blocks.*.attn'
+                # Assign a depth_layer_idx to each attention layer in the vision model
+                # and append them sequentially to attention_by_layers.
+                # This allows:
+                # 1) vision attention and text attention to use the same attention_by_layers registry
+                # 2) each vision attention layer to have a corresponding index
+                # 3) during the subsequent flash_attention_forward invocation,
+                #    the corresponding attention instance can be retrieved via depth_layer_idx
+                depth_layer_idx = len(self.attention_by_layers)
+                for name, module in visual_model.named_modules():
+                    if fnmatch.fnmatchcase(strip_module_name(name), pattern):
+                        module._tensor_cast_context = {
+                            "attention_by_layers": self.attention_by_layers,
+                            "depth_layer_idx": depth_layer_idx
+                        }
+                        self.attention_by_layers[depth_layer_idx] = self.model_config.attention_cls()
+                        depth_layer_idx += 1
 
         self.patch_mla()
 
