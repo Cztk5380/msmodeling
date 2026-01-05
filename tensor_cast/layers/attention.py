@@ -65,9 +65,9 @@ def flash_attention_forward(
         "attention_by_layers", None
     )
     is_vision_attention = False
-    # Determine whether the value is vision or text.
     if attention_by_layers is None:
-        # Obtained from the configuration
+        # For VL models, the visual layer's attention_by_layers cannot be obtained from kwargs,
+        # so it is retrieved from the module's _tensor_cast_context instead.
         is_vision_attention = True
         _tensor_cast_context = getattr(module, '_tensor_cast_context', None)
         if _tensor_cast_context is not None:
@@ -75,7 +75,7 @@ def flash_attention_forward(
 
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
     if is_vision_attention:
-        _tensor_cast_context = getattr(module, '_tensor_cast_context', None)
+        assert _tensor_cast_context is not None, "Expect _tensor_cast_context to be provided."
         depth_layer_idx = _tensor_cast_context.get('depth_layer_idx')
         self_attn = attention_by_layers[depth_layer_idx]
         kv_cache = None
