@@ -75,7 +75,7 @@ class AutoModelAndConfigTestCase(unittest.TestCase):
 
     @parameterized.expand(
         [
-            # new config of deepseek
+            # GLM-4.7 from modelscope
             ["ZhipuAI/GLM-4.7", ConfigMode.remote],
         ]
     )
