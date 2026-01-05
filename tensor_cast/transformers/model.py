@@ -30,11 +30,12 @@ from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
 from ..quantize_utils import quantize_linear_modules
 from .utils import (
+    _MODEL_TYPE_TO_FAMILY,
+    _VISUAL_FAMILY,
     AutoModelConfigLoader,
     init_on_device_without_buffers,
-    strip_module_name,
-    _MODEL_TYPE_TO_FAMILY, _VISUAL_FAMILY,
     patch_method_for_qwen3_vl,
+    strip_module_name,
 )
 
 if typing.TYPE_CHECKING:
@@ -89,7 +90,6 @@ class CausalLmWrapper(ModelWrapperBase):
             return hidden_states
 
 
-
 class VLModelWrapper(ModelWrapperBase):
     """
     Vision-Language model wrapper, for Qwen3 VL multimodal models
@@ -103,11 +103,11 @@ class VLModelWrapper(ModelWrapperBase):
         self.lm_head = torch.nn.Linear(hidden_size, vocab_size, bias=False)
 
     def forward(
-            self,
-            input_ids: Optional[torch.Tensor],
-            position_ids: torch.Tensor,
-            inputs_embeds: Optional[torch.Tensor] = None,
-            **kwargs: object,
+        self,
+        input_ids: Optional[torch.Tensor],
+        position_ids: torch.Tensor,
+        inputs_embeds: Optional[torch.Tensor] = None,
+        **kwargs: object,
     ) -> Union[torch.Tensor, TensorDict]:
         outputs = self._inner(
             input_ids=input_ids,
@@ -197,7 +197,8 @@ class TransformerModel(ModelWrapperBase):
                 )
                 if self.is_vl_model:
                     self.hf_config.vision_config._attn_implementation = (
-                    self.model_config.attention_cls.attn_implmentation)
+                        self.model_config.attention_cls.attn_implmentation
+                    )
 
             self.parallel_group_manager = ParallelGroupManager(
                 self.model_config.parallel_config
@@ -339,7 +340,7 @@ class TransformerModel(ModelWrapperBase):
                 self.attention_by_layers[i] = self.model_config.attention_cls()
             visual_model = self.get_visual()
             if visual_model is not None:
-                pattern = 'blocks.*.attn'
+                pattern = "blocks.*.attn"
                 # Assign a depth_layer_idx to each attention layer in the vision model
                 # and append them sequentially to attention_by_layers.
                 # This allows:
@@ -352,9 +353,11 @@ class TransformerModel(ModelWrapperBase):
                     if fnmatch.fnmatchcase(strip_module_name(name), pattern):
                         module._tensor_cast_context = {
                             "attention_by_layers": self.attention_by_layers,
-                            "depth_layer_idx": depth_layer_idx
+                            "depth_layer_idx": depth_layer_idx,
                         }
-                        self.attention_by_layers[depth_layer_idx] = self.model_config.attention_cls()
+                        self.attention_by_layers[depth_layer_idx] = (
+                            self.model_config.attention_cls()
+                        )
                         depth_layer_idx += 1
 
         self.patch_mla()
@@ -468,7 +471,9 @@ class TransformerModel(ModelWrapperBase):
                 )
             else:
                 params.update({"head_num": config_info.num_attention_heads})
-                tp_plan.update({f"{language_layers}.*.self_attn.q_proj": (COLWISE_LINEAR, params)})
+                tp_plan.update(
+                    {f"{language_layers}.*.self_attn.q_proj": (COLWISE_LINEAR, params)}
+                )
                 params = params.copy()
                 params.update(
                     {
@@ -478,8 +483,14 @@ class TransformerModel(ModelWrapperBase):
                 )
                 tp_plan.update(
                     {
-                        f"{language_layers}.*.self_attn.k_proj": (COLWISE_LINEAR, params),
-                        f"{language_layers}.*.self_attn.v_proj": (COLWISE_LINEAR, params),
+                        f"{language_layers}.*.self_attn.k_proj": (
+                            COLWISE_LINEAR,
+                            params,
+                        ),
+                        f"{language_layers}.*.self_attn.v_proj": (
+                            COLWISE_LINEAR,
+                            params,
+                        ),
                     }
                 )
 
@@ -488,7 +499,9 @@ class TransformerModel(ModelWrapperBase):
                 "global_tp_group": tp_group,
                 "head_num": config_info.num_attention_heads,
             }
-            tp_plan.update({f"{language_layers}.*.self_attn.o_proj": (ROWWISE_LINEAR, params)})
+            tp_plan.update(
+                {f"{language_layers}.*.self_attn.o_proj": (ROWWISE_LINEAR, params)}
+            )
 
             params = {
                 "tp_group": mlp_tp_group,
