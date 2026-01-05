@@ -1,5 +1,5 @@
-# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 #!/usr/bin/env python
+# Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 # _*_coding:utf-8_*_
 """
 ModelRuner
@@ -10,6 +10,7 @@ from __future__ import annotations
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional
+from typing import TYPE_CHECKING
 
 import torch
 
@@ -26,7 +27,9 @@ from .input_generator import (
     RequestInfo,
 )
 from .model_builder import build_model
-from .user_config import UserInputConfig
+
+if TYPE_CHECKING:
+    from .user_config import UserInputConfig
 
 
 class ModelRunner:
@@ -111,6 +114,11 @@ class ModelRunner:
             / 1024**3
         )
         kv_cache_per_token_gb = input_kwargs["kv_cache_per_token"] / 1024**3
+        if self.model.get_visual() and input_kwargs.get("pixel_values") is None:
+            # If there is no image input, the visual part does not participate in the calculation and needs to be removed
+            visual_weight_size_gb = self.model.get_weight_size_nested([self.model.get_visual()]) / 1024 ** 3
+            self.model_weight_size_gb = self.model_weight_size_gb - visual_weight_size_gb
+
         model_activation_size_gb = (
             peak_memory_usage_gb - kv_cache_size_gb - self.model_weight_size_gb
         )

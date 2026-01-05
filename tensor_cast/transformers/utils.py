@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import os
+from operator import attrgetter
 from typing import Dict, List, Optional, Tuple
 
 import torch
@@ -117,6 +118,65 @@ def get_attention_quant_config(model, layer_idx) -> Optional[AttentionQuantConfi
         return model.attention_by_layers[layer_idx].quant_config
     return None
 
+
+_VISUAL_FAMILY = {
+    "qwen3_vl": {
+        "visual": attrgetter("visual"),
+        "language_model": attrgetter("language_model"),
+        "visual.layers": attrgetter("visual.blocks"),
+        "language_model.layers": lambda _: "language_model.layers",
+    },
+    "internvl": {
+        "visual": attrgetter("vision_tower"),
+        "language_model": attrgetter("language_model"),
+        "visual.layers": attrgetter("vision_tower.encoder.layer"),
+        "language_model.layers": lambda _: "language_model.layers",
+    },
+}
+
+_MODEL_TYPE_TO_FAMILY = {
+    "qwen3_vl": "qwen3_vl",
+    "qwen3_vl_moe": "qwen3_vl",
+    "internvl": "internvl",
+}
+
+
+def patch_method_for_qwen3_vl():
+    """
+      Patch the Qwen3-VL model to fix simulation issues in meta mode.
+        Problem background:
+        1. The Qwen3-VL model uses boolean-mask-based tensor indexing operations (e.g., inputs_embeds[special_image_mask], hidden_states[visual_pos_masks, :]).
+        2. These operations cannot run correctly in meta mode because:
+           * They internally call nonzero(), whose output shape depends on actual values and cannot be inferred in meta mode.
+           * Even with meta_nonzero_assume_all_nonzero enabled, dimension mismatch errors still occur.
+
+        Solution:
+        * Skip tensor count validation in get_placeholder_mask.
+        * Skip the deep stack fusion logic in _deepstack_process.
+      """
+
+    from transformers.models.qwen3_vl.modeling_qwen3_vl import Qwen3VLModel, Qwen3VLTextModel
+    from transformers.models.qwen3_vl_moe.modeling_qwen3_vl_moe import Qwen3VLMoeModel,Qwen3VLMoeTextModel
+    # Class to be patched
+    TARGET_CLASSES = [Qwen3VLModel, Qwen3VLMoeModel]
+    # Save the original method of each class.
+    ORIGINAL_METHODS = {cls: cls.get_placeholder_mask for cls in TARGET_CLASSES}
+
+    def patched_get_placeholder_mask(self, *args, **kwargs):
+        # Forcibly skip image_features
+        kwargs["image_features"] = None
+        # Invoke the original method of the corresponding class.
+        return ORIGINAL_METHODS[type(self)](self, *args, **kwargs)
+
+    for cls in TARGET_CLASSES:
+        cls.get_placeholder_mask = patched_get_placeholder_mask
+
+    DEEPSTACK_PROCESS_TARGET_CLASSES = [Qwen3VLTextModel, Qwen3VLMoeTextModel]
+    def _patched_deepstack_process(self, hidden_states, visual_pos_masks, visual_embeds):
+        return hidden_states
+
+    for cls in DEEPSTACK_PROCESS_TARGET_CLASSES:
+        cls._deepstack_process = _patched_deepstack_process
 
 # Copied from `accelerate`
 @contextlib.contextmanager

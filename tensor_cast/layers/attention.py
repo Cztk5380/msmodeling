@@ -64,30 +64,49 @@ def flash_attention_forward(
     attention_by_layers: Optional[dict[int, AttentionBase]] = kwargs.pop(
         "attention_by_layers", None
     )
+    is_vision_attention = False
+    if attention_by_layers is None:
+        # For VL models, the visual layer's attention_by_layers cannot be obtained from kwargs,
+        # so it is retrieved from the module's _tensor_cast_context instead.
+        is_vision_attention = True
+        _tensor_cast_context = getattr(module, '_tensor_cast_context', None)
+        if _tensor_cast_context is not None:
+            attention_by_layers = _tensor_cast_context.get('attention_by_layers', None)
+
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
+    if is_vision_attention:
+        assert _tensor_cast_context is not None, "Expect _tensor_cast_context to be provided."
+        depth_layer_idx = _tensor_cast_context.get('depth_layer_idx')
+        self_attn = attention_by_layers[depth_layer_idx]
+        kv_cache = None
+        attention_meta = None
+        query, key, value = (x.transpose(1, 2) for x in (query, key, value))
+        num_tokens = query.shape[0] * query.shape[1]
+        # For subsequent time calculation, the key and value do not need to be reshaped
+        query = query.reshape(num_tokens, -1)
+    else:
+        kv_cache_by_layers: Optional[dict[int, torch.Tensor]] = kwargs.pop(
+            "kv_cache_by_layers", None
+        )
+        attention_meta: AttentionMetadataBase = kwargs.pop("attention_meta", None)
+        attention_meta_by_layers: Optional[dict[int, AttentionMetadataBase]] = kwargs.pop(
+            "attention_meta_by_layers", None
+        )
+        assert attention_meta is None or attention_meta_by_layers is None, (
+            "Only one of attention_meta and attention_meta_by_layers can be provided."
+        )
 
-    kv_cache_by_layers: Optional[dict[int, torch.Tensor]] = kwargs.pop(
-        "kv_cache_by_layers", None
-    )
-    attention_meta: AttentionMetadataBase = kwargs.pop("attention_meta", None)
-    attention_meta_by_layers: Optional[dict[int, AttentionMetadataBase]] = kwargs.pop(
-        "attention_meta_by_layers", None
-    )
-    assert attention_meta is None or attention_meta_by_layers is None, (
-        "Only one of attention_meta and attention_meta_by_layers can be provided."
-    )
-
-    self_attn = attention_by_layers[module.layer_idx]
-    kv_cache = kv_cache_by_layers[module.layer_idx] if kv_cache_by_layers else None
-    attention_meta = (
-        attention_meta_by_layers[module.layer_idx]
-        if attention_meta_by_layers
-        else attention_meta
-    )
-    # TODO: understand why we need these shape manipulation
-    query, key, value = (x.transpose(1, 2) for x in (query, key, value))
-    num_tokens = query.shape[0] * query.shape[1]
-    query, key, value = (x.reshape(num_tokens, -1) for x in (query, key, value))
+        self_attn = attention_by_layers[module.layer_idx]
+        kv_cache = kv_cache_by_layers[module.layer_idx] if kv_cache_by_layers else None
+        attention_meta = (
+            attention_meta_by_layers[module.layer_idx]
+            if attention_meta_by_layers
+            else attention_meta
+        )
+        # TODO: understand why we need these shape manipulation
+        query, key, value = (x.transpose(1, 2) for x in (query, key, value))
+        num_tokens = query.shape[0] * query.shape[1]
+        query, key, value = (x.reshape(num_tokens, -1) for x in (query, key, value))
     # return (attn_output, attn_weights) while we ignore attn_weights
     return self_attn.forward(
         query,

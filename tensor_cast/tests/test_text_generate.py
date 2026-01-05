@@ -1048,6 +1048,92 @@ class TestTextGenerate(unittest.TestCase):
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_external_shared_experts")
 
+    def test_qwen3_vl_with_basic_prefill(self):
+        """Test qwen3_vl prefill operation."""
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            num_queries=self.num_queries,
+            query_len=self.query_len,
+            context_length=self.context_length,
+            image_batch_size=1,
+            image_width=1920,
+            image_height=1080,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+        )
+        model_runner = ModelRunner(user_input)
+        self.assertTrue(model_runner.model.is_vl_model, msg="Model should be vl model")
+        input_kwargs = generate_inputs(
+            model_runner.model,
+            model_runner.request_info_default,
+            block_size=user_input.block_size,
+        )
+        self.assertIn("pixel_values", input_kwargs)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
+        self._validate_inference_result(result, "test_qwen3_vl_with_basic_prefill")
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
+        self.assertIn("aten.addmm.default", result["table_result"])
+
+    def test_qwen3_vl_without_img_prefill(self):
+        """Test qwen3_vl without image input prefill operation."""
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            num_queries=self.num_queries,
+            query_len=self.query_len,
+            context_length=self.context_length,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+        )
+        model_runner = ModelRunner(user_input)
+        self.assertTrue(model_runner.model.is_vl_model, msg="Model should be vl model")
+        input_kwargs = generate_inputs(
+            model_runner.model,
+            model_runner.request_info_default,
+            block_size=user_input.block_size,
+        )
+        self.assertNotIn("pixel_values", input_kwargs)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
+        self._validate_inference_result(result, "test_qwen3_vl_without_img_prefill")
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
+        self.assertNotIn("aten.addmm.default", result["table_result"])
+
+    def test_qwen3_vl_decode_mode(self):
+        """Test qwen3_vl decode mode """
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            num_queries=self.num_queries,
+            query_len=self.query_len,
+            context_length=self.context_length,
+            image_batch_size=1,
+            image_width=1920,
+            image_height=1080,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            decode=True,
+        )
+        model_runner = ModelRunner(user_input)
+        self.assertTrue(model_runner.model.is_vl_model, msg="Model should be vl model")
+        input_kwargs = generate_inputs(
+            model_runner.model,
+            model_runner.request_info_default,
+            block_size=user_input.block_size,
+        )
+        self.assertNotIn("pixel_values", input_kwargs)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
+        self._validate_inference_result(result, "test_qwen3_vl_decode_mode")
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
+        self.assertNotIn("aten.addmm.default", result["table_result"])
+
+
 
 if __name__ == "__main__":
     unittest.main()
