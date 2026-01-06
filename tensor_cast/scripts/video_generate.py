@@ -14,19 +14,17 @@ from ..diffusers.diffusers_utils import (
     model_class_to_input,
     model_class_to_vae_stride,
 )
-
 from ..model_config import ParallelConfig, QuantConfig
-
 from ..parallel_group import ParallelGroup
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..quantize_utils import QuantGranularity
-
+from ..core.quantization.config import create_quant_config
+from ..core.quantization.datatypes import QuantizeLinearAction
 from ..runtime import Runtime
-
 from ..utils import str_to_dtype
 
-from .utils import check_positive_integer, create_quant_config, QuantizeLinearAction
+from .utils import check_positive_integer
 
 
 def generate_diffusers_inputs(

@@ -81,7 +81,7 @@ class TestVideoGeneration(unittest.TestCase):
 
         shutil.rmtree(self.temp_dir, ignore_errors=True)
 
-    def _create_mock_model_dir(transformer_config, vae_config):
+    def _create_mock_model_dir(self, transformer_config, vae_config):
         temp_dir = tempfile.mkdtemp()
         model_dir = os.path.join(temp_dir, "mock_model")
         os.makedirs(model_dir, exist_ok=True)

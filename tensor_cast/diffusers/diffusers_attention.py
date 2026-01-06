@@ -13,11 +13,14 @@ from diffusers.models.attention_dispatch import _AttentionBackendRegistry
 _thread_local = threading.local()
 
 
-extend_enum(
-    diffusers.models.attention_dispatch.AttentionBackendName,
-    "TENSOR_CAST",
-    "tensor_cast",
-)
+if not hasattr(diffusers.models.attention_dispatch.AttentionBackendName, "TENSOR_CAST"):
+    extend_enum(
+        diffusers.models.attention_dispatch.AttentionBackendName,
+        "TENSOR_CAST",
+        "tensor_cast",
+    )
+
+
 def set_sp_group(sp_group: Optional[ParallelGroup]):
     _thread_local.sp_group = sp_group
 
