@@ -405,7 +405,7 @@ class AutoModelConfigLoader:
         if remote_source == RemoteSource.modelscope:
             from modelscope import AutoModel
         else:
-            from modelscope import AutoModel
+            from transformers import AutoModel
         try:
             hf_model = AutoModel.from_config(*args, **kwarg)
         except Exception:
