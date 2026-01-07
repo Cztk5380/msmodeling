@@ -10,3 +10,4 @@ prettytable
 pandas
 diffusers
 aenum
+modelscope
