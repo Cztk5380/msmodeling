@@ -23,7 +23,7 @@ from enum import Enum
 from parameterized import parameterized
 from transformers.modeling_utils import no_init_weights
 
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
+from ..model_config import ModelConfig, ParallelConfig, QuantConfig, RemoteSource
 from ..transformers.utils import AutoModelConfigLoader, init_on_device_without_buffers
 
 
@@ -64,6 +64,28 @@ class AutoModelAndConfigTestCase(unittest.TestCase):
         model_config = ModelConfig(
             ParallelConfig(),
             QuantConfig(),
+        )
+        with init_on_device_without_buffers("meta"), no_init_weights():
+            auto_loader = AutoModelConfigLoader()
+            hf_config, hf_model = auto_loader.auto_load_model_and_config(
+                model_name_or_path, model_config
+            )
+        self.assertIsNotNone(hf_config)
+        self.assertIsNotNone(hf_model)
+
+    @parameterized.expand(
+        [
+            # GLM-4.7 from modelscope
+            ["ZhipuAI/GLM-4.7", ConfigMode.remote],
+        ]
+    )
+    def test_auto_model_config_remote_from_modelscope(
+        self, model_name_or_path, config_mode
+    ):
+        if config_mode == ConfigMode.local:
+            model_name_or_path = os.path.join(self.model_config_dir, model_name_or_path)
+        model_config = ModelConfig(
+            ParallelConfig(), QuantConfig(), remote_source=RemoteSource.modelscope
         )
         with init_on_device_without_buffers("meta"), no_init_weights():
             auto_loader = AutoModelConfigLoader()

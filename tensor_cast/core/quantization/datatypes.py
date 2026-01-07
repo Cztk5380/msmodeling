@@ -4,7 +4,12 @@
 datatypes of quantization
 """
 
-from enum import StrEnum
+try:
+    # Native in Python 3.11+
+    from enum import StrEnum
+except ImportError:
+    # Fallback for Python 3.10
+    from strenum import StrEnum
 
 
 class QuantizeLinearAction(StrEnum):

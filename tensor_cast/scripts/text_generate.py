@@ -220,6 +220,13 @@ def main():
         action="store_true",
         help="Whether to have the current device host the external shared experts",
     )
+    parser.add_argument(
+        "--remote-source",
+        type=str,
+        choices=["huggingface", "modelscope"],
+        default="huggingface",
+        help="The remote source for the model",
+    )
 
     # Image parameters
     parser.add_argument(
