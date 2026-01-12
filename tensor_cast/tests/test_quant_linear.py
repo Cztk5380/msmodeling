@@ -96,37 +96,37 @@ class TestQuantLinear(unittest.TestCase):
         """
         test_configs = [
             {
-                "quant_type": LinearQuantType.W8A16,
+                "quant_type": LinearQuantType.W8A16.value,
                 "use_bias": True,
                 "w_scheme": "symmetric",
                 "a_scheme": None,
             },
             {
-                "quant_type": LinearQuantType.W8A16,
+                "quant_type": LinearQuantType.W8A16.value,
                 "use_bias": False,
                 "w_scheme": "asymmetric",
                 "a_scheme": None,
             },
             {
-                "quant_type": LinearQuantType.W8A8,
+                "quant_type": LinearQuantType.W8A8.value,
                 "use_bias": True,
                 "w_scheme": "symmetric",
                 "a_scheme": "symmetric",
             },
             {
-                "quant_type": LinearQuantType.W8A8,
+                "quant_type": LinearQuantType.W8A8.value,
                 "use_bias": True,
                 "w_scheme": "asymmetric",
                 "a_scheme": "asymmetric",
             },
             {
-                "quant_type": LinearQuantType.W4A8,
+                "quant_type": LinearQuantType.W4A8.value,
                 "use_bias": True,
                 "w_scheme": "symmetric",
                 "a_scheme": "symmetric",
             },
             {
-                "quant_type": LinearQuantType.W4A8,
+                "quant_type": LinearQuantType.W4A8.value,
                 "use_bias": False,
                 "w_scheme": "symmetric",
                 "a_scheme": "symmetric",
@@ -159,8 +159,10 @@ class TestQuantLinear(unittest.TestCase):
                         else QuantScheme.ASYMMETRIC
                     )
 
+                quant_type_enum = LinearQuantType(params["quant_type"])
+
                 config = get_linear_quant_config(
-                    params["quant_type"], weight, **config_kwargs
+                    quant_type_enum, weight, **config_kwargs
                 )
                 quant_linear_layer = QuantLinearBase(linear_layer, config)
 

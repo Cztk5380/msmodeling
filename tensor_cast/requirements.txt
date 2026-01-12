@@ -11,3 +11,4 @@ pandas
 diffusers
 aenum
 modelscope
+compressed-tensors
