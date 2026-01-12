@@ -2,7 +2,7 @@
 
 import copy
 from concurrent.futures import as_completed, ProcessPoolExecutor
-from typing import Generator
+from typing import Iterator
 
 import pandas as pd
 import torch
@@ -41,9 +41,6 @@ class TaskRunner:
             device_nums=self.num_devices,
             device_profile=self.device_profile,
         )
-        if self.compile:
-            torch._dynamo.config.recompile_limit = LIMIT_TIME
-            torch._dynamo.config.accumulated_recompile_limit = LIMIT_TIME
 
     def run(self):
         if self.device_profile.comm_grid.grid.nelement() < self.num_devices:
@@ -90,6 +87,9 @@ class TaskRunner:
         return self.summary_result
 
     def _get_model(self, user_input: UserInputConfig):
+        if self.compile:
+            torch._dynamo.config.recompile_limit = LIMIT_TIME
+            torch._dynamo.config.accumulated_recompile_limit = LIMIT_TIME
         torch.compiler.reset()
         model = None
         try:
@@ -99,7 +99,7 @@ class TaskRunner:
 
         return model
 
-    def _get_user_config(self) -> Generator[UserInputConfig]:
+    def _get_user_config(self) -> Iterator[UserInputConfig]:
         default_tp_list = [1 << i for i in range(self.num_devices.bit_length())]
         # get tp list
         tp_list = getattr(self.args, "tp", None)
@@ -111,8 +111,11 @@ class TaskRunner:
         for tp in tp_list:
             tmp_user_input = copy.deepcopy(self.user_input)
             tmp_user_input.tp_size = tp
-            # TODO num_devices is frozen，do not need to change every time
-            tmp_user_input.world_size = self.num_devices
+            # if the moe_config is None, ep will be set False in update_parallel_config
+            # so set it True here, moe models can enable ep parallel correctly
+            tmp_user_input.ep = True
+            if self.num_devices % tp != 0:
+                continue
             yield tmp_user_input
 
     def _process_parallel_config(

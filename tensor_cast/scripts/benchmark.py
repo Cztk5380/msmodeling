@@ -340,6 +340,9 @@ models:
                     for tp_size in tp_size_list:
                         torch.compiler.reset()
                         user_input.tp_size = tp_size
+                        # if the moe_config is None, ep will be set False in update_parallel_config
+                        # so set it True here, moe models can enable ep parallel correctly
+                        user_input.ep = True
                         model = build_model(user_input).eval()
 
                         num_mtp_tokens = (
