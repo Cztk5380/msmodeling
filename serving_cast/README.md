@@ -3,12 +3,14 @@
 ## Install requirements
 
 ```bash
-pip install -r requirements.txt
+git clone https://gitcode.com/Ascend/msmodeling.git -b develop
+cd msmodeling
+pip install -r ./serving_cast/requirements.txt
 ```
 
 ## Set environment variable
 ```bash
-export PYTHONPATH=/path/to/msit/liuren_modeling:$PYTHONPATH
+export PYTHONPATH=/path/to/msmodeling:$PYTHONPATH
 ```
 
 ## Run simulation

@@ -5,3 +5,4 @@ numpy
 pyyaml
 greenlet
 scikit-learn
+scipy

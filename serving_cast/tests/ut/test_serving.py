@@ -3,15 +3,17 @@ import unittest
 from unittest.mock import Mock, patch
 
 import stime
-from service_sim.config import Config, InstanceConfig, ParallelConfig, CommunicationConfig
-from service_sim.device import DummyDeviceConfig, MachineConfig
+from serving_cast.config import (
+    CommunicationConfig,
+    Config,
+    InstanceConfig,
+    ParallelConfig,
+)
 
-from service_sim.instance import Instance
-from service_sim.load_gen import FixedLengthLoadGen
-from service_sim.model_runner import ModelRunner
-from service_sim.request import Request
-from service_sim.serving import PdAggregationServing, PdDisaggregationServing
-from service_sim.utils import main_processing
+from serving_cast.instance import Instance
+from serving_cast.load_gen import FixedLengthLoadGen
+from serving_cast.serving import PdAggregationServing, PdDisaggregationServing
+from serving_cast.utils import main_processing
 
 
 class ServingTestCase(unittest.TestCase):
@@ -28,7 +30,6 @@ class ServingTestCase(unittest.TestCase):
         self.mock_cfg.common_config.model_config.enable_preprocessing_modeling = False
         self.mock_cfg.common_config.model_config.enable_kv_transfer_modeling = False
 
-
         self.patch_get_instance = patch.object(Config, "get_instance")
         mock_get_instance = self.patch_get_instance.start()
         mock_get_instance.return_value = self.mock_cfg
@@ -41,7 +42,7 @@ class ServingTestCase(unittest.TestCase):
         self.fake_ret.kv_cache_per_token_gb = 0.001
 
         self.patch_model_runner = patch(
-            'service_sim.model_runner.TensorCastModelRunner',
+            "serving_cast.model_runner.TensorCastModelRunner",
         )
         mock_model_runner = self.patch_model_runner.start()
         self.mock_engine = mock_model_runner.return_value
@@ -52,52 +53,50 @@ class ServingTestCase(unittest.TestCase):
         self.patch_model_runner.stop()
 
     def test_pd_disaggregation_dummy_model(self):
-        prefill_instance_config = \
-            InstanceConfig(
-                num_instances=8,
-                num_devices_per_instance=4,
-                device_type="TEST_DEVICE",
-                pd_role="prefill",
-                parallel_config=ParallelConfig(
-                    tp_size=2,
-                    dp_size=2,
-                    mlp_tp_size=None,
-                    mlp_dp_size=None,
-                    lmhead_tp_size=None,
-                    lmhead_dp_size=None,
-                    ep=False,
-                ),
-                communication_config=CommunicationConfig(
-                    host2device_bandwidth=1e10,
-                    host2device_rate=0.5,
-                    device2device_bandwidth=4e9,
-                    device2device_rate=0.5,
-                )
-            )
+        prefill_instance_config = InstanceConfig(
+            num_instances=8,
+            num_devices_per_instance=4,
+            device_type="TEST_DEVICE",
+            pd_role="prefill",
+            parallel_config=ParallelConfig(
+                tp_size=2,
+                dp_size=2,
+                mlp_tp_size=None,
+                mlp_dp_size=None,
+                lmhead_tp_size=None,
+                lmhead_dp_size=None,
+                ep=False,
+            ),
+            communication_config=CommunicationConfig(
+                host2device_bandwidth=1e10,
+                host2device_rate=0.5,
+                device2device_bandwidth=4e9,
+                device2device_rate=0.5,
+            ),
+        )
 
-        decode_instance_config = \
-            InstanceConfig(
-                num_instances=8,
-                num_devices_per_instance=8,
-                device_type="TEST_DEVICE",
-                pd_role="decode",
-                parallel_config=ParallelConfig(
-                    tp_size=4,
-                    dp_size=2,
-                    mlp_tp_size=None,
-                    mlp_dp_size=None,
-                    lmhead_tp_size=None,
-                    lmhead_dp_size=None,
-                    ep=False,
-                ),
-                communication_config=CommunicationConfig(
-                    host2device_bandwidth=1e10,
-                    host2device_rate=0.5,
-                    device2device_bandwidth=4e9,
-                    device2device_rate=0.5,
-                )
-            )
-            
+        decode_instance_config = InstanceConfig(
+            num_instances=8,
+            num_devices_per_instance=8,
+            device_type="TEST_DEVICE",
+            pd_role="decode",
+            parallel_config=ParallelConfig(
+                tp_size=4,
+                dp_size=2,
+                mlp_tp_size=None,
+                mlp_dp_size=None,
+                lmhead_tp_size=None,
+                lmhead_dp_size=None,
+                ep=False,
+            ),
+            communication_config=CommunicationConfig(
+                host2device_bandwidth=1e10,
+                host2device_rate=0.5,
+                device2device_bandwidth=4e9,
+                device2device_rate=0.5,
+            ),
+        )
+
         prefill_instances = []
         decode_instances = []
         for _ in range(prefill_instance_config.num_instances):
@@ -119,7 +118,7 @@ class ServingTestCase(unittest.TestCase):
             request_rate=1.0,
         )
 
-        main_task = stime.CallableTask(main_processing, serving, load_runner)
+        _ = stime.CallableTask(main_processing, serving, load_runner)
 
         stime.start_simulation()
         requests = load_runner.get_finished_requests()
@@ -129,7 +128,9 @@ class ServingTestCase(unittest.TestCase):
         for request in requests.values():
             self.assertAlmostEqual(request.time_to_first_token(), self.dummy_duration)
             self.assertEqual(request.num_decoded_tokens, num_output_tokens)
-            self.assertGreater(request.time_per_output_token(), self.dummy_duration - 0.1)
+            self.assertGreater(
+                request.time_per_output_token(), self.dummy_duration - 0.1
+            )
             self.assertLess(request.time_per_output_token(), self.dummy_duration + 0.1)
 
     def test_pd_aggregation_dummy_model(self):
@@ -152,10 +153,12 @@ class ServingTestCase(unittest.TestCase):
                 host2device_rate=0.5,
                 device2device_bandwidth=4e9,
                 device2device_rate=0.5,
-            )
+            ),
         )
 
-        prefill_decode_instances = [Instance(instance_config) for _ in range(instance_config.num_instances)]
+        prefill_decode_instances = [
+            Instance(instance_config) for _ in range(instance_config.num_instances)
+        ]
 
         num_requests = 10
         num_input_tokens = 2048
@@ -169,7 +172,7 @@ class ServingTestCase(unittest.TestCase):
             request_rate=1.0,
         )
 
-        main_task = stime.CallableTask(main_processing, serving, load_runner)
+        _ = stime.CallableTask(main_processing, serving, load_runner)
 
         stime.start_simulation()
         requests = load_runner.get_finished_requests()
@@ -199,7 +202,7 @@ class ServingTestCase(unittest.TestCase):
                 host2device_rate=0.5,
                 device2device_bandwidth=4e9,
                 device2device_rate=0.5,
-            )
+            ),
         )
 
         prefill_decode_instances = [Instance(instance_config)]
@@ -216,7 +219,7 @@ class ServingTestCase(unittest.TestCase):
             request_rate=1.0,
         )
 
-        main_task = stime.CallableTask(main_processing, serving, load_runner)
+        _ = stime.CallableTask(main_processing, serving, load_runner)
 
         stime.start_simulation()
         requests = load_runner.get_finished_requests()
@@ -245,7 +248,7 @@ class ServingTestCase(unittest.TestCase):
                 host2device_rate=0.5,
                 device2device_bandwidth=4e9,
                 device2device_rate=0.5,
-            )
+            ),
         )
 
         prefill_decode_instances = [Instance(instance_config)]
@@ -262,7 +265,7 @@ class ServingTestCase(unittest.TestCase):
             request_rate=5.0,  # increase sending rate to trigger preempt
         )
 
-        main_task = stime.CallableTask(main_processing, serving, load_runner)
+        _ = stime.CallableTask(main_processing, serving, load_runner)
 
         stime.start_simulation()
         requests = load_runner.get_finished_requests()

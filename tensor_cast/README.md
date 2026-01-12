@@ -31,9 +31,9 @@ You may also define your own device types in a Python file and drop it under `de
 
 ### Install required packages
 ```bash
-git clone https://gitcode.com/Ascend/msit.git -b msserviceprofiler_dev
-cd msit/liuren_modeling/tensor_cast
-pip install -r requirements.txt
+git clone https://gitcode.com/Ascend/msmodeling.git -b develop
+cd msmodeling
+pip install -r ./tensor_cast/requirements.txt
 ```
 
 ### Run text generation with given query length
@@ -256,16 +256,21 @@ Service Options:
 
 ## Contributions
 ### Installation
-`pip install -r requirements.txt`
+`pip install -r ./tensor_cast/requirements.txt`
 
 ### Coding style
 Use `lintrunner` to make sure the coding style aligns:
 ```bash
 pip install lintrunner
+cd /path/to/msmodeling
 lintrunner init  # run once
 lintrunner -a  # run every time before code check-in: check and apply necessary changes to follow the coding style
 ```
 Fix the remaining lint issues reported by `lintrunner`.
 
 ### Unit tests
-Make sure unit tests pass by running: `pytest`
+```bash
+pip install pytest-xdist
+cd /path/to/msmodeling
+```
+Make sure unit tests pass by running: `pytest ./tensor_cast/tests -n auto`

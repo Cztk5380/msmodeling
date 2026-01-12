@@ -11,8 +11,8 @@ from typing import List, Optional, Tuple
 import numpy as np
 import stime
 from scipy.interpolate import LinearNDInterpolator
-from service_sim.config import Config
-from service_sim.request import Request, RequestState
+from serving_cast.config import Config
+from serving_cast.request import Request, RequestState
 
 from tensor_cast.core.input_generator import RequestInfo
 from tensor_cast.core.model_runner import (

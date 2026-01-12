@@ -2,8 +2,8 @@
 from typing import Dict, List, Optional
 
 import stime
-from service_sim.profiler import profiler_interface
-from service_sim.config import Config
+from serving_cast.config import Config
+from serving_cast.profiler import profiler_interface
 
 
 logger = stime.get_logger(__name__)
@@ -29,7 +29,9 @@ class KVCacheManager:
     """
 
     def __init__(self, num_blocks: int, block_size: int = BLOCK_SIZE) -> None:
-        self.blocks: List[_KVCacheBlock] = [_KVCacheBlock(i, block_size) for i in range(num_blocks)]
+        self.blocks: List[_KVCacheBlock] = [
+            _KVCacheBlock(i, block_size) for i in range(num_blocks)
+        ]
         self.block_size = block_size
         self.free_block_ids: List[int] = list(range(num_blocks))
         # request_id -> List[block_id]
@@ -85,7 +87,10 @@ class KVCacheManager:
             remaining -= take
             blocks.append(bid)
             new_blocks.append(bid)
-        if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
+        if (
+            profiler_interface.is_profiling_ready()
+            and Config.get_instance().enable_profiling
+        ):
             profiler_interface.record_kv_cache_free_blocks(
                 "Allocate",
                 request_id,
@@ -102,7 +107,10 @@ class KVCacheManager:
             blk.free_slots = self.block_size
             self.free_block_ids.append(bid)
         logger.debug("free request %s done", request_id)
-        if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
+        if (
+            profiler_interface.is_profiling_ready()
+            and Config.get_instance().enable_profiling
+        ):
             profiler_interface.record_kv_cache_free_blocks(
                 "Free",
                 request_id,

@@ -5,9 +5,9 @@ from abc import ABC, abstractmethod
 from typing import List
 
 import stime
-from service_sim.config import Config
-from service_sim.instance import Instance, InstanceLoadBalancer
-from service_sim.request import Request, RequestState
+from serving_cast.config import Config
+from serving_cast.instance import Instance, InstanceLoadBalancer
+from serving_cast.request import Request, RequestState
 
 
 logger = stime.get_logger(__name__)

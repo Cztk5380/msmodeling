@@ -110,9 +110,7 @@ class Config:
         load_gen = LoadGenConfig(**d.pop("load_gen", {}))
         serving = ServingConfig(**d.pop("serving_config", {}))
         return CommonConfig(
-            model_config=model,
-            load_gen=load_gen,
-            serving_config=serving
+            model_config=model, load_gen=load_gen, serving_config=serving
         )
 
     @staticmethod
@@ -123,7 +121,9 @@ class Config:
         return [
             InstanceConfig(
                 parallel_config=ParallelConfig(**item.pop("parallel_config", {})),
-                communication_config=CommunicationConfig(**item.pop("communication_config", {})),
+                communication_config=CommunicationConfig(
+                    **item.pop("communication_config", {})
+                ),
                 **item,
             )
             for item in instances

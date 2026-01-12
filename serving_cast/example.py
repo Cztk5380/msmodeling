@@ -1,11 +1,11 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import stime
-from service_sim.device import DummyDeviceConfig, MachineConfig
-from service_sim.instance import Instance
-from service_sim.load_gen import FixedLengthLoadGen
-from service_sim.model_runner import ModelConfig
-from service_sim.serving import PdAggregationServing, PdDisaggregationServing
-from service_sim.utils import main_processing, summarize
+from serving_cast.device import DummyDeviceConfig, MachineConfig
+from serving_cast.instance import Instance
+from serving_cast.load_gen import FixedLengthLoadGen
+from serving_cast.model_runner import ModelConfig
+from serving_cast.serving import PdAggregationServing, PdDisaggregationServing
+from serving_cast.utils import main_processing, summarize
 
 logger = stime.get_logger(__name__)
 

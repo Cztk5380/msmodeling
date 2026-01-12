@@ -2,26 +2,34 @@
 from typing import Dict, List
 
 import stime
-from service_sim.device import Device
-from service_sim.kv_cache_manager import KVCacheManager
-from service_sim.model_runner import ModelRunner
-from service_sim.request import Request, RequestState
-from service_sim.profiler import profiler_interface
-from service_sim.config import Config
-from service_sim.communication import CommunicationManager
+from serving_cast.communication import CommunicationManager
+from serving_cast.config import Config
+from serving_cast.kv_cache_manager import KVCacheManager
+from serving_cast.model_runner import ModelRunner
+from serving_cast.profiler import profiler_interface
+from serving_cast.request import Request, RequestState
 
 
 logger = stime.get_logger(__name__)
 
 
 class BatchScheduler(stime.Task):
-    def __init__(self, model_runner: ModelRunner, kv_manager: KVCacheManager, communication_manager):
+    def __init__(
+        self,
+        model_runner: ModelRunner,
+        kv_manager: KVCacheManager,
+        communication_manager,
+    ):
         super().__init__()
         common_config = Config.get_instance().common_config
         self.model_runner = model_runner
         self.kv_manager = kv_manager
-        self.enable_preprocessing_modeling = common_config.model_config.enable_preprocessing_modeling
-        self.enable_kv_transfer_modeling = common_config.model_config.enable_kv_transfer_modeling
+        self.enable_preprocessing_modeling = (
+            common_config.model_config.enable_preprocessing_modeling
+        )
+        self.enable_kv_transfer_modeling = (
+            common_config.model_config.enable_kv_transfer_modeling
+        )
         self.communication_manager = communication_manager
         self.waiting_queue = []
         self.running_queue = []
@@ -29,7 +37,7 @@ class BatchScheduler(stime.Task):
         self.max_tokens_budget = common_config.serving_config.max_tokens_budget
 
     def add(self, request: Request):
-        logger.debug(f"BatchScheduler adding {request}")
+        logger.debug("BatchScheduler adding %s", request)
         self.waiting_queue.append(request)
         self.notify()
         self.requests[request.id] = request
@@ -105,9 +113,9 @@ class BatchScheduler(stime.Task):
                     request.state == RequestState.KVS_TRANSFERRING
                     and request.need_kv_transfer
                     and not request.kv_transfer_done
+                    and not self._receive_remote_kvs(request)
                 ):
-                    if not self._receive_remote_kvs(request):
-                        continue
+                    continue
                 num_computed_tokens = min(
                     token_budget, request.num_current_max_new_tokens
                 )
@@ -160,7 +168,10 @@ class BatchScheduler(stime.Task):
 
             def kv_transfer_done_callback():
                 request.state = RequestState.KVS_TRANSFERRING
-            self.communication_manager.device2device_async(num_bytes, kv_transfer_done_callback)
+
+            self.communication_manager.device2device_async(
+                num_bytes, kv_transfer_done_callback
+            )
         else:
             request.state = RequestState.KVS_TRANSFERRING
 
@@ -200,7 +211,10 @@ class BatchScheduler(stime.Task):
         try:
             while True:
                 logger.debug("in schedule   ")
-                if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
+                if (
+                    profiler_interface.is_profiling_ready()
+                    and Config.get_instance().enable_profiling
+                ):
                     prof = (
                         profiler_interface.SimProfiler(profiler_interface.Level.INFO)
                         .domain("BatchSchedule")
@@ -209,39 +223,58 @@ class BatchScheduler(stime.Task):
                     before_running_queue = self.running_queue
                     before_waiting_queue = self.waiting_queue
                 self._schedule()
-                if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
+                if (
+                    profiler_interface.is_profiling_ready()
+                    and Config.get_instance().enable_profiling
+                ):
                     request_id_with_iter_list = profiler_interface.get_iter_size_info(
-                        self.running_queue, increase_iter_size=True)
+                        self.running_queue, increase_iter_size=True
+                    )
 
                     if len(request_id_with_iter_list) != 0:
-                        profiler_interface.queue_profiler(before_running_queue, self.running_queue, "running")
-                        profiler_interface.queue_profiler(before_waiting_queue, self.waiting_queue, "waiting")
+                        profiler_interface.queue_profiler(
+                            before_running_queue, self.running_queue, "running"
+                        )
+                        profiler_interface.queue_profiler(
+                            before_waiting_queue, self.waiting_queue, "waiting"
+                        )
                         prof.res(request_id_with_iter_list)
 
-                        batch_type = profiler_interface.get_batch_type(request_id_with_iter_list)
+                        batch_type = profiler_interface.get_batch_type(
+                            request_id_with_iter_list
+                        )
                         prof.attr("batch_type", batch_type)
                         prof.span_end()
                 if len(self.running_queue) != 0:
                     logger.debug(
-                        f"Scheduled batch size: {len(self.running_queue)}"
-                        f"request ids: {[request.id for request in self.running_queue]}"
+                        "Scheduled batch size: %d request ids: %s",
+                        len(self.running_queue),
+                        [request.id for request in self.running_queue],
                     )
                     self._preprocess_batch(self.running_queue)
-                    if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
-                        if request_id_with_iter_list:
-                            prof = profiler_interface.SimProfiler(profiler_interface.Level.INFO).domain("ModelExecute")
-                            prof.res(request_id_with_iter_list)
-                            prof.attr("batch_type", batch_type)
-                            prof.span_start("modelExec")
-                            prof.attr("batch_size", len(self.running_queue))
+                    if (
+                        profiler_interface.is_profiling_ready()
+                        and Config.get_instance().enable_profiling
+                        and request_id_with_iter_list
+                    ):
+                        prof = profiler_interface.SimProfiler(
+                            profiler_interface.Level.INFO
+                        ).domain("ModelExecute")
+                        prof.res(request_id_with_iter_list)
+                        prof.attr("batch_type", batch_type)
+                        prof.span_start("modelExec")
+                        prof.attr("batch_size", len(self.running_queue))
                     self.model_runner.process_batch(self.running_queue)
-                    if profiler_interface.is_profiling_ready() and Config.get_instance().enable_profiling:
-                        if request_id_with_iter_list:
-                            prof.span_end()
+                    if (
+                        profiler_interface.is_profiling_ready()
+                        and Config.get_instance().enable_profiling
+                        and request_id_with_iter_list
+                    ):
+                        prof.span_end()
                     self._postprocess_batch()
-        except:
-            logger.error("Unexpected exception in the scheduling loop", exc_info=True)
-            raise
+        except Exception as e:
+            logger.exception("Unexpected exception in the scheduling loop")
+            raise e
 
     def _postprocess_batch(self):
         """
@@ -258,7 +291,8 @@ class BatchScheduler(stime.Task):
             ]:
                 raise ValueError(
                     "In _postprocess_batch, request.state should be PREFILLING, DECODING or "
-                    "RECOMPUTATION, but get %s" % request.state
+                    "RECOMPUTATION, but get %s",
+                    request.state,
                 )
             if request.num_current_max_new_tokens == 0:
                 # totally finish one step of prefilling or decoding
@@ -302,11 +336,16 @@ class Engine:
     """
 
     def __init__(self, instance_config, device_type, dp_rank: int):
-        self.model_runner = ModelRunner(instance_config.parallel_config, device_type, dp_rank)
-        self.communication_manager = CommunicationManager(instance_config.communication_config)
+        self.model_runner = ModelRunner(
+            instance_config.parallel_config, device_type, dp_rank
+        )
+        self.communication_manager = CommunicationManager(
+            instance_config.communication_config
+        )
         self.kv_manager = self.create_kv_manager()
-        self.batch_scheduler = BatchScheduler(self.model_runner, self.kv_manager, self.communication_manager)
-
+        self.batch_scheduler = BatchScheduler(
+            self.model_runner, self.kv_manager, self.communication_manager
+        )
 
     def create_kv_manager(self):
         block_nums, block_size = self.model_runner.warmup()
@@ -314,7 +353,7 @@ class Engine:
         return kv_manager
 
     def handle(self, request: Request):
-        logger.debug(f"Engine handling {request}")
+        logger.debug("Engine handling %s", request)
         if request.state not in [
             RequestState.PREFILLING,
             RequestState.DECODING,
@@ -322,7 +361,8 @@ class Engine:
         ]:
             raise ValueError(
                 "Engine.handle failed, request.state should be PREFILLING, DECODING or "
-                "KVS_TRANSFERRING but get request.state: %s" % request.state
+                "KVS_TRANSFERRING but get request.state: %s",
+                request.state,
             )
         self.batch_scheduler.add(request)
 

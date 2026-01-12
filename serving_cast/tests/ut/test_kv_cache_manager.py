@@ -2,8 +2,9 @@
 import unittest
 from unittest.mock import Mock, patch
 
-from service_sim.kv_cache_manager import KVCacheManager  # Implementation file above
-from service_sim.config import Config
+from serving_cast.config import Config
+
+from serving_cast.kv_cache_manager import KVCacheManager  # Implementation file above
 
 
 class TestKVCacheManager(unittest.TestCase):
@@ -17,7 +18,6 @@ class TestKVCacheManager(unittest.TestCase):
         )
         self.mock_cfg = Mock()
         self.mock_cfg.enable_profiling = False
-
 
         self.patch_get = patch.object(Config, "get_instance")
         mock_get = self.patch_get.start()
@@ -43,7 +43,6 @@ class TestKVCacheManager(unittest.TestCase):
 
     def test_allocate_multiple_blocks(self):
         new_blocks = self.mgr.allocate_slots(request_id=3, num_new_tokens=300)
-        need = (300 + self.BLOCK_SIZE - 1) // self.BLOCK_SIZE  # 3 blocks
         self.assertEqual(new_blocks, [9, 8, 7])
         self.assertEqual(self.mgr.used_slots_in_request(3), 300)
         self.assertEqual(self.mgr.stats()["used_blocks"], 3)

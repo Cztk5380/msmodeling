@@ -22,7 +22,6 @@ VALID_INSTANCE_CONFIG = {
 VALID_COMMON_CONFIG = {
     "model_config": {
         "name": "Qwen/Qwen3-32B",
-        
     },
     "load_gen": {
         "load_gen_type": "fixed_length",
@@ -30,7 +29,7 @@ VALID_COMMON_CONFIG = {
         "num_input_tokens": 30,
         "num_output_tokens": 5,
         "request_rate": 2.0,
-    }
+    },
 }
 
 INVALID_INSTANCE_CONFIG = {

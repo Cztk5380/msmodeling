@@ -1,17 +1,22 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
-from unittest.mock import Mock, patch
 
-from service_sim.communication import CommunicationManager
-from service_sim.config import Config, CommunicationConfig
-from stime import init_simulation, now, elapse, stop_simulation, start_simulation, CallableTask, current_task
-from stime import get_logger
+from serving_cast.communication import CommunicationManager
+from serving_cast.config import CommunicationConfig
+from stime import (
+    CallableTask,
+    elapse,
+    get_logger,
+    init_simulation,
+    now,
+    start_simulation,
+    stop_simulation,
+)
 
 logger = get_logger(__name__)
 
 
 class TestCommunicationManager(unittest.TestCase):
-
     def setUp(self) -> None:
         # Create a new manager with 10 blocks before each test case
         self.host2device_bandwidth = 100
@@ -33,14 +38,17 @@ class TestCommunicationManager(unittest.TestCase):
                 elapse(interval_time)
 
                 def check_callback(index):
-                    now_time = now()
-                    target_now_time = (index + 1) * interval_time + target_bytes_commun_time
+                    _ = now()
+                    target_now_time = (
+                        index + 1
+                    ) * interval_time + target_bytes_commun_time
                     self.assertEqual(now(), target_now_time)
+
                 self.mgr.host2device_async(send_bytes, check_callback, i)
             elapse(2)
             stop_simulation()
 
-        main_func = CallableTask(func)
+        _ = CallableTask(func)
         start_simulation()
 
     def test_host2device_sync(self):
@@ -52,12 +60,12 @@ class TestCommunicationManager(unittest.TestCase):
             for i in range(5):
                 elapse(interval_time)
                 self.mgr.host2device_sync(send_bytes)
-                now_time = now()
+                _ = now()
                 target_now_time = (i + 1) * (interval_time + target_bytes_commun_time)
                 self.assertEqual(now(), target_now_time)
             stop_simulation()
 
-        main_func = CallableTask(func)
+        _ = CallableTask(func)
         start_simulation()
 
     def test_host2device_async_workload_stack(self):
@@ -70,14 +78,17 @@ class TestCommunicationManager(unittest.TestCase):
                 elapse(interval_time)
 
                 def check_callback(index):
-                    now_time = now()
-                    target_now_time = (index + 1) * target_bytes_commun_time + interval_time
+                    _ = now()
+                    target_now_time = (
+                        index + 1
+                    ) * target_bytes_commun_time + interval_time
                     self.assertEqual(now(), target_now_time)
+
                 self.mgr.host2device_async(send_bytes, check_callback, i)
             elapse(2)
             stop_simulation()
 
-        main_func = CallableTask(func)
+        _ = CallableTask(func)
         start_simulation()
 
     def test_host2device_async_fifo(self):
@@ -90,15 +101,19 @@ class TestCommunicationManager(unittest.TestCase):
                 elapse(interval_time)
 
                 def check_callback(index):
-                    now_time = now()
-                    target_now_time = unit_target_bytes_commun_time * ((index + 2) * (index + 1) // 2)
+                    _ = now()
+                    target_now_time = unit_target_bytes_commun_time * (
+                        (index + 2) * (index + 1) // 2
+                    )
                     self.assertEqual(now(), target_now_time)
+
                 self.mgr.host2device_async(unit_send_bytes * (i + 1), check_callback, i)
             elapse(2)
             stop_simulation()
 
-        main_func = CallableTask(func)
+        _ = CallableTask(func)
         start_simulation()
+
 
 if __name__ == "__main__":
     unittest.main()

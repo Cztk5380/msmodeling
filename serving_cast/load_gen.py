@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod
 from typing import Dict
 
 import stime
-from service_sim.request import Request, RequestState
+from serving_cast.request import Request, RequestState
 
 logger = stime.get_logger(__name__)
 
