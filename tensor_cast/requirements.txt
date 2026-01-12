@@ -1,0 +1,14 @@
+torch>=2.7,<2.9
+transformers>=4.57
+pytest
+parameterized
+overrides
+optree
+pyyaml
+strenum
+prettytable
+pandas
+diffusers
+aenum
+modelscope
+compressed-tensors

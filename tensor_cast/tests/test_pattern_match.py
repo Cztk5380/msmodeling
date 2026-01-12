@@ -1,0 +1,211 @@
+import unittest
+
+import torch
+from parameterized import parameterized
+
+from ..compilation import get_backend
+from ..device import TEST_DEVICE
+from ..layers.attention import AttentionTensorCast
+from ..layers.quant_linear import TensorCastQuantLinear
+from ..model_config import ModelConfig, ParallelConfig, QuantConfig
+from ..performance_model.analytic import AnalyticPerformanceModel
+from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
+from ..runtime import Runtime
+from ..transformers.model import TransformerModel
+from .test_common import get_quant_config
+
+
+class PatternReplaceTestCase(unittest.TestCase):
+    def setUp(self):
+        torch.compiler.reset()
+        num_tokens = 100
+        self.compile_backend = get_backend()
+        with torch.device("meta"):
+            self.inputs = torch.empty([1, num_tokens], dtype=torch.long)
+            self.position_ids = torch.empty([1, num_tokens], dtype=torch.long)
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B"],
+        ]
+    )
+    def test_rms_norm_pattern(self, model_id):
+        num_tokens = 100
+        model_config = ModelConfig(
+            ParallelConfig(), QuantConfig(), num_hidden_layers_override=2
+        )
+        model = TransformerModel(model_id, model_config)
+        model = torch.compile(
+            model, backend=self.compile_backend, fullgraph=True, dynamic=True
+        )
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(self.inputs, self.position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.rms_norm.default", result)
+        self.assertIn("tensor_cast.add_rms_norm.default", result)
+        self.assertIn("tensor_cast.add_rms_norm2.default", result)
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B"],
+        ]
+    )
+    def test_rms_norm_static_quant_pattern(self, model_id):
+        num_tokens = 100
+        model_config = ModelConfig(
+            ParallelConfig(),
+            get_quant_config(
+                activation_scale=torch.max(torch.abs(torch.randn(1))) / 127.0
+            ),
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=1,
+        )
+        model = TransformerModel(model_id, model_config)
+        model = torch.compile(
+            model, backend=self.compile_backend, fullgraph=True, dynamic=True
+        )
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(self.inputs, self.position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.rms_norm.default", result)
+        self.assertIn("tensor_cast.add_rms_norm.default", result)
+        self.assertIn("tensor_cast.rms_norm_quant.default", result)
+        self.assertIn("tensor_cast.add_rms_norm_quant2.default", result)
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B", True],
+            ["Qwen/Qwen3-32B", False],
+        ]
+    )
+    def test_rms_norm_dynamic_quant_pattern(self, model_id, per_sample):
+        num_tokens = 100
+        model_config = ModelConfig(
+            ParallelConfig(),
+            get_quant_config(
+                dynamic_quant_granularity=QuantGranularity.PER_SAMPLE
+                if per_sample
+                else QuantGranularity.PER_TENSOR
+            ),
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=1,
+        )
+        model = TransformerModel(model_id, model_config)
+        model = torch.compile(
+            model, backend=self.compile_backend, fullgraph=True, dynamic=True
+        )
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(self.inputs, self.position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.rms_norm.default", result)
+        self.assertIn("tensor_cast.add_rms_norm.default", result)
+        self.assertIn("tensor_cast.rms_norm_dynamic_quant_symmetric.default", result)
+        self.assertIn(
+            "tensor_cast.add_rms_norm_dynamic_quant2_symmetric.default", result
+        )
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B", True],
+            ["Qwen/Qwen3-32B", False],
+        ]
+    )
+    def test_rms_norm_dynamic_quant_pattern_fp8(self, model_id, per_sample):
+        num_tokens = 100
+        fp8_quant_config = get_quant_config(
+            quant_type=LinearQuantType.FP8,
+        )
+        model_config = ModelConfig(
+            ParallelConfig(),
+            fp8_quant_config,
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=1,
+        )
+        model = TransformerModel(model_id, model_config)
+        model = torch.compile(
+            model, backend=self.compile_backend, fullgraph=True, dynamic=True
+        )
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(self.inputs, self.position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.rms_norm.default", result)
+        self.assertIn("tensor_cast.add_rms_norm.default", result)
+        self.assertIn("tensor_cast.rms_norm_dynamic_quant_symmetric.default", result)
+        self.assertIn(
+            "tensor_cast.add_rms_norm_dynamic_quant2_symmetric.default", result
+        )
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B", 64],
+            ["Qwen/Qwen3-32B", 32],
+        ]
+    )
+    def test_rms_norm_dynamic_quant_pattern_mxfp4(self, model_id, group_size):
+        num_tokens = 100
+        mxfp4_quant_config = get_quant_config(
+            quant_type=LinearQuantType.MXFP4,
+            weight_group_size=group_size,
+            weight_quant_granularity=QuantGranularity.PER_GROUP,
+            weight_quant_scheme=QuantScheme.SYMMETRIC,
+        )
+        model_config = ModelConfig(
+            ParallelConfig(),
+            mxfp4_quant_config,
+            quant_linear_cls=TensorCastQuantLinear,
+            num_hidden_layers_override=1,
+        )
+        model = TransformerModel(model_id, model_config)
+        model = torch.compile(
+            model, backend=self.compile_backend, fullgraph=True, dynamic=True
+        )
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(self.inputs, self.position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.rms_norm.default", result)
+        self.assertIn("tensor_cast.add_rms_norm.default", result)
+        self.assertIn("tensor_cast.rms_norm_dynamic_quant_mxfp4.default", result)
+        self.assertIn("tensor_cast.add_rms_norm_dynamic_quant2_mxfp4.default", result)
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B"],
+        ]
+    )
+    def test_rope_pattern(self, model_id):
+        num_tokens = 100
+        model_config = ModelConfig(
+            ParallelConfig(),
+            get_quant_config(
+                activation_scale=torch.max(torch.abs(torch.randn(1))) / 127.0
+            ),
+            quant_linear_cls=TensorCastQuantLinear,
+            attention_cls=AttentionTensorCast,
+            num_hidden_layers_override=2,
+        )
+        model = TransformerModel(model_id, model_config)
+        model = torch.compile(
+            model, backend=self.compile_backend, fullgraph=True, dynamic=True
+        )
+        machine_config = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(machine_config)
+        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+            outputs = model.forward(self.inputs, self.position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.apply_rope.default", result)

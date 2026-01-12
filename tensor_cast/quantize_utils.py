@@ -1,0 +1,150 @@
+#!/usr/bin/env python
+# _*_coding:utf-8_*_
+import fnmatch
+import re
+
+from enum import auto, Enum
+from typing import Callable, List, Optional
+
+import torch
+import torch.nn as nn
+
+from .utils import DTYPE_FP4, DTYPE_FP8
+
+
+class LinearQuantType(Enum):
+    W8A16 = auto()  # Weight in int8, activation in bfloat16 or half
+    W8A8 = auto()  # Weight in int8, activation in int8
+    W4A8 = auto()  # Weight in int4, activation in int8
+    FP8 = auto()  # Weight in float8, activation in float8
+    MXFP4 = auto()  # both weight and activation in MXFP4
+
+
+def quant_type_to_dynamic_quant_dtype(
+    quant_type: LinearQuantType,
+) -> Optional[torch.dtype]:
+    if quant_type in (LinearQuantType.W8A8, LinearQuantType.W4A8):
+        return torch.int8
+    elif quant_type == LinearQuantType.FP8:
+        return DTYPE_FP8
+    elif quant_type == LinearQuantType.MXFP4:
+        return DTYPE_FP4
+    elif quant_type == LinearQuantType.W8A16:
+        return None
+    else:
+        raise ValueError(f"Unsupported quant_type for dynamic quant: {quant_type}")
+
+
+def quant_type_to_weight_dtype(quant_type: LinearQuantType) -> torch.dtype:
+    if quant_type in (
+        LinearQuantType.W8A8,
+        LinearQuantType.W4A8,
+        LinearQuantType.W8A16,
+    ):
+        return torch.int8
+    elif quant_type == LinearQuantType.FP8:
+        return DTYPE_FP8
+    elif quant_type == LinearQuantType.MXFP4:
+        return DTYPE_FP4
+    else:
+        raise ValueError(f"Unsupported quant_type for weight quant: {quant_type}")
+
+
+class AttentionQuantType(Enum):
+    INT8 = auto()
+    # TODO(jgong5): support FP8
+
+
+class QuantGranularity(Enum):
+    PER_TENSOR = auto()  # use a single quant param for the entire tensor
+    PER_SAMPLE = (
+        auto()
+    )  # use quant param per sample in the batch (e.g. per-token for LLM)
+    PER_GROUP = auto()  # use quant param per channel group
+
+
+class QuantScheme(Enum):
+    SYMMETRIC = auto()
+    ASYMMETRIC = auto()
+
+
+def get_quant_config(name, quant_config, default_config_name):
+    if not hasattr(quant_config, "_cached_wildcard_configs"):
+        quant_config._cached_wildcard_configs = {
+            n: quant_config.linear_configs[n]
+            for n in quant_config.linear_configs
+            if "*" in n or "?" in n
+        }
+    wildcard_configs = quant_config._cached_wildcard_configs
+    if name in quant_config.linear_configs:
+        return quant_config.linear_configs[name]
+    for pattern, config in wildcard_configs.items():
+        if fnmatch.fnmatch(name, pattern):
+            return config
+    return quant_config.linear_configs.get(default_config_name)
+
+
+def replace_module(name, new_module, root_module):
+    if not root_module:
+        return
+    path = name.split(".")
+    parent_name, child_name = ".".join(path[:-1]), path[-1]
+    parent_module = root_module
+    if parent_name:
+        parent_module = parent_module.get_submodule(parent_name)
+    setattr(parent_module, child_name, new_module)
+
+
+def quantize_linear_modules(
+    root_module: nn.Module,
+    quant_linear_cls: Optional["QuantLinearBase"],
+    quant_config: Optional["QuantConfig"],
+    default_config_name: str,
+    strip_module_fn: Optional[Callable[[str], str]],
+) -> None:
+    """
+    Quantize Linear modules in a root module with specified quantization config and class.
+
+    Args:
+        root_module: (nn.Module) Root module containing Linear layers to be quantized
+        quant_linear_cls: (QuantLinearBase) Quantized Linear class to replace original Linear modules
+        quant_config: (QuantConfig) Quantization configuration object with linear config rules and exclude list
+        default_config_name: (str) Fallback config name if no match found for a target Linear module
+        strip_module_fn:
+            (Optional[Callable[[str], str]]) Function to clean/normalize module names,
+            None = use raw module name without modification
+    """
+
+    def pattern_match(name: str, pattern_list: List[Optional[str]]) -> bool:
+        """
+        three ways to match:fnmatch/re/real_name
+        example of names:
+        # ['lm_head', 're:.*self_attn.*', 're:.*shared_experts.*', 're:.*mlp\\.(gate|up|gate_up|down)_proj.*']
+        # ["gate","e_score_correction_bias","lm_head"]
+        """
+        matched = False
+        if not pattern_list:
+            return matched
+        for pattern in pattern_list:
+            if pattern.startswith("re:"):
+                pattern = pattern.replace("re:", "")
+                matched = bool(re.match(pattern, name))
+            elif pattern in name:
+                matched = True
+            else:
+                matched = fnmatch.fnmatch(name, pattern)
+            if matched:
+                break
+        return matched
+
+    if not quant_linear_cls or not root_module:
+        return
+    for name, module in root_module.named_modules():
+        if pattern_match(name, quant_config.modules_to_not_convert):
+            continue
+        if isinstance(module, torch.nn.Linear):
+            module_name = strip_module_fn(name) if strip_module_fn else name
+            cfg = get_quant_config(module_name, quant_config, default_config_name)
+            if cfg:
+                new_module = quant_linear_cls(module, cfg)
+                replace_module(name, new_module, root_module)

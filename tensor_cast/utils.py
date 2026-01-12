@@ -1,0 +1,62 @@
+from typing import List, Optional
+
+import torch
+from transformers.utils.quantization_config import (
+    CompressedTensorsConfig,
+    FineGrainedFP8Config,
+    QuantizationConfigMixin,
+)
+
+# placeholder for FP8, don't hard-code specific fp8 format
+DTYPE_FP8 = torch.float8_e5m2
+# use int4 placeholder for FP4
+DTYPE_FP4 = torch.int4
+
+
+def register_tensor_cast_op(name, mutates_args=(), **kwargs):
+    """
+    Register tensor_cast custom op with `name` under tensor_cast namespace.
+    We only support meta tensor in the tensor_cast ops so the fake implementation
+    is the same as the normal implementation.
+    """
+
+    def decorator(func):
+        custom_op = torch.library.custom_op(
+            f"tensor_cast::{name}", mutates_args=mutates_args, **kwargs
+        )(func)
+        custom_op.register_fake(func)
+        return func
+
+    return decorator
+
+
+def exact_division(numerator, denominator):
+    assert numerator % denominator == 0, (
+        f"{numerator} is not divisible by {denominator}"
+    )
+    return numerator // denominator
+
+
+def get_modules_to_not_convert(
+    quant_config: QuantizationConfigMixin,
+) -> List[Optional[str]]:
+    modules_to_not_convert = []
+    if isinstance(quant_config, FineGrainedFP8Config):
+        modules_to_not_convert = quant_config.modules_to_not_convert
+    elif isinstance(quant_config, CompressedTensorsConfig):
+        modules_to_not_convert = quant_config.quantization_config.ignore
+    return modules_to_not_convert
+
+
+_str_to_dtype = {
+    "float16": torch.float16,
+    "float32": torch.float32,
+    "bfloat16": torch.bfloat16,
+}
+
+
+def str_to_dtype(string: str) -> torch.dtype:
+    res = _str_to_dtype.get(string)
+    if res is None:
+        raise ValueError(f"Unsupported type for model: {string}")
+    return res

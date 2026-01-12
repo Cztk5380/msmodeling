@@ -1,0 +1,469 @@
+import tempfile
+import unittest
+
+import torch
+from parameterized import parameterized
+
+from ..compilation import get_backend
+from ..core.model_builder import build_model
+from ..core.user_config import UserInputConfig
+from ..device import TEST_DEVICE
+from ..performance_model.analytic import AnalyticPerformanceModel
+from ..performance_model.empirical import EmpiricalPerformanceModel
+from ..performance_model.memory_tracker import MemoryTracker
+from ..runtime import Runtime
+from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
+
+
+class PerfAnalysisTestCase(unittest.TestCase):
+    def setUp(self):
+        torch.compiler.reset()
+
+    def test_simple_model_eager(self):
+        def func(x):
+            return x + x
+
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            x = torch.randn([100], device="meta")
+            _ = func(x)
+        self.assertEqual(len(runtime.event_list), 3)
+
+    def test_simple_model_compile(self):
+        @torch.compile(backend=get_backend())
+        def func(x):
+            return x + x
+
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            x = torch.randn([100], device="meta")
+            _ = func(x)
+        self.assertEqual(len(runtime.event_list), 3)
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-32B", False],
+            ["Qwen/Qwen3-32B", True],
+            ["Qwen/Qwen3-235B-A22B", False],
+            ["Qwen/Qwen3-235B-A22B", True],
+            ["zai-org/GLM-4.5", False],
+            ["zai-org/GLM-4.5", True],
+        ]
+    )
+    def test_model(self, model_id, do_compile):
+        num_tokens = 100
+        user_config = UserInputConfig(
+            model_id=model_id, do_compile=do_compile, num_hidden_layers_override=2
+        )
+        model = build_model(user_config)
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            outputs = model.forward(inputs, position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        self.assertIn("tensor_cast.", runtime.table_averages())
+
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1", False],
+            ["deepseek-ai/DeepSeek-V3.1", True],
+            ["moonshotai/Kimi-K2-Base", False],
+            ["moonshotai/Kimi-K2-Base", True],
+        ]
+    )
+    def test_deepseek(self, model_id, do_compile):
+        user_config = UserInputConfig(model_id=model_id, do_compile=do_compile)
+        model = build_model(user_config)
+        attn_meta, kv_cache_by_layers, num_tokens = create_mla_metadata_and_kv_cache(
+            model, model.model_config
+        )
+        # make sure all original attention modules have been replaced
+        self.assertTrue(
+            has_submodule_with_cls_name(model, "MultiheadLatentAttentionTensorCast")
+        )
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            outputs = model.forward(
+                inputs,
+                position_ids,
+                attention_meta=attn_meta,
+                kv_cache_by_layers=kv_cache_by_layers,
+            )
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.permute_tokens", result)
+        self.assertIn("tensor_cast.concat_and_cache_mla", result)
+        self.assertIn("tensor_cast.multihead_latent_attention", result)
+
+    def test_table_averages_default(self):
+        def func(x):
+            return x + 2 * x + x
+
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            x = torch.randn([100], device="meta")
+            _ = func(x)
+        result = runtime.table_averages()
+        self.assertIn("analytic total", result)
+        self.assertIn("analytic avg", result)
+        self.assertIn("aten.randn", result)
+        self.assertIn("aten.add", result)
+        self.assertIn("aten.mul", result)
+        self.assertIn("# of Calls", result)
+
+    def test_table_averages_group_by_shape(self):
+        def func(x, y):
+            return x + 2 * x + x + y
+
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            x = torch.randn([10, 10], device="meta")
+            y = torch.randn([10, 1], device="meta")
+            _ = func(x, y)
+        result = runtime.table_averages(group_by_input_shapes=True)
+        self.assertIn("analytic total", result)
+        self.assertIn("analytic avg", result)
+        self.assertIn("Input Shapes", result)
+        self.assertIn("aten.randn", result)
+        self.assertIn("aten.add", result)
+        self.assertIn("aten.mul", result)
+        self.assertIn("# of Calls", result)
+
+    def test_export_chrome_trace(self):
+        def func(x):
+            return x + 2 * x + x
+
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            x = torch.randn([100], device="meta")
+            _ = func(x)
+        with tempfile.TemporaryFile(mode="w+") as temp_file:
+            runtime.export_chrome_trace(temp_file)
+            temp_file.seek(0)
+            content = temp_file.read()
+            self.assertIn("aten.randn", content)
+            self.assertIn("aten.add", content)
+            self.assertIn("aten.mul", content)
+
+    def test_model_cost_with_view(self):
+        def func(x):
+            return x.reshape(10, 10)
+
+        x = torch.randn([100], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_matmul(self):
+        def func(x, y):
+            return torch.matmul(x, y)
+
+        x = torch.randn([0, 10], device="meta")
+        y = torch.randn([10, 10], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_batched_matmul(self):
+        def func(x, y):
+            return torch.matmul(x, y)
+
+        x = torch.randn([0, 10, 10], device="meta")
+        y = torch.randn([10, 10], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_conv1d(self):
+        def func(x, y):
+            return torch.nn.functional.conv1d(x, y)
+
+        x = torch.randn([0, 3, 32], device="meta")
+        y = torch.randn([16, 3, 3], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_conv2d(self):
+        def func(x, y):
+            return torch.nn.functional.conv2d(x, y)
+
+        x = torch.randn([0, 3, 32, 32], device="meta")
+        y = torch.randn([16, 3, 3, 3], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_conv3d(self):
+        def func(x, y):
+            return torch.nn.functional.conv3d(x, y)
+
+        x = torch.randn([0, 3, 8, 32, 32], device="meta")
+        y = torch.randn([16, 3, 3, 3, 3], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, y)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_addmm(self):
+        def func(input_tensor, mat1, mat2):
+            return torch.addmm(input_tensor, mat1, mat2)
+
+        input_tensor = torch.randn([0, 10], device="meta")
+        mat1 = torch.randn([0, 5], device="meta")
+        mat2 = torch.randn([5, 10], device="meta")
+
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(input_tensor, mat1, mat2)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_model_cost_with_zero_shape_static_quant_linear(self):
+        def func(x, w, w_scale):
+            return torch.ops.tensor_cast.static_quant_linear(
+                x,
+                w,
+                w_scale,
+                w_offset=None,
+                x_scale=None,
+                x_offset=None,
+                bias=None,
+                out_dtype=None,
+            )
+
+        x = torch.randn([0, 10], device="meta")
+        w = torch.randint(0, 255, [10, 10], dtype=torch.uint8, device="meta")
+        w_scale = torch.randn([10], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model,
+                device_profile,
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            _ = func(x, w, w_scale)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+
+    def test_runtime_breakdown_compute_bound(self):
+        def func(x, y):
+            return torch.matmul(x, y)
+
+        x = torch.randn([1000, 1000], device="meta")
+        y = torch.randn([1000, 1000], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x, y)
+        breakdowns = runtime.get_breakdowns()
+        self.assertGreater(len(breakdowns), 0)
+        self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
+        for key, breakdown in breakdowns.items():
+            if key.endswith("OpBound"):
+                self.assertGreater(breakdown["compute_bound_mma"], 0)
+                self.assertEqual(breakdown["compute_bound_gp"], 0)
+                self.assertEqual(breakdown["memory_bound"], 0)
+                self.assertEqual(breakdown["communication_bound"], 0)
+
+    def test_runtime_breakdown_memory_bound(self):
+        def func(x, y):
+            return torch.add(x, y)
+
+        x = torch.randn([1000, 1000], device="meta")
+        y = torch.randn([1000, 1000], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x, y)
+        breakdowns = runtime.get_breakdowns()
+        self.assertGreater(len(breakdowns), 0)
+        self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
+        for key, breakdown in breakdowns.items():
+            if key.endswith("OpBound"):
+                self.assertEqual(breakdown["compute_bound_mma"], 0)
+                self.assertEqual(breakdown["compute_bound_gp"], 0)
+                self.assertGreater(breakdown["memory_bound"], 0)
+                self.assertEqual(breakdown["communication_bound"], 0)
+
+    def test_runtime_breakdown_comm_bound(self):
+        def func(x):
+            return torch.ops.tensor_cast.all_reduce(x, 0, [0, 1])
+
+        x = torch.randn([1000, 1000], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x)
+        breakdowns = runtime.get_breakdowns()
+        self.assertGreater(len(breakdowns), 0)
+        self.assertTrue(any(key.endswith("OpBound") for key in breakdowns.keys()))
+        for key, breakdown in breakdowns.items():
+            if key.endswith("OpBound"):
+                self.assertEqual(breakdown["compute_bound_mma"], 0)
+                self.assertEqual(breakdown["compute_bound_gp"], 0)
+                self.assertEqual(breakdown["memory_bound"], 0)
+                self.assertGreater(breakdown["communication_bound"], 0)
+
+    def test_empirical_model_torch_op(self):
+        def func(x, y):
+            return torch.matmul(x, y)
+
+        x = torch.randn([100, 100], device="meta")
+        y = torch.randn([100, 100], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = EmpiricalPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x, y)
+        total_time_s = runtime.total_execution_time_s()[perf_model.name]
+        self.assertGreater(total_time_s, 0)
+        result = runtime.table_averages()
+        self.assertIn("aten.mm.default", result)
+
+    def test_empirical_model_torch_op_view(self):
+        def func(x):
+            return x.reshape(10, 10)
+
+        x = torch.randn([100], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = EmpiricalPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x)
+        total_time_s = runtime.total_execution_time_s()[perf_model.name]
+        self.assertEqual(total_time_s, 0)
+        result = runtime.table_averages()
+        self.assertIn("aten.view.default", result)
+
+    def test_empirical_model_tensorcast_op(self):
+        # test tensor_cast.quantize
+        def func(x, scale):
+            return torch.ops.tensor_cast.quantize(x, scale, None, torch.int8)
+
+        x = torch.randn([100, 100], device="meta")
+        scale = torch.tensor(0.1, device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = EmpiricalPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            func(x, scale)
+        total_time_s = runtime.total_execution_time_s()[perf_model.name]
+        self.assertGreater(total_time_s, 0)
+        result = runtime.table_averages()
+        self.assertIn("tensor_cast.quantize.default", result)
