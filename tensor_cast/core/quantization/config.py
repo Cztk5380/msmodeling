@@ -82,6 +82,9 @@ def create_quant_config(
         quant_config.linear_configs["*.layers.*"] = create_linear_quant_config(
             quantize_linear_action, **kwargs
         )
+        quant_config.linear_configs["default_dit"] = create_linear_quant_config(
+            quantize_linear_action, **kwargs
+        )
         if quantize_lmhead:
             quant_config.linear_configs["lm_head"] = create_linear_quant_config(
                 quantize_linear_action, **kwargs

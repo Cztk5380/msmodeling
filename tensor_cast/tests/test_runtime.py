@@ -12,12 +12,32 @@ from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.empirical import EmpiricalPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..runtime import Runtime
-from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
+from .test_common import (
+    assert_close,
+    create_attn_metadata_and_kv_cache,
+    create_mla_metadata_and_kv_cache,
+    has_submodule_with_cls_name,
+)
 
 
 class PerfAnalysisTestCase(unittest.TestCase):
     def setUp(self):
         torch.compiler.reset()
+
+    def _execute_attention_and_get_base_data(self, attention_args):
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            torch.ops.tensor_cast.attention(*attention_args)
+        self.assertEqual(len(runtime.event_list), 1)
+        analytic_result = runtime.event_list[0].perf_results.get("analytic")
+        actual_execution_time = analytic_result.execution_time_s
+        return actual_execution_time
 
     def test_simple_model_eager(self):
         def func(x):
@@ -52,6 +72,47 @@ class PerfAnalysisTestCase(unittest.TestCase):
             _ = func(x)
         self.assertEqual(len(runtime.event_list), 3)
 
+    def test_attention_dit_eager(self):
+        B, S, num_heads, head_dim = 2, 256, 6, 64
+        dtype = torch.float16
+
+        q = torch.randn(B, S, num_heads, head_dim, device="meta", dtype=dtype)
+        k = torch.randn(B, S, num_heads, head_dim, device="meta", dtype=dtype)
+        v = torch.randn(B, S, num_heads, head_dim, device="meta", dtype=dtype)
+
+        actual_execution_time = self._execute_attention_and_get_base_data(
+            (q, k, v, None, None, None, None, None)
+        )
+
+        assert_close(self, actual_execution_time, 6.49e-6)
+
+    def test_attention_llm_eager(self):
+        B, S, num_kv_heads, head_dim = 2, 256, 8, 64
+        block_size, dtype = 128, torch.float16
+        hidden_size, query_len = num_kv_heads * head_dim, 1
+        total_tokens = B * query_len
+
+        q = torch.randn(total_tokens, hidden_size, device="meta", dtype=dtype)
+        max_num_blocks_per_seq = (S + block_size - 1) // block_size
+        num_blocks = B * max_num_blocks_per_seq
+        k = torch.randn(
+            num_blocks, block_size, num_kv_heads, head_dim, device="meta", dtype=dtype
+        )
+        v = torch.randn(
+            num_blocks, block_size, num_kv_heads, head_dim, device="meta", dtype=dtype
+        )
+        block_table = torch.empty(
+            (B, max_num_blocks_per_seq), dtype=torch.long, device="meta"
+        )
+        seq_lens = torch.full((B,), S, dtype=torch.long, device="cpu")
+        query_lens = torch.full((B,), query_len, dtype=torch.long, device="cpu")
+
+        actual_execution_time = self._execute_attention_and_get_base_data(
+            (q, k, v, None, block_table, None, seq_lens, query_lens)
+        )
+
+        assert_close(self, actual_execution_time, 5.99e-6)
+
     @parameterized.expand(
         [
             ["Qwen/Qwen3-32B", False],
@@ -72,13 +133,21 @@ class PerfAnalysisTestCase(unittest.TestCase):
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         device_profile = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(device_profile)
+        attn_meta, kv_cache_by_layers, num_tokens = create_attn_metadata_and_kv_cache(
+            model, model.model_config
+        )
         with (
             Runtime(
                 perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
             ) as runtime,
             torch.no_grad(),
         ):
-            outputs = model.forward(inputs, position_ids)
+            outputs = model.forward(
+                inputs,
+                position_ids,
+                attention_meta=attn_meta,
+                kv_cache_by_layers=kv_cache_by_layers,
+            )
             self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertIn("tensor_cast.", runtime.table_averages())
 

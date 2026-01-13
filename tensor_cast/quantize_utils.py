@@ -9,7 +9,7 @@ from typing import Callable, List, Optional
 import torch
 import torch.nn as nn
 
-from .utils import DTYPE_FP4, DTYPE_FP8
+from .utils import DTYPE_FP4, DTYPE_FP8, pattern_match
 
 
 class LinearQuantType(Enum):
@@ -114,29 +114,6 @@ def quantize_linear_modules(
             (Optional[Callable[[str], str]]) Function to clean/normalize module names,
             None = use raw module name without modification
     """
-
-    def pattern_match(name: str, pattern_list: List[Optional[str]]) -> bool:
-        """
-        three ways to match:fnmatch/re/real_name
-        example of names:
-        # ['lm_head', 're:.*self_attn.*', 're:.*shared_experts.*', 're:.*mlp\\.(gate|up|gate_up|down)_proj.*']
-        # ["gate","e_score_correction_bias","lm_head"]
-        """
-        matched = False
-        if not pattern_list:
-            return matched
-        for pattern in pattern_list:
-            if pattern.startswith("re:"):
-                pattern = pattern.replace("re:", "")
-                matched = bool(re.match(pattern, name))
-            elif pattern in name:
-                matched = True
-            else:
-                matched = fnmatch.fnmatch(name, pattern)
-            if matched:
-                break
-        return matched
-
     if not quant_linear_cls or not root_module:
         return
     for name, module in root_module.named_modules():

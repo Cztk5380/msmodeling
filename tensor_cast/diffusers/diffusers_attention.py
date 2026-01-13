@@ -99,6 +99,8 @@ def _attention(query, key, value, **kwargs):
     return out
 
 
+# scaled_dot_product_attention is not capturable by torch_dispatch;
+# override it with our custom tensor_cast.attention op instead.
 @contextmanager
 def use_custom_sdpa():
     original_sdpa = F.scaled_dot_product_attention

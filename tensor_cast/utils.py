@@ -1,3 +1,5 @@
+import fnmatch
+import re
 from typing import List, Optional
 
 import torch
@@ -35,6 +37,29 @@ def exact_division(numerator, denominator):
         f"{numerator} is not divisible by {denominator}"
     )
     return numerator // denominator
+
+
+def pattern_match(name: str, pattern_list: List[Optional[str]]) -> bool:
+    """
+    three ways to match:fnmatch/re/real_name
+    example of names:
+    # ['lm_head', 're:.*self_attn.*', 're:.*shared_experts.*', 're:.*mlp\\.(gate|up|gate_up|down)_proj.*']
+    # ["gate","e_score_correction_bias","lm_head"]
+    """
+    matched = False
+    if not pattern_list:
+        return matched
+    for pattern in pattern_list:
+        if pattern.startswith("re:"):
+            pattern = pattern.replace("re:", "")
+            matched = bool(re.match(pattern, name))
+        elif pattern in name:
+            matched = True
+        else:
+            matched = fnmatch.fnmatch(name, pattern)
+        if matched:
+            break
+    return matched
 
 
 def get_modules_to_not_convert(

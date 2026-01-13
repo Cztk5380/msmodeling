@@ -20,7 +20,7 @@ from parameterized import parameterized
 from transformers.modeling_utils import no_init_weights
 
 from ..transformers.utils import AutoModelConfigLoader, init_on_device_without_buffers
-from ..utils import get_modules_to_not_convert
+from ..utils import get_modules_to_not_convert, pattern_match
 
 
 class ConfigMode(Enum):
@@ -50,28 +50,6 @@ class QuantConfigTestCase(unittest.TestCase):
         ]
     )
     def test_pattern_match(self, model_name_or_path, config_mode, match_result):
-        def pattern_match(name: str, pattern_list: List[Optional[str]]) -> bool:
-            """
-            three ways to match:fnmatch/re/real_name
-            example of names:
-            # ['lm_head', 're:.*self_attn.*', 're:.*shared_experts.*', 're:.*mlp\\.(gate|up|gate_up|down)_proj.*']
-            # ["gate","e_score_correction_bias","lm_head"]
-            """
-            matched = False
-            if not pattern_list:
-                return matched
-            for pattern in pattern_list:
-                if pattern.startswith("re:"):
-                    pattern = pattern.replace("re:", "")
-                    matched = bool(re.match(pattern, name))
-                elif pattern in name:
-                    matched = True
-                else:
-                    matched = fnmatch.fnmatch(name, pattern)
-                if matched:
-                    break
-            return matched
-
         test_case = [
             "lm_head",
             "model.layers.0.mlp.gate_proj",

@@ -24,6 +24,9 @@ def support_autocast_for_meta():
     running a PyTorch model that calls autocast, such as those models in the
     Transformers. We have to patch PyTorch to work it around.
     """
+    import torch.fx.experimental._config as config
+
+    meta_nonzero_assume_all_nonzero_orig = config.meta_nonzero_assume_all_nonzero
     get_autocast_dtype_orig = torch.get_autocast_dtype
     _C_is_autocast_available_orig = torch._C._is_autocast_available
     is_autocast_enabled_orig = torch.is_autocast_enabled
@@ -62,12 +65,14 @@ def support_autocast_for_meta():
     torch.is_autocast_enabled = is_autocast_enabled
     torch.set_autocast_enabled = set_autocast_enabled
     torch._C._is_autocast_available = is_autocast_available
+    config.meta_nonzero_assume_all_nonzero = True
     yield
     torch._C._is_autocast_available = _C_is_autocast_available_orig
     torch.set_autocast_enabled = set_autocast_enabled_orig
     torch.is_autocast_enabled = is_autocast_enabled_orig
     torch.get_autocast_dtype = get_autocast_dtype_orig
     _in_support_autocast_for_meta = False
+    config.meta_nonzero_assume_all_nonzero = meta_nonzero_assume_all_nonzero_orig
 
 
 @contextlib.contextmanager
