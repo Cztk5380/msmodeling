@@ -1052,7 +1052,7 @@ class TestTextGenerate(unittest.TestCase):
         """Test qwen3_vl prefill operation."""
         user_input = UserInputConfig(
             device=self.device,
-            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            model_id="Qwen/Qwen3-VL-8B-Instruct",
             num_queries=self.num_queries,
             query_len=self.query_len,
             context_length=self.context_length,
@@ -1081,7 +1081,7 @@ class TestTextGenerate(unittest.TestCase):
         """Test qwen3_vl without image input prefill operation."""
         user_input = UserInputConfig(
             device=self.device,
-            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            model_id="Qwen/Qwen3-VL-8B-Instruct",
             num_queries=self.num_queries,
             query_len=self.query_len,
             context_length=self.context_length,
@@ -1104,10 +1104,10 @@ class TestTextGenerate(unittest.TestCase):
         self.assertNotIn("aten.addmm.default", result["table_result"])
 
     def test_qwen3_vl_decode_mode(self):
-        """Test qwen3_vl decode mode """
+        """Test qwen3_vl decode mode"""
         user_input = UserInputConfig(
             device=self.device,
-            model_id='Qwen/Qwen3-VL-8B-Instruct',
+            model_id="Qwen/Qwen3-VL-8B-Instruct",
             num_queries=self.num_queries,
             query_len=self.query_len,
             context_length=self.context_length,
@@ -1133,6 +1133,42 @@ class TestTextGenerate(unittest.TestCase):
             result = asdict(result)
         self.assertNotIn("aten.addmm.default", result["table_result"])
 
+    @parameterized.expand(
+        [
+            ["inclusionAI/Ling-1T"],
+            ["inclusionAI/Ling-flash-2.0"],
+        ]
+    )
+    def test_ling_basic(self, model_id):
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id=model_id,
+            num_queries=1,
+            query_len=1,
+            context_length=7,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            world_size=64,
+        )
+        model_runner = ModelRunner(user_input)
+        _ = model_runner.run_inference(generate_inputs_func=generate_inputs)
+
+    def test_ling_tp_size_greater_than_num_kv_heads(self):
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id="inclusionAI/Ling-1T",
+            num_queries=1,
+            query_len=1,
+            context_length=7,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            world_size=64,
+            tp_size=16,
+        )
+        model_runner = ModelRunner(user_input)
+        _ = model_runner.run_inference(generate_inputs_func=generate_inputs)
 
 
 if __name__ == "__main__":

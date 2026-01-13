@@ -130,6 +130,44 @@ class TestVideoGeneration(unittest.TestCase):
         except Exception as e:
             self.fail(f"test_basic_video_inference failed with exception: {str(e)}")
 
+    @parameterized.expand(
+        [
+            # Test combinations: (use_cfg, cfg_parallel, world_size, test description)
+            (False, False, 1, "CFG disabled + parallel disabled → no extra operations"),
+            (True, False, 1, "CFG enabled + parallel disabled → execute extra forward"),
+            (True, True, 2, "CFG enabled + parallel enabled → execute cfg all_gather"),
+            (False, True, 2, "CFG disabled + parallel enabled → no extra operations"),
+        ]
+    )
+    def test_classifier_free_guidance_parallel(
+        self, use_cfg, cfg_parallel, world_size, test_desc
+    ):
+        """Test basic video inference without Ulysses parallelism."""
+        try:
+            run_inference(
+                device=self.device,
+                model_id=self.model_id,
+                batch_size=self.batch_size,
+                seq_len=self.seq_len,
+                height=self.height,
+                width=self.width,
+                frame_num=self.frame_num,
+                sample_step=self.sample_step,
+                profiler=False,
+                dtype="float16",
+                world_size=world_size,
+                ulysses_size=1,
+                use_cfg=use_cfg,
+                cfg_parallel=cfg_parallel,
+            )
+            self._validate_inference_result(
+                f"test_classifier_free_guidance_parallel {test_desc}"
+            )
+        except Exception as e:
+            self.fail(
+                f"test_classifier_free_guidance_parallel {test_desc} failed with exception: {str(e)}"
+            )
+
     def test_process_input_with_ulysses_size_1(self):
         """Test process_input function when ulysses_size is 1."""
         # Mock model_config

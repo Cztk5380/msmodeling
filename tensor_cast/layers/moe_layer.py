@@ -95,7 +95,18 @@ class MoELayer(torch.nn.Module):
                 topk_weights /= topk_weights.sum(dim=-1, keepdim=True)
             topk_weights = topk_weights.to(hidden_states.dtype)
         else:
-            topk_indices, topk_weights = self.gate(hidden_states)
+            gate_output = self.gate(hidden_states)
+            # Handle both 2-tuple and 3-tuple returns from gate
+            # Some gates return (topk_indices, topk_weights)
+            # Others return (topk_indices, topk_weights, router_logits)
+            if isinstance(gate_output, tuple) and len(gate_output) >= 2:
+                topk_indices = gate_output[0]
+                topk_weights = gate_output[1]
+                # Ignore router_logits if present (gate_output[2])
+            else:
+                raise ValueError(
+                    f"Expected gate to return tuple with at least 2 elements, got {type(gate_output)}"
+                )
             topk_indices = topk_indices.view(
                 *hidden_states.shape[:-1], topk_indices.shape[-1]
             )
