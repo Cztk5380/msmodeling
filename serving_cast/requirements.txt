@@ -6,3 +6,4 @@ pyyaml
 greenlet
 scikit-learn
 scipy
+prettytable

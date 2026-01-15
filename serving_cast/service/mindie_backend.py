@@ -15,11 +15,11 @@
 from collections import defaultdict
 
 import pandas as pd
+from serving_cast.service.base_backend import BaseBackend
+from serving_cast.service.report_and_save import Summary
+from serving_cast.service.utils import AGG_COLUMNS, logger, run_static
 
 from tensor_cast.core.input_generator import generate_inputs, RequestInfo
-from tensor_cast.service.base_backend import BaseBackend
-from tensor_cast.service.report_and_save import Summary
-from tensor_cast.service.utils import AGG_COLUMNS, logger, run_static
 
 
 class MindIEAggBackend(BaseBackend):

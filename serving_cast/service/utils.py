@@ -154,22 +154,3 @@ def check_positive_float(value):
     if value <= 0:
         raise argparse.ArgumentTypeError("%r is not a positive number", value)
     return value
-
-
-def check_positive_float_list(values):
-    """Check if all values in a list are positive floats."""
-    if not isinstance(values, list):
-        # If only one value is provided, convert it to a list
-        values = [values]
-
-    checked_values = []
-    for value in values:
-        try:
-            checked_value = check_positive_float(value)
-            checked_values.append(checked_value)
-        except argparse.ArgumentTypeError as e:
-            raise argparse.ArgumentTypeError(
-                "Invalid value in tpot-limits list: %s", value
-            ) from e
-
-    return checked_values

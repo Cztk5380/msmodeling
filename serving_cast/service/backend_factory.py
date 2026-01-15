@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from tensor_cast.service.mindie_backend import MindIEAggBackend
+from serving_cast.service.mindie_backend import MindIEAggBackend
 
 
 class StrategyFactory:

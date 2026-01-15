@@ -6,13 +6,13 @@ from typing import Iterator
 
 import pandas as pd
 import torch
+from serving_cast.service.backend_factory import StrategyFactory
+from serving_cast.service.report_and_save import Summary
+from serving_cast.service.utils import DataConfig, LIMIT_TIME, logger
 
 from tensor_cast.core.model_builder import build_model
 from tensor_cast.core.user_config import UserInputConfig
 from tensor_cast.device import DeviceProfile
-from tensor_cast.service.backend_factory import StrategyFactory
-from tensor_cast.service.report_and_save import Summary
-from tensor_cast.service.utils import DataConfig, LIMIT_TIME, logger
 
 
 class TaskRunner:

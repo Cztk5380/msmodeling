@@ -4,6 +4,8 @@ set -euo pipefail
 # ========================== CONFIGURATION ==========================
 # All paths are resolved relative to the script location
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" &>/dev/null && pwd)
+COV_DIR=${SCRIPT_DIR}/coverage
+PROJECT_DIR=$(readlink -f ${SCRIPT_DIR}/../..)
 UT_DIR="${SCRIPT_DIR}/ut"          # Unit-test directory (unittest)
 ST_DIR="${SCRIPT_DIR}/st"          # System-test directory
 MAIN_PY_PATH="${SCRIPT_DIR}/../main.py"  # Entry point required by ST
@@ -49,13 +51,24 @@ run_ut() {
         exit 1
     fi
 
+    if [ ! -d ${COV_DIR} ]; then
+        mkdir -p ${COV_DIR}
+    fi
+    # Find all test files recursively, including subdirectories
     ut_files=$(find "${UT_DIR}" -type f -name "test_*.py" ! -path "*/__pycache__/*")
     if [ -z "${ut_files}" ]; then
         log "WARN" "No UT files found (names must start with test_)"
         return 0
     fi
 
-    python -m unittest discover -s "${UT_DIR}" -p "test_*.py" -v -b
+    # Run discovery recursively
+    PYTHONPATH=$PROJECT_DIR python -m coverage run \
+        --branch \
+        --source "${PROJECT_DIR}/serving_cast" \
+        --omit="*/tests/*,*/test_*,*/__pycache__/*,*/.pytest_cache/*" \
+        -m pytest ${UT_DIR}
+    python -m coverage report -m
+    python -m coverage xml -o ${COV_DIR}/coverage.xml
 
     if [ $? -eq 0 ]; then
         log "SUCCESS" "==================== ALL UNIT TESTS PASSED ===================="
@@ -87,7 +100,7 @@ run_st() {
         return 0
     fi
 
-    pytest "${ST_DIR}" -v -s
+    PYTHONPATH=$PROJECT_DIR pytest "${ST_DIR}" -v -s
 
     if [ $? -eq 0 ]; then
         log "SUCCESS" "==================== ALL SYSTEM TESTS PASSED ===================="

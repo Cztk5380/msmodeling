@@ -15,13 +15,8 @@
 import argparse
 import time
 
-from tensor_cast.core.quantization.datatypes import (
-    QuantizeAttentionAction,
-    QuantizeLinearAction,
-)
-from tensor_cast.device import DeviceProfile
-from tensor_cast.service.task import TaskRunner
-from tensor_cast.service.utils import (
+from serving_cast.service.task import TaskRunner
+from serving_cast.service.utils import (
     BackendName,
     check_positive_float,
     check_positive_integer,
@@ -29,6 +24,12 @@ from tensor_cast.service.utils import (
     logger,
     set_log_level,
 )
+
+from tensor_cast.core.quantization.datatypes import (
+    QuantizeAttentionAction,
+    QuantizeLinearAction,
+)
+from tensor_cast.device import DeviceProfile
 
 
 def arg_parse():
@@ -159,6 +160,7 @@ def arg_parse():
 def main():
     start_time = time.time()
     args = arg_parse()
+    set_log_level(args.log_level)
     if args.max_prefill_tokens < args.input_length:
         logger.warning(
             "max_prefill_tokens (%r) is smaller than input_length (%r). "
@@ -177,7 +179,6 @@ def main():
             len(args.mtp_acceptance_rate),
         )
         return
-    set_log_level(args.log_level)
     logger.info("Starting experiments.")
     tasks = TaskRunner(args)
     results = tasks.run()

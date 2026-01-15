@@ -14,7 +14,7 @@
 
 from prettytable import PrettyTable
 
-from tensor_cast.service.utils import logger
+from serving_cast.service.utils import logger
 
 
 class Summary:

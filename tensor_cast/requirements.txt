@@ -6,7 +6,6 @@ overrides
 optree
 pyyaml
 strenum
-prettytable
 pandas
 diffusers
 aenum

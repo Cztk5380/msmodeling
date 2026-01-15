@@ -16,9 +16,9 @@ from abc import ABC, abstractmethod
 
 import pandas as pd
 
-from tensor_cast.service.report_and_save import Summary
+from serving_cast.service.report_and_save import Summary
 
-from tensor_cast.service.utils import AGG_COLUMNS, MAX_ITER_NUMS
+from serving_cast.service.utils import AGG_COLUMNS, MAX_ITER_NUMS
 
 
 class BaseBackend(ABC):
