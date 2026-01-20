@@ -528,6 +528,50 @@ class TestBenchmark(unittest.TestCase):
             self.assertGreater(latency, 0, f"Failed for input_len={input_len}")
             self.assertGreater(concurrency, 0, f"Failed for input_len={input_len}")
 
+    def test_find_best_throughput_with_concurrency_range_min_max(self):
+        """Test concurrency_range with [min, max] values."""
+        model = build_model(self.user_input)
+
+        latency, concurrency, breakdown, error_msg = find_best_throughput(
+            model=model,
+            device_profile=self.device_profile,
+            input_length=self.input_length,
+            output_length=self.output_length,
+            slo_limit=0.1,
+            is_decode=True,
+            reserved_memory_size_gb=1,
+            concurrency_range=[5, 20],  # [min, max]
+        )
+
+        # Should return valid results
+        self.assertGreater(latency, 0)
+        self.assertGreater(concurrency, 0)
+        # Concurrency should be within the specified range
+        self.assertGreaterEqual(concurrency, 5)
+        self.assertLessEqual(concurrency, 20)
+        self.assertIsInstance(breakdown, dict)
+
+    def test_find_best_throughput_with_tp_sizes(self):
+        """Test find_best_throughput with user-specified TP sizes."""
+        num_devices = 2
+        tp_sizes = [1, 2]
+        tp_size_list = [tp for tp in tp_sizes if tp <= num_devices]
+        for tp_size in tp_size_list:
+            user_config = copy.deepcopy(self.user_input)
+            update_parallel_parameter(user_config, world_size=num_devices, tp_size=tp_size, ep=False)
+            model = build_model(user_config)
+            latency, concurrency, breakdown, error_msg = find_best_throughput(
+                model=model,
+                device_profile=self.device_profile,
+                input_length=self.input_length,
+                output_length=self.output_length,
+                slo_limit=0.1,
+                is_decode=True,
+                reserved_memory_size_gb=1,
+            )
+            self.assertGreater(latency, 0)
+            self.assertGreater(concurrency, 0)
+            self.assertIsInstance(breakdown, dict)
 
 if __name__ == "__main__":
     unittest.main()

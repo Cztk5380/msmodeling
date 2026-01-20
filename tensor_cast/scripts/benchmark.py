@@ -1,4 +1,5 @@
 import argparse
+import bisect
 import logging
 import math
 from typing import Dict, List, Optional, Tuple
@@ -19,6 +20,19 @@ from ..transformers.model import TransformerModel
 from .utils import check_positive_integer
 
 logger = logging.getLogger(__name__)
+
+
+class ConcurrencyRangeAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) not in (1, 2):
+            raise argparse.ArgumentTypeError(
+                f"{option_string} expects [min max] or [max], got {values}"
+            )
+        if any(v <= 0 for v in values):
+            raise argparse.ArgumentTypeError(
+                f"{option_string} values must be > 0, got {values}"
+            )
+        setattr(namespace, self.dest, values)
 
 
 def get_benchmark_query_and_seq_length(
@@ -45,6 +59,7 @@ def find_best_throughput(
     mtp_acceptance_rate: Optional[List[float]] = None,
     reserved_memory_size_gb: float = 10,  # assume 10GB reserved memory
     serving_overhead_s: float = 0.002,  # assume 2ms serving cost by default
+    concurrency_range: Optional[List[int]] = None,  # [min, max] for concurrency search
 ) -> Tuple[
     float, int, Dict[str, float], Optional[str]
 ]:  # (latency, concurrency, breakdown, error message)
@@ -121,45 +136,72 @@ def find_best_throughput(
         ):  # TODO(jgong5): catch assertion due to limited support of TP+EP, need to fix
             return 0, math.inf, {}
 
-    # 1. Exponentially search to find an upper bound quickly.
-    min_concurrency = model_config.parallel_config.data_parallel_size
-    concurrency = min_concurrency
-    max_concurrency = 0
-    while True:
+    def run_and_check(concurrency):
+        """Run benchmark and return (latency, available_memory_gb, breakdown, error_msg)."""
         latency, available_memory_gb, breakdown = run(concurrency)
         error_msg = error(latency, available_memory_gb)
-        if not error_msg:
-            max_concurrency = concurrency
-            concurrency *= 2
+        return latency, available_memory_gb, breakdown, error_msg
+
+    def is_feasible(concurrency):
+        """Check if concurrency is feasible (no error)."""
+        _, _, _, err = run_and_check(concurrency)
+        return not err
+
+    def binary_search_max_feasible(low, high):
+        """Use bisect to find maximum feasible concurrency in [low, high]."""
+        if low > high:
+            return low
+        candidates = range(low, high + 1)
+        idx = bisect.bisect_left(candidates, True, key=lambda x: not is_feasible(x))
+        return candidates[idx - 1] if idx > 0 else low
+
+    def exponential_search_bounds(start, upper_limit=None):
+        """Find bounds for binary search using exponential growth."""
+        low = start
+        high = start
+        if upper_limit is None:
+            while True:
+                high *= 2
+                if is_feasible(high):
+                    low = high
+                else:
+                    return low, high
+
+        upper_limit = max(upper_limit, start)
+        while high < upper_limit:
+            next_high = min(high * 2, upper_limit)
+            if is_feasible(next_high):
+                low = next_high
+                high = next_high
+            else:
+                return low, next_high
+        return low, high
+
+    concurrency_min, concurrency_max = None, None
+
+    if concurrency_range is not None:
+        if len(concurrency_range) == 1:
+            concurrency_max = concurrency_range[0]
         else:
-            break
-    if max_concurrency == 0:
-        return latency, concurrency, breakdown, error_msg
+            concurrency_min, concurrency_max = sorted(concurrency_range)
 
-    # 2. Binary search between the last known good value and the first failed one.
-    low = max_concurrency
-    high = concurrency
-    best_concurrency = max_concurrency
+    if concurrency_min is not None:
+        search_min = concurrency_min
+    else:
+        search_min = 1
 
-    while low <= high:
-        mid = (low + high) // 2
-        if mid <= best_concurrency:
-            # If mid is not greater than our current best, no need to test.
-            # This also prevents infinite loops when low = mid.
-            low = mid + 1
-            continue
+    latency, _, breakdown, error_msg = run_and_check(search_min)
+    if error_msg:
+        return latency, search_min, breakdown, error_msg
 
-        latency, available_memory_gb, _ = run(mid)
-        if not error(latency, available_memory_gb):
-            # 'mid' is a better candidate. Update our best and search for higher values.
-            best_concurrency = mid
-            low = mid + 1
-        else:
-            # 'mid' failed. The optimal value must be lower.
-            high = mid - 1
+    if concurrency_max is not None:
+        _, upper_bound = exponential_search_bounds(search_min, concurrency_max)
+        best_concurrency = binary_search_max_feasible(search_min, upper_bound)
+    else:
+        lower_bound, upper_bound = exponential_search_bounds(search_min)
+        best_concurrency = binary_search_max_feasible(lower_bound, upper_bound)
 
-    # 3. Return the final latency and the best concurrency found.
-    final_latency, _, breakdown = run(best_concurrency)
+    final_latency, _, breakdown, _ = run_and_check(best_concurrency)
     return final_latency, best_concurrency, breakdown, ""
 
 
@@ -288,6 +330,21 @@ models:
         default=None,
         help="Logging level",
     )
+    parser.add_argument(
+        "--tp-sizes",
+        type=int,
+        nargs="+",
+        default=None,
+        help="TP sizes to search (default: powers of 2 up to num_devices)",
+    )
+    parser.add_argument(
+        "--concurrency-range",
+        type=int,
+        nargs="+",
+        action=ConcurrencyRangeAction,
+        default=None,
+        help="Concurrency range: [min max] or [max] (default: 1 for min, no limit for max)",
+    )
     args = parser.parse_args()
     if args.config:
         with open(args.config) as f:
@@ -336,7 +393,14 @@ models:
                     if device_profile.comm_grid.grid.nelement() < num_devices:
                         continue
                     user_input.model_id = model_id
-                    tp_size_list = [1 << i for i in range(num_devices.bit_length())]
+                    if args.tp_sizes:
+                        tp_size_list = [tp for tp in args.tp_sizes if tp <= num_devices]
+                        if not tp_size_list:
+                            raise ValueError(
+                                f"All specified TP sizes {args.tp_sizes} exceed num_devices ({num_devices})"
+                            )
+                    else:
+                        tp_size_list = [1 << i for i in range(num_devices.bit_length())]
                     for tp_size in tp_size_list:
                         torch.compiler.reset()
                         user_input.tp_size = tp_size
@@ -370,6 +434,7 @@ models:
                                     slo_limit,
                                     is_decode,
                                     mtp_acceptance_rate=user_input.mtp_acceptance_rate,
+                                    concurrency_range=args.concurrency_range,
                                 )
                             )
                             TPS = concurrency / latency if latency != 0 else 0
