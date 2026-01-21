@@ -6,6 +6,7 @@ from ..core.input_generator import generate_inputs
 from ..core.model_runner import ModelRunner
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..core.user_config import UserInputConfig
+from .. import device_profiles # noqa: F401
 from ..device import DeviceProfile
 from .utils import check_positive_integer
 
@@ -133,6 +134,7 @@ def main():
     )
     parser.add_argument(
         "--reserved-memory-gb",
+        type=float,
         default=0,
         help="Size of reserved device memory (in GB) that we cannot use from applications.",
     )

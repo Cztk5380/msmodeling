@@ -9,8 +9,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
-from typing import TYPE_CHECKING
+from typing import Callable, Dict, List, Optional, TYPE_CHECKING
 
 import torch
 
@@ -67,6 +66,14 @@ class ModelRunner:
         generate_inputs_func: Callable = generate_inputs_varlen,
         with_sampler: bool = False,
     ) -> ModelRunnerMetrics:
+        def calculate_single_card_tps(self, execution_time_s: float) -> Optional[float]:
+            if not execution_time_s or execution_time_s <= 0:
+                raise ValueError("execution_time_s must be positive")
+            tps = (self.user_input.num_queries * self.user_input.query_len) / (
+                execution_time_s * self.user_input.world_size
+            )
+            return tps
+
         batch_size = (
             self.user_input.num_queries
             + self.model.model_config.parallel_config.data_parallel_size
@@ -104,6 +111,8 @@ class ModelRunner:
             group_by_input_shapes=self.user_input.dump_input_shapes
         )
         print(table_result)
+        tps_value = calculate_single_card_tps(self, execution_time_s=execution_time_s)
+        print(f"Single card TPS （query-length) : {tps_value:.4g} token/s")
         peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
 
         kv_cache_size_gb = (
@@ -115,9 +124,14 @@ class ModelRunner:
         )
         kv_cache_per_token_gb = input_kwargs["kv_cache_per_token"] / 1024**3
         if self.model.get_visual() and input_kwargs.get("pixel_values") is None:
-            # If there is no image input, the visual part does not participate in the calculation and needs to be removed
-            visual_weight_size_gb = self.model.get_weight_size_nested([self.model.get_visual()]) / 1024 ** 3
-            self.model_weight_size_gb = self.model_weight_size_gb - visual_weight_size_gb
+            # If there is no image input, the visual part does not participate
+            # in the calculation and needs to be removed
+            visual_weight_size_gb = (
+                self.model.get_weight_size_nested([self.model.get_visual()]) / 1024**3
+            )
+            self.model_weight_size_gb = (
+                self.model_weight_size_gb - visual_weight_size_gb
+            )
 
         model_activation_size_gb = (
             peak_memory_usage_gb - kv_cache_size_gb - self.model_weight_size_gb
@@ -160,6 +174,7 @@ class ModelRunner:
             model_activation_size_gb=model_activation_size_gb,
             reserved_memory_gb=self.user_input.reserved_memory_gb,
             device_memory_available_gb=device_memory_available_gb,
+            single_card_tps=tps_value,
             execution_time_s=execution_time_s,
             table_result=table_result,
             breakdowns=runtime.get_breakdowns(),
@@ -182,6 +197,7 @@ class ModelRunnerMetrics:
     model_activation_size_gb: float
     reserved_memory_gb: float
     device_memory_available_gb: float
+    single_card_tps: float
     execution_time_s: float
     table_result: str = ""
     breakdowns: Dict[str, Dict[str, float]] = field(default_factory=dict)
