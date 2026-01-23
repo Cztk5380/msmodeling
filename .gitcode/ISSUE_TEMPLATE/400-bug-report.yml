@@ -1,7 +1,7 @@
-name: 🔧 Bug&报错&异常报告
-description: 提交程序中的错误或异常
+name: 🐛 Bug report
+description: 反馈程序 Bug
 title: "[Bug] "
-labels: ["bug", "待处理"]
+labels: ["bug"]
 assignees: []  # 可添加默认指派用户，如 ["user1"]
 # 需替换快速入门文档，待补充FAQ文档
 body:
@@ -39,6 +39,15 @@ body:
       label: MsModeling 工具版本
       description: 请附上工具版本文本
       placeholder: 例:commit 0c7ea0ee6bc0a0596e173815d0a16b97c11dd5e9 (通过git log命令查看)
+    validations:
+      required: true
+  - type: dropdown
+    id: is_reproducible
+    attributes:
+      label: 是否必现
+      options:
+        - "是"
+        - "否"
     validations:
       required: true
   - type: input
