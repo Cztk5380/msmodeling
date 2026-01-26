@@ -135,6 +135,10 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
     if is_decode:
         # do not prune logits
         sampling_metadata.selected_token_indices = None
+    else:
+        sampling_metadata.selected_token_indices = torch.arange(
+            query_len - 1, batch_size * query_len, query_len, device="meta"
+        )
 
     kwargs = {
         "input_ids": input_ids,

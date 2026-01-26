@@ -91,7 +91,7 @@ class UserInputConfig:
         print(f"Number of Queries: {self.num_queries}")
         print(f"Input Length (per query): {self.query_len}")
         print(f"Context Length (per query): {self.context_length}")
-
+        print(f"Is Decode: {self.decode}")
         print(f"Enable repetition: {not self.disable_repetition}")
         if self.num_mtp_tokens > 0:
             print(f"Number of MTP layers: {self.num_mtp_tokens}")

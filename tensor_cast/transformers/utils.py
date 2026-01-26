@@ -1,4 +1,5 @@
 import contextlib
+import copy
 import logging
 import os
 from operator import attrgetter
@@ -161,10 +162,10 @@ def patch_method_for_qwen3_vl():
     Patch the Qwen3-VL model to fix simulation issues in meta mode.
       Problem background:
       1. The Qwen3-VL model uses boolean-mask-based tensor indexing operations
-         (e.g., inputs_embeds[special_image_mask], hidden_states[visual_pos_masks, :]).
+        (e.g., inputs_embeds[special_image_mask], hidden_states[visual_pos_masks, :]).
       2. These operations cannot run correctly in meta mode because:
-         * They internally call nonzero(), whose output shape depends on actual values and cannot be inferred in meta
-           mode.
+         * They internally call nonzero(), whose output shape depends on actual values and
+           cannot be inferred in meta mode.
          * Even with meta_nonzero_assume_all_nonzero enabled, dimension mismatch errors still occur.
 
       Solution:
