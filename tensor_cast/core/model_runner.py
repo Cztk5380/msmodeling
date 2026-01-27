@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 # _*_coding:utf-8_*_
 """
@@ -112,7 +111,7 @@ class ModelRunner:
         )
         print(table_result)
         tps_value = calculate_single_card_tps(self, execution_time_s=execution_time_s)
-        print(f"Single card TPS （query-length) : {tps_value:.4g} token/s")
+        print(f"TPS/Device: {tps_value:.4g} token/s")
         peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
 
         kv_cache_size_gb = (
