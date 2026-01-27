@@ -651,11 +651,9 @@ def _multihead_latent_attention_properties_helper(
     softmax_dtype: torch.dtype,
 ) -> OpInvokeInfo.PerformanceProperties:
     # 1. Argument and Dimension Extraction
-    assert len(op_invoke_info.args) >= 12
+    assert len(op_invoke_info.args) >= 10
     (
         q,
-        kv_c_normed,
-        k_rot,
         kv_cache,
         _,
         query_start_loc,
@@ -671,8 +669,8 @@ def _multihead_latent_attention_properties_helper(
     # Extract dimensions from input tensors
     num_heads = q.size(1)
     q_head_dim = q.size(2)
-    kv_lora_rank = kv_c_normed.size(1)
-    qk_rope_head_dim = k_rot.size(1)
+    kv_lora_rank = W_UK_T.size(-1)
+    qk_rope_head_dim = kv_cache.size(-1) - kv_lora_rank
     qk_nope_head_dim = q_head_dim - qk_rope_head_dim
 
     # 2. Separate Prefill and Decode Sequences
@@ -684,13 +682,13 @@ def _multihead_latent_attention_properties_helper(
 
     total_fma_ops = 0
     total_gp_ops = 0
-    exclude_input_ids = {3, 7, 8, 9}  # kv_cache, W_UK_T, W_UV, kv_b_proj
+    exclude_input_ids = {1, 6, 7, 8}  # kv_cache, W_UK_T, W_UV, kv_b_proj
 
     # 3. Calculate FLOPs for the Prefill Phase
     num_prefill_tokens = torch.sum(num_tokens_per_seq[is_prefill]).item()
     if num_prefill_tokens > 0:
         assert kv_b_proj is not None
-        exclude_input_ids = exclude_input_ids - {9}
+        exclude_input_ids = exclude_input_ids - {8}  # kv_b_proj
         prefill_seq_lens = seq_lens[is_prefill]
         prefill_num_tokens_per_seq = num_tokens_per_seq[is_prefill]
 
@@ -720,7 +718,7 @@ def _multihead_latent_attention_properties_helper(
     num_decode_tokens = torch.sum(num_tokens_per_seq[is_decode]).item()
     if num_decode_tokens > 0:
         assert W_UK_T is not None and W_UV is not None
-        exclude_input_ids = exclude_input_ids - {7, 8}
+        exclude_input_ids = exclude_input_ids - {6, 7}  # W_UK_T, W_UV
         decode_seq_lens = seq_lens[is_decode]
         decode_num_tokens_per_seq = num_tokens_per_seq[is_decode]
 
@@ -761,15 +759,10 @@ def _multihead_latent_attention_properties_helper(
     )  # exclude kv_cache
 
     # Estimate memory read from the KV Cache.
-    # Each token in a sequence reads all previous key/value states for that sequence.
     # The size of a cached entry is (kv_lora_rank + qk_rope_head_dim).
     cache_entry_size = bytes_of_elements(kv_cache.size(-1), kv_cache.dtype)
 
-    # `context_len_product_sum` from the previous example can be reused here.
-    context_len_product_sum = torch.sum(
-        num_tokens_per_seq.to(seq_lens.dtype) * seq_lens
-    ).item()
-    properties.memory_read_bytes += context_len_product_sum * cache_entry_size
+    properties.memory_read_bytes += torch.sum(seq_lens * cache_entry_size)
 
     compute_ops = properties.compute_ops.setdefault(q.dtype, OpInvokeInfo.ComputeOps())
     compute_ops.mma_ops = total_fma_ops
@@ -877,12 +870,12 @@ def _(
     op_invoke_info: OpInvokeInfo,
 ) -> OpInvokeInfo.PerformanceProperties:
     q = op_invoke_info.args[0]
-    kv_c_normed = op_invoke_info.args[1]
-    k_rot = op_invoke_info.args[2]
-    query_start_loc = op_invoke_info.args[5]
-    seq_lens = op_invoke_info.args[6]
-    query_lens = op_invoke_info.args[7]
-    v_head_dim = op_invoke_info.args[11]
+    kv_cache = op_invoke_info.args[1]
+    query_start_loc = op_invoke_info.args[3]
+    seq_lens = op_invoke_info.args[4]
+    query_lens = op_invoke_info.args[5]
+    W_UK_T = op_invoke_info.args[6]
+    v_head_dim = op_invoke_info.args[9]
     out_dtype = op_invoke_info.args[-1]
 
     if out_dtype is None or out_dtype == q.dtype:
@@ -899,8 +892,8 @@ def _(
     # Extract dimensions (reuse logic instead of duplicating)
     num_heads = q.size(1)
     q_head_dim = q.size(2)
-    kv_lora_rank = kv_c_normed.size(1)
-    qk_rope_head_dim = k_rot.size(1)
+    kv_lora_rank = W_UK_T.size(-1)
+    qk_rope_head_dim = kv_cache.size(-1) - kv_lora_rank
     qk_nope_head_dim = q_head_dim - qk_rope_head_dim
 
     # Calculate additional quant/dequant ops

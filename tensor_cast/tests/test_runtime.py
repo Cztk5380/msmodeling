@@ -39,6 +39,21 @@ class PerfAnalysisTestCase(unittest.TestCase):
         actual_execution_time = analytic_result.execution_time_s
         return actual_execution_time
 
+    def _execute_multihead_latent_attention_and_get_base_data(self, mla_args):
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            torch.ops.tensor_cast.multihead_latent_attention(*mla_args)
+        self.assertEqual(len(runtime.event_list), 1)
+        analytic_result = runtime.event_list[0].perf_results.get("analytic")
+        actual_execution_time = analytic_result.execution_time_s
+        return actual_execution_time
+
     def test_simple_model_eager(self):
         def func(x):
             return x + x
@@ -113,6 +128,165 @@ class PerfAnalysisTestCase(unittest.TestCase):
 
         assert_close(self, actual_execution_time, 5.99e-6)
 
+    def test_mla_eager_prefill_without_context(self):
+        B, S, num_heads, q_head_dim = 2, 3500, 8, 192
+        block_size, dtype = 128, torch.float16
+        kv_lora_rank, qk_rope_head_dim = 512, 64
+        query_len = 3500
+        qk_nope_head_dim = q_head_dim - qk_rope_head_dim
+        total_tokens = B * query_len
+        v_head_dim = 128
+
+        q = torch.randn(total_tokens, num_heads, q_head_dim, device="meta", dtype=dtype)
+        max_num_blocks_per_seq = (S + block_size - 1) // block_size
+        num_blocks = B * max_num_blocks_per_seq
+        kv_cache = torch.randn(
+            num_blocks,
+            block_size,
+            kv_lora_rank + qk_rope_head_dim,
+            dtype=dtype,
+            device="meta",
+        )
+        seq_lens = torch.full((B,), S, dtype=torch.long, device="cpu")
+        query_lens = torch.full((B,), query_len, dtype=torch.long, device="cpu")
+        W_UK_T = torch.randn(
+            num_heads, qk_nope_head_dim, kv_lora_rank, device="meta", dtype=dtype
+        )
+        W_UV = torch.randn(
+            num_heads, kv_lora_rank, v_head_dim, device="meta", dtype=dtype
+        )
+        kv_b_proj = torch.randn(
+            kv_lora_rank,
+            num_heads * (qk_nope_head_dim + v_head_dim),
+            device="meta",
+            dtype=dtype,
+        )
+
+        actual_execution_time = (
+            self._execute_multihead_latent_attention_and_get_base_data(
+                (
+                    q,
+                    kv_cache,
+                    None,
+                    None,
+                    seq_lens,
+                    query_lens,
+                    W_UK_T,
+                    W_UV,
+                    kv_b_proj,
+                    v_head_dim,
+                )
+            )
+        )
+
+        assert_close(self, actual_execution_time, 6.72e-4)
+
+    def test_mla_eager_prefill_with_context(self):
+        B, S, num_heads, q_head_dim = 2, 7008, 8, 192
+        block_size, dtype = 128, torch.float16
+        kv_lora_rank, qk_rope_head_dim = 512, 64
+        query_len = 3500
+        qk_nope_head_dim = q_head_dim - qk_rope_head_dim
+        total_tokens = B * query_len
+        v_head_dim = 128
+
+        q = torch.randn(total_tokens, num_heads, q_head_dim, device="meta", dtype=dtype)
+        max_num_blocks_per_seq = (S + block_size - 1) // block_size
+        num_blocks = B * max_num_blocks_per_seq
+        kv_cache = torch.randn(
+            num_blocks,
+            block_size,
+            kv_lora_rank + qk_rope_head_dim,
+            dtype=dtype,
+            device="meta",
+        )
+        seq_lens = torch.full((B,), S, dtype=torch.long, device="cpu")
+        query_lens = torch.full((B,), query_len, dtype=torch.long, device="cpu")
+        W_UK_T = torch.randn(
+            num_heads, qk_nope_head_dim, kv_lora_rank, device="meta", dtype=dtype
+        )
+        W_UV = torch.randn(
+            num_heads, kv_lora_rank, v_head_dim, device="meta", dtype=dtype
+        )
+        kv_b_proj = torch.randn(
+            kv_lora_rank,
+            num_heads * (qk_nope_head_dim + v_head_dim),
+            device="meta",
+            dtype=dtype,
+        )
+
+        actual_execution_time = (
+            self._execute_multihead_latent_attention_and_get_base_data(
+                (
+                    q,
+                    kv_cache,
+                    None,
+                    None,
+                    seq_lens,
+                    query_lens,
+                    W_UK_T,
+                    W_UV,
+                    kv_b_proj,
+                    v_head_dim,
+                )
+            )
+        )
+
+        assert_close(self, actual_execution_time, 1.28e-3)
+
+    def test_mla_eager_decode(self):
+        B, S, num_heads, q_head_dim = 16, 7008, 8, 192
+        block_size, dtype = 128, torch.float16
+        kv_lora_rank, qk_rope_head_dim = 512, 64
+        query_len = 1
+        qk_nope_head_dim = q_head_dim - qk_rope_head_dim
+        total_tokens = B * query_len
+        v_head_dim = 128
+
+        q = torch.randn(total_tokens, num_heads, q_head_dim, device="meta", dtype=dtype)
+        max_num_blocks_per_seq = (S + block_size - 1) // block_size
+        num_blocks = B * max_num_blocks_per_seq
+        kv_cache = torch.randn(
+            num_blocks,
+            block_size,
+            kv_lora_rank + qk_rope_head_dim,
+            dtype=dtype,
+            device="meta",
+        )
+        seq_lens = torch.full((B,), S, dtype=torch.long, device="cpu")
+        query_lens = torch.full((B,), query_len, dtype=torch.long, device="cpu")
+        W_UK_T = torch.randn(
+            num_heads, qk_nope_head_dim, kv_lora_rank, device="meta", dtype=dtype
+        )
+        W_UV = torch.randn(
+            num_heads, kv_lora_rank, v_head_dim, device="meta", dtype=dtype
+        )
+        kv_b_proj = torch.randn(
+            kv_lora_rank,
+            num_heads * (qk_nope_head_dim + v_head_dim),
+            device="meta",
+            dtype=dtype,
+        )
+
+        actual_execution_time = (
+            self._execute_multihead_latent_attention_and_get_base_data(
+                (
+                    q,
+                    kv_cache,
+                    None,
+                    None,
+                    seq_lens,
+                    query_lens,
+                    W_UK_T,
+                    W_UV,
+                    kv_b_proj,
+                    v_head_dim,
+                )
+            )
+        )
+
+        assert_close(self, actual_execution_time, 1.29e-4)
+        
     @parameterized.expand(
         [
             ["Qwen/Qwen3-32B", False],
