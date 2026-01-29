@@ -1,14 +1,14 @@
 #!/usr/bin/env python
 # _*_coding:utf-8_*_
 import fnmatch
-import re
 
 from enum import auto, Enum
-from typing import Callable, List, Optional
+from typing import Callable, Optional
 
 import torch
 import torch.nn as nn
 
+from .core.quantization.datatypes import QuantizeAttentionAction
 from .utils import DTYPE_FP4, DTYPE_FP8, pattern_match
 
 
@@ -52,7 +52,42 @@ def quant_type_to_weight_dtype(quant_type: LinearQuantType) -> torch.dtype:
 
 class AttentionQuantType(Enum):
     INT8 = auto()
-    # TODO(jgong5): support FP8
+    FP8 = auto()
+
+
+def get_attention_quant_type(action: QuantizeAttentionAction) -> AttentionQuantType:
+    try:
+        return getattr(AttentionQuantType, action.name)
+    except AttributeError:
+        raise ValueError(
+            f"Unsupported quantization action: {action}. "
+            f"Ensure '{action.name}' is defined in AttentionQuantType."
+        )
+
+
+_QUANT_TYPE_TO_TORCH_DTYPE_MAP = {
+    AttentionQuantType.INT8: torch.int8,
+    AttentionQuantType.FP8: torch.float8_e4m3fn,
+}
+
+
+def get_torch_dtype_from_quant_type(quant_type: AttentionQuantType) -> torch.dtype:
+    if quant_type not in _QUANT_TYPE_TO_TORCH_DTYPE_MAP:
+        raise ValueError(
+            f"Unsupported attention quant type: {quant_type}. "
+            f"Supported types: {list(_QUANT_TYPE_TO_TORCH_DTYPE_MAP.keys())}"
+        )
+    return _QUANT_TYPE_TO_TORCH_DTYPE_MAP[quant_type]
+
+
+def get_torch_quant_type(action: QuantizeAttentionAction) -> AttentionQuantType:
+    try:
+        return getattr(AttentionQuantType, action.name)
+    except AttributeError:
+        raise ValueError(
+            f"Unsupported quantization action: {action}. "
+            f"Ensure '{action.name}' is defined in AttentionQuantType."
+        )
 
 
 class QuantGranularity(Enum):

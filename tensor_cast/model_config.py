@@ -14,6 +14,7 @@ from transformers.utils.quantization_config import QuantizationConfigMixin
 
 from .quantize_utils import (
     AttentionQuantType,
+    get_torch_dtype_from_quant_type,
     LinearQuantType,
     QuantGranularity,
     QuantScheme,
@@ -162,10 +163,7 @@ class AttentionQuantConfig:
     attention_prob_offset: Optional[torch.Tensor] = None
 
     def get_quant_dtype(self) -> torch.dtype:
-        if self.quant_type == AttentionQuantType.INT8:
-            return torch.int8
-        else:
-            raise ValueError(f"Unsupported attention quant type {self.quant_type}")
+        return get_torch_dtype_from_quant_type(self.quant_type)
 
 
 @dataclasses.dataclass

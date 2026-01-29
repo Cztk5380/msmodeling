@@ -11,7 +11,7 @@ from ...model_config import (
     MultiheadLatentAttentionQuantConfig,
     QuantConfig,
 )
-from ...quantize_utils import AttentionQuantType, LinearQuantType
+from ...quantize_utils import get_attention_quant_type, LinearQuantType
 from .datatypes import QuantizeAttentionAction, QuantizeLinearAction
 
 
@@ -51,21 +51,18 @@ def create_linear_quant_config(quantize_linear_action: QuantizeLinearAction, **k
 
 
 def create_attention_quant_config(quantize_attention_action: QuantizeAttentionAction):
-    if quantize_attention_action == QuantizeAttentionAction.INT8:
-        # default to symmetric quant with dummy scales
-        # for simplicity, we use MLA quant config for both MLA and regular attention
-        return MultiheadLatentAttentionQuantConfig(
-            quant_type=AttentionQuantType.INT8,
-            query_scale=torch.tensor(1.0),
-            kv_scale=torch.tensor(1.0),
-            attention_prob_scale=torch.tensor(1.0),
-            kv_projected_scale=torch.tensor(1.0),
-            qk_scale=torch.tensor(1.0),
-            v_scale=torch.tensor(1.0),
-            out_scale=torch.tensor(1.0),
-        )
-    else:
-        raise ValueError(f"Unsupported quantization action {quantize_attention_action}")
+    # default to symmetric quant with dummy scales
+    # for simplicity, we use MLA quant config for both MLA and regular attention
+    return MultiheadLatentAttentionQuantConfig(
+        quant_type=get_attention_quant_type(quantize_attention_action),
+        query_scale=torch.tensor(1.0),
+        kv_scale=torch.tensor(1.0),
+        attention_prob_scale=torch.tensor(1.0),
+        kv_projected_scale=torch.tensor(1.0),
+        qk_scale=torch.tensor(1.0),
+        v_scale=torch.tensor(1.0),
+        out_scale=torch.tensor(1.0),
+    )
 
 
 def create_quant_config(

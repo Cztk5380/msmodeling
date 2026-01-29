@@ -69,14 +69,16 @@ def flash_attention_forward(
         # For VL models, the visual layer's attention_by_layers cannot be obtained from kwargs,
         # so it is retrieved from the module's _tensor_cast_context instead.
         is_vision_attention = True
-        _tensor_cast_context = getattr(module, '_tensor_cast_context', None)
+        _tensor_cast_context = getattr(module, "_tensor_cast_context", None)
         if _tensor_cast_context is not None:
-            attention_by_layers = _tensor_cast_context.get('attention_by_layers', None)
+            attention_by_layers = _tensor_cast_context.get("attention_by_layers", None)
 
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
     if is_vision_attention:
-        assert _tensor_cast_context is not None, "Expect _tensor_cast_context to be provided."
-        depth_layer_idx = _tensor_cast_context.get('depth_layer_idx')
+        assert _tensor_cast_context is not None, (
+            "Expect _tensor_cast_context to be provided."
+        )
+        depth_layer_idx = _tensor_cast_context.get("depth_layer_idx")
         self_attn = attention_by_layers[depth_layer_idx]
         kv_cache = None
         attention_meta = None
@@ -89,8 +91,8 @@ def flash_attention_forward(
             "kv_cache_by_layers", None
         )
         attention_meta: AttentionMetadataBase = kwargs.pop("attention_meta", None)
-        attention_meta_by_layers: Optional[dict[int, AttentionMetadataBase]] = kwargs.pop(
-            "attention_meta_by_layers", None
+        attention_meta_by_layers: Optional[dict[int, AttentionMetadataBase]] = (
+            kwargs.pop("attention_meta_by_layers", None)
         )
         assert attention_meta is None or attention_meta_by_layers is None, (
             "Only one of attention_meta and attention_meta_by_layers can be provided."
@@ -143,10 +145,6 @@ class AttentionTensorCast(AttentionBase):
             if self.quant_config is not None:
                 kv_scale = self.quant_config.kv_scale
                 kv_offset = self.quant_config.kv_offset
-                if kv_cache.dtype != torch.int8:
-                    raise ValueError(
-                        f"Only support int8 quantized kv cache dtype but got {kv_cache.dtype}"
-                    )
                 key = torch.ops.tensor_cast.quantize(
                     key, kv_scale, kv_offset, kv_cache.dtype
                 )

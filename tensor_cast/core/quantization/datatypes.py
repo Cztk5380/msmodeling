@@ -28,3 +28,4 @@ class QuantizeAttentionAction(StrEnum):
     # TODO(jgong5): support FP8 quantization
     DISABLED = "DISABLED"
     INT8 = "INT8"
+    FP8 = "FP8"

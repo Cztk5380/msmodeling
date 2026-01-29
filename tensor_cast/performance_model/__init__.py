@@ -572,6 +572,9 @@ def _(
     key = op_invoke_info.args[1]
     seq_lens = op_invoke_info.args[6]
     query_lens = op_invoke_info.args[7]
+    is_query_scaled = op_invoke_info.args[8] is not None and not torch.isclose(
+        op_invoke_info.args[8], torch.tensor(1.0)
+    )
     out_dtype = op_invoke_info.args[14]
     if query_lens is None or seq_lens is None:
         query_lens, seq_lens = _default_query_lens_and_seq_lens(query)
@@ -597,16 +600,21 @@ def _(
         num_tokens_per_seq.to(seq_lens.dtype) * seq_lens
     ).item()
 
+    # FP8 (e4m3fn/e5m2): Only 1 op per element (scale multiplication ONLY, no offset applied)
+    # Assume FP8 is not natively supported
+    QDQ_OP_FACTOR_MAP = {torch.float8_e4m3fn: 1, torch.float8_e5m2: 1, torch.int8: 2}
+    qdq_op_factor = QDQ_OP_FACTOR_MAP.get(key.dtype, 2)
+
     # 1. Dequantization of Q @ K^T (score matrix):
     #    scale multiplication + optional offset subtraction
     # Number of elements: context_len_product_sum * num_q_heads
     # Assuming 2 ops per element (scale + offset) for worst case
-    dequant_qkt_ops = context_len_product_sum * num_q_heads * 2
+    dequant_qkt_ops = context_len_product_sum * num_q_heads * qdq_op_factor
 
     # 2. Quantization of softmax output (attention probabilities):
     #    scale multiplication + optional offset addition
     # Same number of elements as above
-    quant_softmax_ops = context_len_product_sum * num_q_heads * 2
+    quant_softmax_ops = context_len_product_sum * num_q_heads * qdq_op_factor
 
     # 3. Dequantization of final output:
     #    scale multiplication + optional offset subtraction
@@ -615,7 +623,10 @@ def _(
         dequant_output_ops = 0
     else:
         total_tokens = torch.sum(num_tokens_per_seq).item()
-        dequant_output_ops = total_tokens * num_q_heads * head_size * 2
+        dequant_output_ops = total_tokens * num_q_heads * head_size * qdq_op_factor
+
+    if is_query_scaled:
+        dequant_qkt_ops += context_len_product_sum * num_q_heads
 
     # Add quantization/dequantization ops to gp_ops
     total_quant_dequant_ops = dequant_qkt_ops + quant_softmax_ops + dequant_output_ops

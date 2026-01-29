@@ -1,10 +1,11 @@
 import unittest
+from itertools import product
 
 import torch
 from parameterized import parameterized
 
 from ..core.model_builder import build_model
-from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
+from ..core.quantization.datatypes import QuantizeLinearAction
 from ..core.user_config import UserInputConfig
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
@@ -32,10 +33,14 @@ from .test_common import (
 )
 
 
-def get_quant_config(start_layer_id=-1, end_layer_id=-1):
+def get_quant_config(
+    start_layer_id=-1,
+    end_layer_id=-1,
+    attn_quant_type: AttentionQuantType = AttentionQuantType.INT8,
+):
     quant_config = QuantConfig()
     config = AttentionQuantConfig(
-        quant_type=AttentionQuantType.INT8,
+        quant_type=attn_quant_type,
         query_scale=torch.tensor(1.0),
         kv_scale=torch.tensor(1.0),
         attention_prob_scale=torch.tensor(1.0),
@@ -69,14 +74,17 @@ def get_mla_quant_config(start_layer_id=-1, end_layer_id=-1):
 
 
 class TestQuantAttention(unittest.TestCase):
+    QUANT_TYPES = [AttentionQuantType.INT8, AttentionQuantType.FP8]
+
     @parameterized.expand(
-        [
-            ["Qwen/Qwen3-32B"],
-            ["Qwen/Qwen3-235B-A22B"],
-            ["zai-org/GLM-4.5"],
-        ]
+        list(
+            product(
+                ["Qwen/Qwen3-32B", "Qwen/Qwen3-235B-A22B", "zai-org/GLM-4.5"],
+                QUANT_TYPES,
+            )
+        )
     )
-    def test_standard_attention_int8(self, model_id):
+    def test_standard_attention(self, model_id, attn_quant_type):
         kv_quant_start_idx = 0
         kv_quant_end_idx = 1
         auto_loader = AutoModelConfigLoader()
@@ -84,7 +92,7 @@ class TestQuantAttention(unittest.TestCase):
         moe_config = get_moe_config(hf_config.model_type)
         model_config = ModelConfig(
             ParallelConfig(),
-            get_quant_config(kv_quant_start_idx, kv_quant_end_idx),
+            get_quant_config(kv_quant_start_idx, kv_quant_end_idx, attn_quant_type),
             attention_cls=AttentionTensorCast,
             num_hidden_layers_override=2,
             moe_config=moe_config,
@@ -111,19 +119,14 @@ class TestQuantAttention(unittest.TestCase):
         self.assertIn("reshape_and_cache.default", result)
         self.assertIn("attention_quant.default", result)
 
-    @parameterized.expand(
-        [
-            ["deepseek-ai/DeepSeek-V3.1"],
-            # ["moonshotai/Kimi-K2-Base"],
-        ]
-    )
-    def test_mla_int8(self, model_id):
+    @parameterized.expand(list(product(["deepseek-ai/DeepSeek-V3.1"], QUANT_TYPES)))
+    def test_mla(self, model_id, attn_quant_type):
         num_mtp_layers = 1
         user_config = UserInputConfig(
             model_id=model_id,
             num_mtp_tokens=num_mtp_layers,
             quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
-            quantize_attention_action=QuantizeAttentionAction.INT8,
+            quantize_attention_action=attn_quant_type,
         )
 
         model = build_model(user_config)
