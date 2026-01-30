@@ -1,15 +1,15 @@
-from contextlib import contextmanager
-
 import threading
+from contextlib import contextmanager
 from typing import Optional
 
 import diffusers
-import torch.nn.functional as F
 import torch
+import torch.nn.functional as F
 from aenum import extend_enum
+from diffusers.models.attention_dispatch import _AttentionBackendRegistry
 
 from ..parallel_group import ParallelGroup
-from diffusers.models.attention_dispatch import _AttentionBackendRegistry
+
 _thread_local = threading.local()
 
 

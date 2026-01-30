@@ -31,7 +31,7 @@ class Request:
     def __init__(self, **kwargs):
         super().__init__()
         # generate global unique counting id if id is not given
-        given_id = kwargs.get("id", None)
+        given_id = kwargs.get("id")
         if given_id is not None:
             if isinstance(given_id, int):
                 self.id = given_id
@@ -43,7 +43,7 @@ class Request:
         # The following fields are requirement to the serving system
         # TOBEDONE: support multiple sequences such as beam search and best-of-N
         # TOBEDONE: add sampling methods
-        self.model_name: Optional[str] = kwargs.get("model_name", None)
+        self.model_name: Optional[str] = kwargs.get("model_name")
         self.num_input_tokens: int = kwargs.get("num_input_tokens", 0)
         self.num_output_tokens: int = kwargs.get(
             "num_output_tokens", 0

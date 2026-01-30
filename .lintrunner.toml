@@ -6,6 +6,7 @@ exclude_patterns = [
     '.git/**',
     '**/*.pyi',
     'tools/**',
+    'tensor_cast/tests/data/**',
 ]
 command = [
     'python',
@@ -41,6 +42,7 @@ include_patterns = [
 exclude_patterns = [
     '.git/**',
     'tools/**',
+    'tensor_cast/tests/data/**',
 ]
 command = [
     'python',
@@ -71,6 +73,7 @@ include_patterns = [
 exclude_patterns = [
     '.git/**',
     'tools/**',
+    'tensor_cast/tests/data/**',
 ]
 command = [
     'python',

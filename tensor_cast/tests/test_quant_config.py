@@ -9,12 +9,9 @@ os.environ["HF_ENDPOINT"] = "https://hf-mirror.com"
 ```
 """
 
-import fnmatch
 import os
-import re
 import unittest
 from enum import Enum
-from typing import List, Optional
 
 from parameterized import parameterized
 from transformers.modeling_utils import no_init_weights

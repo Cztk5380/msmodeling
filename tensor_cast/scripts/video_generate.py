@@ -5,10 +5,11 @@ from typing import Optional
 
 import torch
 
+from .. import device_profiles  # noqa: F401
+
 from ..core.quantization.config import create_quant_config
 from ..core.quantization.datatypes import QuantizeLinearAction
 from ..device import DeviceProfile
-from .. import device_profiles # noqa: F401
 from ..diffusers.diffusers_attention import set_sp_group, use_custom_sdpa
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (

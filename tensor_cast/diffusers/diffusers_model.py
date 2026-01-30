@@ -10,8 +10,6 @@ from transformers.modeling_utils import no_init_weights
 
 from ..layers.attention import AttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
-
-from ..parallel_group import ParallelGroup
 from ..model_config import (
     DiffusersConfig,
     DiffusersTransformerConfig,
@@ -19,18 +17,15 @@ from ..model_config import (
     ModelConfig,
 )
 
+from ..parallel_group import ParallelGroup
+
 from ..quantize_utils import quantize_linear_modules
-
-from ..transformers.model import ModelWrapper
-
-from ..transformers.utils import init_on_device_without_buffers
 
 from ..transformers.model import ModelWrapper, ModelWrapperBase
 
 from ..transformers.utils import init_on_device_without_buffers
 
 from .diffusers_utils import get_diffusers_transformer_module
-from ..model_config import DiffusersTransformerConfig, DiffusersConfig, DiffusersTextConfig, DiffusersVaeConfig
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +59,7 @@ def load_config_from_file(
     # TODO add seperate parallel_config and quant_config(atten_cls is needed?) for vae and text
     if not os.path.isdir(model_path):
         raise ValueError(f"Input args.model_id should be dir, but got {model_path}")
-    
+
     config_path_dict = {}
     model_path = os.path.abspath(model_path)
     for root, _, files in os.walk(model_path):
@@ -79,7 +74,7 @@ def load_config_from_file(
         with open(config_path) as f:
             config = json.load(f)
         config_dict[key] = config
-    
+
     model_config = DiffusersConfig()
     transformer_config = config_dict.get("transformer")
     if transformer_config is None:

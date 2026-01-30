@@ -20,12 +20,12 @@ class TestBenchmark(unittest.TestCase):
         self.model_id = "Qwen/Qwen3-32B"
         self.input_length = 100
         self.output_length = 50
-        self.default_config_dict = dict(
-            model_id=self.model_id,
-            quantize_attention_action=QuantizeLinearAction.DISABLED,
-            num_mtp_tokens=0,
-            do_compile=False,
-        )
+        self.default_config_dict = {
+            "model_id": self.model_id,
+            "quantize_attention_action": QuantizeLinearAction.DISABLED,
+            "num_mtp_tokens": 0,
+            "do_compile": False,
+        }
         self.user_input = UserInputConfig(**self.default_config_dict)
         update_parallel_parameter(self.user_input, world_size=1, tp_size=1, ep=False)
 
@@ -558,7 +558,9 @@ class TestBenchmark(unittest.TestCase):
         tp_size_list = [tp for tp in tp_sizes if tp <= num_devices]
         for tp_size in tp_size_list:
             user_config = copy.deepcopy(self.user_input)
-            update_parallel_parameter(user_config, world_size=num_devices, tp_size=tp_size, ep=False)
+            update_parallel_parameter(
+                user_config, world_size=num_devices, tp_size=tp_size, ep=False
+            )
             model = build_model(user_config)
             latency, concurrency, breakdown, error_msg = find_best_throughput(
                 model=model,
@@ -572,6 +574,7 @@ class TestBenchmark(unittest.TestCase):
             self.assertGreater(latency, 0)
             self.assertGreater(concurrency, 0)
             self.assertIsInstance(breakdown, dict)
+
 
 if __name__ == "__main__":
     unittest.main()

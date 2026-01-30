@@ -62,7 +62,7 @@ def get_attention_quant_type(action: QuantizeAttentionAction) -> AttentionQuantT
         raise ValueError(
             f"Unsupported quantization action: {action}. "
             f"Ensure '{action.name}' is defined in AttentionQuantType."
-        )
+        ) from None
 
 
 _QUANT_TYPE_TO_TORCH_DTYPE_MAP = {
@@ -87,7 +87,7 @@ def get_torch_quant_type(action: QuantizeAttentionAction) -> AttentionQuantType:
         raise ValueError(
             f"Unsupported quantization action: {action}. "
             f"Ensure '{action.name}' is defined in AttentionQuantType."
-        )
+        ) from None
 
 
 class QuantGranularity(Enum):
@@ -132,8 +132,8 @@ def replace_module(name, new_module, root_module):
 
 def quantize_linear_modules(
     root_module: nn.Module,
-    quant_linear_cls: Optional["QuantLinearBase"],
-    quant_config: Optional["QuantConfig"],
+    quant_linear_cls: Optional["QuantLinearBase"],  # noqa: F821
+    quant_config: Optional["QuantConfig"],  # noqa: F821
     default_config_name: str,
     strip_module_fn: Optional[Callable[[str], str]],
 ) -> None:

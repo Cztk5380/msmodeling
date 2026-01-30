@@ -71,7 +71,7 @@ def flash_attention_forward(
         is_vision_attention = True
         _tensor_cast_context = getattr(module, "_tensor_cast_context", None)
         if _tensor_cast_context is not None:
-            attention_by_layers = _tensor_cast_context.get("attention_by_layers", None)
+            attention_by_layers = _tensor_cast_context.get("attention_by_layers")
 
     assert attention_by_layers is not None, "Expect attention_by_layers to be provided."
     if is_vision_attention:

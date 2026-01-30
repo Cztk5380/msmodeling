@@ -7,12 +7,13 @@ from typing import Dict, List, Optional, Tuple
 import torch
 import yaml
 
+from .. import device_profiles  # noqa: F401
+
 from ..core.input_generator import generate_inputs, RequestInfo
 from ..core.model_builder import build_model
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..core.user_config import UserInputConfig
 from ..core.utils import get_available_memory_gb
-from .. import device_profiles # noqa: F401
 from ..device import DeviceProfile
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker

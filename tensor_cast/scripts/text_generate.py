@@ -1,12 +1,11 @@
 import argparse
 import logging
 
-from .. import config
+from .. import config, device_profiles  # noqa: F401
 from ..core.input_generator import generate_inputs
 from ..core.model_runner import ModelRunner
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..core.user_config import UserInputConfig
-from .. import device_profiles # noqa: F401
 from ..device import DeviceProfile
 from .utils import check_positive_integer
 

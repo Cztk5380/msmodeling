@@ -286,7 +286,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         )
 
         assert_close(self, actual_execution_time, 1.29e-4)
-        
+
     @parameterized.expand(
         [
             ["Qwen/Qwen3-32B", False],

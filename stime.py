@@ -2,9 +2,11 @@
 """
 A module for managing and synchronizing logical time in a multi-threaded environment
 """
-from abc import ABC, abstractmethod
+
 import logging
-from typing import Callable, Any
+from abc import abstractmethod
+from functools import wraps
+from typing import Any, Callable
 
 import salabim as sim
 
@@ -86,6 +88,7 @@ class DurationDecorator:
     Args:
         ts (float): The logical duration (in seconds) to set.
     """
+
     def __init__(self, ts: float):
         if ts < 0.0:
             raise ValueError("Cannot set negative time")
@@ -116,6 +119,7 @@ class Duration:
     Args:
         ts (float): The logical duration (in seconds) to set.
     """
+
     def __init__(self, ts: float):
         if ts < 0.0:
             raise ValueError("Cannot set negative time")
@@ -130,7 +134,6 @@ class Duration:
 
 # 3. Task
 class Task(sim.Component):
-
     @abstractmethod
     def process(self):
         raise NotImplementedError
@@ -169,11 +172,11 @@ def get_logger(logger_name: str):
         def filter(self, record):
             try:
                 record.sim_time = SimulationEnv().now()
-            except Exception as e:
+            except Exception:
                 record.sim_time = 0.0
             try:
                 record.task_name = SimulationEnv().current_component().name()
-            except Exception as e:
+            except Exception:
                 record.task_name = ""
             return True  # always return True to ensure the record is processed
 
