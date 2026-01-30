@@ -1,250 +1,43 @@
-import dataclasses
-import hashlib
-import itertools
 import logging
-from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Optional, Protocol, Tuple
+from pathlib import Path
+from typing import Tuple
 
 import torch
 
 from .. import ops  # noqa: F401
 from ..device import DeviceProfile
-from .utils import bytes_of_elements, bytes_of_tensor, is_view_op, run_once
+from .analytic import StatsKey
+from .base import PerformanceModel
+from .op_estimator_registry import register_op_estimator
+from .op_invoke_info import OpInvokeInfo
+from .utils import bytes_of_elements, bytes_of_tensor, is_view_op
 
 logger = logging.getLogger(__name__)
 
 
-class OpInvokeInfo:
-    _op_properties_functors = {}
+def _load_custom_op():
+    try:
+        custom_op_dir = Path(__file__).resolve().parent / "custom_op"
 
-    @dataclasses.dataclass
-    class ComputeOps:
-        mma_ops: int = 0
-        """Number of Matrix-Multiply-Accumulate ops"""
-        gp_ops: int = 0
-        """Number of General-Purpose ops"""
+        if not custom_op_dir.exists():
+            logger.warning("custom operator folder %s not found", custom_op_dir)
+            return False
 
-    @dataclasses.dataclass
-    class PerformanceProperties:
-        compute_ops: Dict[torch.dtype, "OpInvokeInfo.ComputeOps"] = dataclasses.field(
-            default_factory=dict
-        )
-        memory_read_bytes: int = 0
-        """Read-only bytes"""
-        memory_write_bytes: int = 0
-        """Write-only bytes"""
-        memory_readwrite_bytes: int = 0
-        """Read-write bytes"""
+        for py_file in custom_op_dir.glob("*.py"):
+            if py_file.name.startswith("_"):
+                continue
+            module_name = py_file.stem
+            import importlib.util
 
-        def combine(
-            self, other: "OpInvokeInfo.PerformanceProperties", compute_only=False
-        ):
-            for dtype, compute_ops in other.compute_ops.items():
-                if dtype not in self.compute_ops:
-                    self.compute_ops[dtype] = OpInvokeInfo.ComputeOps()
-                self.compute_ops[dtype].mma_ops += compute_ops.mma_ops
-                self.compute_ops[dtype].gp_ops += compute_ops.gp_ops
-            if not compute_only:
-                self.memory_read_bytes += other.memory_read_bytes
-                self.memory_write_bytes += other.memory_write_bytes
-                self.memory_readwrite_bytes += other.memory_readwrite_bytes
+            spec = importlib.util.spec_from_file_location(module_name, py_file)
+            if spec and spec.loader:
+                module = importlib.util.module_from_spec(spec)
+                spec.loader.exec_module(module)
+        return True
 
-    def __init__(self, func, args, kwargs, out, cache_key=None):
-        self.func = func
-        self.args = args
-        self.kwargs = {} if kwargs is None else kwargs
-        self.out = out
-        self.cache_key = cache_key or self.compute_cache_key()
-
-    @classmethod
-    def get_op_properties_functor(cls, op):
-        def default_functor(self: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
-            """Default functor only counts in the memory accesses"""
-            if is_view_op(self.func):
-                return OpInvokeInfo.PerformanceProperties()
-            run_once(
-                self.func,
-                logger.warning,
-                f"No op properties function defined for {self.func}, "
-                f"assuming it is memory-bandwidth bound.",
-            )
-            return self.get_memory_access_properties()
-
-        if op not in OpInvokeInfo._op_properties_functors:
-            return default_functor
-        return OpInvokeInfo._op_properties_functors[op]
-
-    @classmethod
-    def register_op_properties(cls, op):
-        def decorator(functor):
-            assert op not in OpInvokeInfo._op_properties_functors, (
-                f"Op properties functor for {op} already registered"
-            )
-            OpInvokeInfo._op_properties_functors[op] = functor
-            return functor
-
-        return decorator
-
-    def get_memory_access_properties(
-        self,
-        exclude_input_ids: Optional[set] = None,
-        exclude_output_ids: Optional[set] = None,
-    ) -> "OpInvokeInfo.PerformanceProperties":
-        """Get memory read/write properties"""
-        exclude_input_ids = set() if exclude_input_ids is None else exclude_input_ids
-        exclude_output_ids = set() if exclude_output_ids is None else exclude_output_ids
-        memory_read_bytes = 0
-        memory_write_bytes = 0
-        memory_readwrite_bytes = 0
-        args_schema = self.func._schema.arguments
-        for i, arg in enumerate(itertools.chain(self.args, self.kwargs.values())):
-            if i not in exclude_input_ids:
-                inputs = arg if isinstance(arg, (list, tuple)) else [arg]
-                if inputs and isinstance(inputs[0], torch.Tensor):
-                    for tensor in inputs:
-                        access_bytes = bytes_of_tensor(tensor)
-                        if args_schema[i].is_out:
-                            memory_write_bytes += access_bytes
-                        elif args_schema[i].is_write:
-                            memory_readwrite_bytes += access_bytes
-                        else:
-                            memory_read_bytes += access_bytes
-        out = self.out if isinstance(self.out, (list, tuple)) else [self.out]
-        for i, arg in enumerate(out):
-            if isinstance(arg, torch.Tensor) and i not in exclude_output_ids:
-                access_bytes = bytes_of_tensor(arg)
-                memory_write_bytes += access_bytes
-        return OpInvokeInfo.PerformanceProperties(
-            memory_read_bytes=memory_read_bytes,
-            memory_write_bytes=memory_write_bytes,
-            memory_readwrite_bytes=memory_readwrite_bytes,
-        )
-
-    def get_perf_properties(self) -> "OpInvokeInfo.PerformanceProperties":
-        functor = self.get_op_properties_functor(self.func)
-        return functor(self)
-
-    def compute_cache_key(self) -> str:
-        """
-        Compute an efficient cache key based on operation signature and tensor properties.
-        This key represents the computational characteristics of the operation.
-
-        Returns:
-            A string hash that can be used as a cache key
-        """
-        key_components = []
-
-        key_components.append(str(self.func))
-
-        def add_tensor_info(t, components):
-            if isinstance(t, torch.Tensor):
-                components.extend(
-                    [
-                        str(t.shape),
-                        str(t.dtype),
-                        str(t.device),
-                        str(t.stride()) if not t.is_contiguous() else "contiguous",
-                        str(t.requires_grad),
-                    ]
-                )
-            else:
-                components.append(str(t))
-
-        for arg in self.args:
-            add_tensor_info(arg, key_components)
-
-        if self.kwargs:
-            for k, v in sorted(self.kwargs.items()):
-                key_components.append(k)
-                add_tensor_info(v, key_components)
-
-        # Create hash
-        key_string = "|".join(key_components)
-        return hashlib.sha256(key_string.encode()).hexdigest()
-
-    def __repr__(self):
-        return f"OpInvokeInfo({self.func}, {self.args}, {self.kwargs}, {self.out})"
-
-
-class PerformanceModel(ABC):
-    """
-    Performance model used to estimate the execution time of op invocations
-    on a given device.
-    """
-
-    @dataclasses.dataclass
-    class Result:
-        execution_time_s: float
-        statistics: Dict[str, Any] = dataclasses.field(default_factory=dict)
-        """Misc runtime statistics produced by implementation"""
-
-        def combine(self, other: "PerformanceModel.Result", method: str = "max"):
-            if method == "max":
-                self.execution_time_s = max(
-                    self.execution_time_s, other.execution_time_s
-                )
-            elif method == "sum":
-                self.execution_time_s += other.execution_time_s
-            else:
-                raise ValueError(
-                    f"Unsupported method {method} for combining performance result"
-                )
-            self.statistics.update(other.statistics)
-
-    class OpClassifier(Protocol):
-        @property
-        def name(self): ...
-
-        def classify(
-            self, event_list: List[Tuple[OpInvokeInfo, "PerformanceModel.Result"]]
-        ) -> Dict[str, float]:
-            """
-            Classify an event list into a breakdown.
-
-            [NOTE: Breakdown from Op Classifier] The semantics of the values are defined by the performance
-            models but they should account for a breakdown of sum(values) so that the caller can then compute the
-            percentage of each category according to the values.
-
-            :param event_list: Event list of classify
-            :return: category name -> value
-            """
-            ...
-
-    def __init__(self, name, device_profile: DeviceProfile):
-        self.name = name
-        self.device_profile = device_profile
-
-    @abstractmethod
-    def process_op(self, op_invoke_info: OpInvokeInfo) -> "PerformanceModel.Result":
-        """
-        Estimate the execution time of an op invocation on the given device.
-        Returns:
-            op execution time in seconds and misc runtime statistics
-        """
-
-    def get_classifiers(self) -> List[OpClassifier]:
-        return []
-
-
-class CachingPerformanceModel(PerformanceModel):
-    """
-    A performance model that caches the results of another performance model.
-    """
-
-    def __init__(self, base_model: PerformanceModel):
-        super().__init__(base_model.name, base_model.device_profile)
-        self._base_model = base_model
-        self._cache: Dict[str, PerformanceModel.Result] = {}
-
-    def process_op(self, op_invoke_info: OpInvokeInfo) -> "PerformanceModel.Result":
-        if op_invoke_info.cache_key in self._cache:
-            return self._cache[op_invoke_info.cache_key]
-        result = self._base_model.process_op(op_invoke_info)
-        self._cache[op_invoke_info.cache_key] = result
-        return result
-
-    def get_classifiers(self) -> List[PerformanceModel.OpClassifier]:
-        return self._base_model.get_classifiers()
+    except Exception:
+        logger.warning("Failed to load custom op modules ", exc_info=True)
+        return False
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.bmm.default)
@@ -1140,3 +933,117 @@ def _(
     )
     compute_ops.mma_ops = total_flops
     return properties
+
+
+def _estimate_static_cost(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> float:
+    perf_properties = op_invoke_info.get_perf_properties()
+    for dtype in DeviceProfile.DTYPES:
+        if dtype in perf_properties.compute_ops:
+            if dtype not in device_profile.mma_ops:
+                continue
+            compute_ops = perf_properties.compute_ops[dtype]
+            if compute_ops.mma_ops > 0:
+                return device_profile.static_cost.mma_op_cost_s
+    return device_profile.static_cost.gp_op_cost_s
+
+
+def _estimate_default_without_static_cost(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    if is_view_op(op_invoke_info.func):
+        return PerformanceModel.Result(0.0)
+    perf_properties = op_invoke_info.get_perf_properties()
+    # By default, we do not consider instruction-level parallelism when counting computation time
+    mma_ops_time_s = 0
+    gp_ops_time_s = 0
+    for dtype in DeviceProfile.DTYPES:
+        if dtype in perf_properties.compute_ops:
+            compute_ops = perf_properties.compute_ops[dtype]
+            if compute_ops.mma_ops > 0:
+                if dtype in device_profile.mma_ops:
+                    device_mma_ops = (
+                        device_profile.mma_ops[dtype]
+                        * device_profile.compute_efficiency
+                    )
+                    mma_ops_time_s += compute_ops.mma_ops / device_mma_ops
+                else:
+                    logger.warning(
+                        "Ignoring mma compute ops of %s for %s since it is not supported on %s",
+                        dtype,
+                        op_invoke_info,
+                        device_profile,
+                    )
+            if compute_ops.gp_ops > 0:
+                if dtype in device_profile.gp_ops:
+                    compute_ops = perf_properties.compute_ops[dtype]
+                    device_gp_ops = (
+                        device_profile.gp_ops[dtype] * device_profile.compute_efficiency
+                    )
+                    gp_ops_time_s += compute_ops.gp_ops / device_gp_ops
+                else:
+                    logger.warning(
+                        "Ignoring gp compute ops of %s for %s since it is not supported on %s",
+                        dtype,
+                        op_invoke_info,
+                        device_profile,
+                    )
+    compute_time_s = mma_ops_time_s + gp_ops_time_s
+    memory_bandwidth = (
+        device_profile.memory_bandwidth_bytes_ps * device_profile.memory_efficiency
+    )
+    memory_read_time_s = perf_properties.memory_read_bytes / memory_bandwidth
+    memory_write_time_s = perf_properties.memory_write_bytes / memory_bandwidth
+    memory_readwrite_time_s = perf_properties.memory_readwrite_bytes / memory_bandwidth
+    memory_access_time_s = (
+        memory_read_time_s + memory_write_time_s + memory_readwrite_time_s
+    )
+    time_s = max(compute_time_s, memory_access_time_s)
+    result = PerformanceModel.Result(
+        execution_time_s=time_s,
+        statistics={
+            "memory_read_time_s": memory_read_time_s,
+            "memory_write_time_s": memory_write_time_s,
+            "memory_readwrite_time_s": memory_readwrite_time_s,
+            StatsKey.MEMORY_ACCESS: memory_access_time_s,
+            StatsKey.COMPUTE: compute_time_s,
+            StatsKey.MMA_OPS: mma_ops_time_s,
+            StatsKey.GP_OPS: gp_ops_time_s,
+            "is_compute_bound": compute_time_s > memory_access_time_s,
+        },
+    )
+    return result
+
+
+def _estimate_default(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    result = _estimate_default_without_static_cost(op_invoke_info, device_profile)
+    if result.execution_time_s == 0:
+        return result
+    result.execution_time_s += _estimate_static_cost(op_invoke_info, device_profile)
+    return result
+
+
+register_op_estimator(None, None)(_estimate_default)
+
+
+@register_op_estimator(torch.ops.tensor_cast.all_reduce.default, None)
+@register_op_estimator(torch.ops.tensor_cast.all_gather.default, None)
+@register_op_estimator(torch.ops.tensor_cast.reduce_scatter.default, None)
+@register_op_estimator(torch.ops.tensor_cast.all_to_all.default, None)
+def _estimate_collective_comm(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    from .comm_analytic import CommAnalyticModel
+
+    result = _estimate_default_without_static_cost(op_invoke_info, device_profile)
+    comm_model = CommAnalyticModel(device_profile)
+    comm_result = comm_model.process_op(op_invoke_info)
+    result.combine(comm_result)
+    result.execution_time_s += device_profile.static_cost.comm_op_cost_s
+    return result
+
+
+_load_custom_op()
