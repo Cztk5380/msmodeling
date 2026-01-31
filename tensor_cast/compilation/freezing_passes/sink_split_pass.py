@@ -16,7 +16,7 @@ from ..utils import get_node_shape, is_non_scalar_tensor_node, maybe_copy_meta
 logger = logging.getLogger(__name__)
 
 
-def _is_split_node(node: Node) -> bool:
+def _is_split_with_sizes_node(node: Node) -> bool:
     return node.target == torch.ops.aten.split_with_sizes.default
 
 
@@ -160,7 +160,13 @@ class SinkSplitPass(TensorCastGraphModulePass):
             different split dim from the split node.
             """
             source_op = source_op_group[0]
-            assert _is_split_node(source_op), source_op.target
+            assert (
+                _is_split_with_sizes_node(source_op)
+                or source_op.target == torch.ops.aten.split.Tensor
+            ), (
+                f"Assertion failed: expected operator is 'split_with_sizes' or 'split'."
+                f"The operator currently executed is: {source_op.target}. Please check if the correct operator is used."
+            )
             split_dim = split_node.args[2] if len(split_node.args) > 2 else 0
             source_op_split_dim = source_op.args[2] if len(source_op.args) > 2 else 0
             return split_dim != source_op_split_dim
@@ -181,6 +187,14 @@ class SinkSplitPass(TensorCastGraphModulePass):
             add_config(op, {0}, {0})
         add_config(
             torch.ops.aten.split_with_sizes.default,
+            {0},
+            {0},
+            None,
+            None,
+            split_with_sizes_extra_check,
+        )
+        add_config(
+            torch.ops.aten.split.Tensor,
             {0},
             {0},
             None,
@@ -280,7 +294,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
             if inp.target == operator.getitem:
                 parent_of_inp = inp.args[0]
                 assert isinstance(parent_of_inp, Node)
-                return _is_split_node(parent_of_inp)
+                return _is_split_with_sizes_node(parent_of_inp)
             return False
 
         def _expand_branch(
@@ -313,7 +327,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
             user = next(iter(getitem_node.users))
 
             # Constraint 2: User must be a split_with_sizes
-            if not _is_split_node(user):
+            if not _is_split_with_sizes_node(user):
                 return [(current_size, getitem_node)], False
 
             # Constraint 3: Dimensions must match
@@ -344,7 +358,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
 
         changed = False
         for node in list(graph.nodes):
-            if not _is_split_node(node):
+            if not _is_split_with_sizes_node(node):
                 continue
 
             # Check if this node is a child of another split-tree we would have processed.
@@ -531,7 +545,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
                 continue
 
             split_node = first_input.args[0]
-            if not _is_split_node(split_node):
+            if not _is_split_with_sizes_node(split_node):
                 continue
 
             if len(tensors_arg) != len(split_node.users):
@@ -668,7 +682,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
                         isinstance(source_op.args[i], Node)
                         and source_op.args[i].target == operator.getitem
                         and len(source_op.args[i].args) > 0
-                        and _is_split_node(source_op.args[i].args[0])
+                        and _is_split_with_sizes_node(source_op.args[i].args[0])
                         for source_op in source_op_group
                     ):
                         _split_node = arg_node.args[0]
@@ -909,7 +923,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
         pass_changed = False
 
         for node in reversed(graph.nodes):
-            if not _is_split_node(node):
+            if not _is_split_with_sizes_node(node):
                 continue
 
             split_node = node

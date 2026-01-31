@@ -47,10 +47,10 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
             concurrency,
         )
         num_image_tokens = image_kwargs.pop("num_image_tokens", 0)
+        seq_len += num_image_tokens
         if is_decode:
             # In the decode phase, the image input is removed, but the image token needs to be added to content_length
             image_kwargs = {}
-            seq_len += num_image_tokens
         else:
             query_len += num_image_tokens
     else:

@@ -4,10 +4,13 @@ import torch
 from parameterized import parameterized
 
 from ..compilation import get_backend
+from ..core.config_resolver import ConfigResolver
+from ..core.quantization.datatypes import QuantizeLinearAction
+from ..core.user_config import UserInputConfig
 from ..device import TEST_DEVICE
 from ..layers.attention import AttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
+from ..model_config import ModelConfig, ParallelConfig
 from ..performance_model.analytic import AnalyticPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
 from ..quantize_utils import LinearQuantType, QuantGranularity
@@ -21,22 +24,25 @@ class GmmPassTestCase(unittest.TestCase):
     def setUp(self):
         torch.compiler.reset()
 
-    def test_qwen3_fp(self):
-        model_id = "Qwen/Qwen3-235B-A22B"
-        auto_loader = AutoModelConfigLoader()
-        hf_config = auto_loader.load_config(model_id)
-        moe_config = get_moe_config(hf_config.model_type)
-        num_tokens = 100
-        model_config = ModelConfig(
-            ParallelConfig(),
-            QuantConfig(),
-            attention_cls=AttentionTensorCast,
+    @parameterized.expand(
+        [
+            "Qwen/Qwen3-235B-A22B",
+            "Qwen/Qwen3-VL-30B-A3B-Instruct",
+        ]
+    )
+    def test_qwen3_fp(self, model_id):
+        user_input = UserInputConfig(
+            model_id=model_id,
+            do_compile=True,
             num_hidden_layers_override=1,
-            moe_config=moe_config,
-            hf_config=hf_config,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
         )
+        config_resolver = ConfigResolver(user_input=user_input)
+        model_config = config_resolver.resolve()
         model = TransformerModel(model_id, model_config)
         model = torch.compile(model, backend=get_backend(), fullgraph=True)
+
+        num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         device_profile = TEST_DEVICE
