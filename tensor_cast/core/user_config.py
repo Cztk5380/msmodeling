@@ -63,25 +63,10 @@ class UserInputConfig:
 
     def __post_init__(self):
         self._validate_device()
-        self._validate_quantize_action()
 
     def _validate_device(self):
         if self.device not in DeviceProfile.all_device_profiles:
             raise ValueError(f"Device '{self.device}' not recognized.")
-
-    def _validate_quantize_action(self):
-        if self.quantize_linear_action != QuantizeLinearAction.DISABLED:
-            print(
-                f"Quantization Linear: {self.quantize_linear_action}, quantize LM Head: {self.quantize_lmhead}"
-            )
-            if self.quantize_linear_action == QuantizeLinearAction.MXFP4:
-                print(f"  MXFP4 group size: {self.mxfp4_group_size}")
-        else:
-            print("Quantization Linear: Disabled")
-        if self.quantize_attention_action != QuantizeAttentionAction.DISABLED:
-            print(f"Quantization Attention: {self.quantize_attention_action}")
-        else:
-            print("Quantization Attention: Disabled")
 
     def _print_info(self):
         print("--- Configuration ---")
@@ -94,6 +79,18 @@ class UserInputConfig:
         print(f"Enable repetition: {not self.disable_repetition}")
         if self.num_mtp_tokens > 0:
             print(f"Number of MTP layers: {self.num_mtp_tokens}")
+        if self.quantize_linear_action != QuantizeLinearAction.DISABLED:
+            print(
+                f"Quantization Linear: {self.quantize_linear_action}, quantize LM Head: {self.quantize_lmhead}"
+            )
+            if self.quantize_linear_action == QuantizeLinearAction.MXFP4:
+                print(f"  MXFP4 group size: {self.mxfp4_group_size}")
+        else:
+            print("Quantization Linear: Disabled")
+        if self.quantize_attention_action != QuantizeAttentionAction.DISABLED:
+            print(f"Quantization Attention: {self.quantize_attention_action}")
+        else:
+            print("Quantization Attention: Disabled")
         print(f"Use torch.compile: {self.do_compile}")
         if self.do_compile:
             print(f"  allow graph break: {self.allow_graph_break}")
