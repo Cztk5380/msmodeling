@@ -1,6 +1,8 @@
 import unittest
 from dataclasses import asdict
+from io import StringIO
 from typing import Union
+from unittest.mock import patch
 
 import torch
 from parameterized import parameterized
@@ -1278,6 +1280,56 @@ class TestTextGenerate(unittest.TestCase):
                 f"actual={actual_tps:.4g}, tolerance={tolerance:.2g}"
             ),
         )
+
+
+class TestModelRunnerMetricsPrintInfo(unittest.TestCase):
+    """Unit tests for ModelRunner.print_info static method."""
+
+    def setUp(self):
+        """Set up test fixtures before each test method."""
+        self.metrics = ModelRunnerMetrics(
+            total_device_memory_gb=24.0,
+            model_weight_size_gb=5.0,
+            peak_memory_usage_gb=12.0,
+            kv_cache_size_gb=3.0,
+            kv_cache_per_token_gb=0.001,
+            model_activation_size_gb=4.0,
+            reserved_memory_gb=1.0,
+            device_memory_available_gb=6.0,
+            single_card_tps=200.0,
+            execution_time_s=0.05,
+            run_time_s=0.06,
+            batch_size=4,
+            table_result="performance_data",
+            breakdowns={
+                "memory": {"activation": 2.0, "weights": 3.0},
+                "compute": {"matmul": 1.5, "attention": 0.8},
+            },
+        )
+
+    @patch("sys.stdout", new_callable=StringIO)
+    def test_print_info_basic(self, mock_stdout):
+        """Test that print_info prints the expected information."""
+        # Call the static method
+        self.metrics.print_info()
+
+        # Get the printed output
+        output = mock_stdout.getvalue()
+
+        # Check that the output contains expected elements
+        self.assertIn("Total device memory: 24.000 GB", output)
+        self.assertIn("Model weight size: 5.000 GB", output)
+        self.assertIn("KV cache: 3.000 GB", output)
+        self.assertIn("Model activation size: 4.000 GB", output)
+        self.assertIn("Reserved memory: 1.000 GB", output)
+        self.assertIn("Memory available: 6.000 GB", output)
+
+        # Check that breakdowns are printed
+        self.assertIn("Stats breakdowns:", output)
+        self.assertIn("memory", output)
+        self.assertIn("compute", output)
+        self.assertIn("matmul", output)
+        self.assertIn("attention", output)
 
 
 if __name__ == "__main__":

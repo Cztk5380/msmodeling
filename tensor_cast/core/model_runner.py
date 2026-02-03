@@ -78,9 +78,7 @@ class ModelRunner:
             + self.model.model_config.parallel_config.data_parallel_size
             - 1
         ) // self.model.model_config.parallel_config.data_parallel_size
-        print(f"Number of Queries per DP rank: {batch_size}")
 
-        print("Preparing dummy input tensors...")
         if requests is None:
             requests = self.request_info_default
         input_kwargs = generate_inputs_func(
@@ -89,7 +87,6 @@ class ModelRunner:
             block_size=self.user_input.block_size,
         )
 
-        print("Running simulated inference...")
         run_start = time.perf_counter()
 
         with (
@@ -105,13 +102,14 @@ class ModelRunner:
                 _ = self.sampler(logits, input_kwargs["sampling_metadata"])
         run_end = time.perf_counter()
         execution_time_s = runtime.total_execution_time_s()[self.perf_model.name]
-        print(f"Model compilation and execution time: {run_end - run_start}s")
+        run_time_s = run_end - run_start
+
         table_result = runtime.table_averages(
             group_by_input_shapes=self.user_input.dump_input_shapes
         )
-        print(table_result)
+
         tps_value = calculate_single_card_tps(self, execution_time_s=execution_time_s)
-        print(f"TPS/Device: {tps_value:.4g} token/s")
+
         peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
 
         kv_cache_size_gb = (
@@ -141,26 +139,6 @@ class ModelRunner:
             - self.user_input.reserved_memory_gb
         )
 
-        print(f"Total device memory: {self.total_device_memory_gb:.3f} GB")
-        print(f"  Model weight size: {self.model_weight_size_gb:.3f} GB")
-        print(f"  KV cache: {kv_cache_size_gb:.3f} GB")
-        print(f"  Model activation size: {model_activation_size_gb:.3f} GB")
-        print(f"  Reserved memory: {self.user_input.reserved_memory_gb} GB")
-        print(f"  Memory available: {device_memory_available_gb} GB")
-
-        print("Stats breakdowns:")
-        for breakdown_name, breakdown in runtime.get_breakdowns().items():
-            total = sum(breakdown.values())
-            if total == 0:
-                continue
-            percentage_breakdown = [value * 100 / total for value in breakdown.values()]
-            print(f"  {breakdown_name}: ", end="")
-            print(
-                [
-                    f"{key}: {percentage:.2f}"
-                    for key, percentage in zip(breakdown.keys(), percentage_breakdown)
-                ]
-            )
         if self.user_input.chrome_trace:
             runtime.export_chrome_trace(self.user_input.chrome_trace)
 
@@ -175,6 +153,8 @@ class ModelRunner:
             device_memory_available_gb=device_memory_available_gb,
             single_card_tps=tps_value,
             execution_time_s=execution_time_s,
+            run_time_s=run_time_s,
+            batch_size=batch_size,
             table_result=table_result,
             breakdowns=runtime.get_breakdowns(),
         )
@@ -198,5 +178,30 @@ class ModelRunnerMetrics:
     device_memory_available_gb: float
     single_card_tps: float
     execution_time_s: float
+    run_time_s: float
+    batch_size: int
     table_result: str = ""
     breakdowns: Dict[str, Dict[str, float]] = field(default_factory=dict)
+
+    def print_info(self):
+        print(f"Number of Queries per DP rank: {self.batch_size}")
+        print(f"Model compilation and execution time: {self.run_time_s:.3f} s")
+        print(self.table_result)
+        print(f"TPS/Device: {self.single_card_tps:.4g} token/s")
+
+        print(f"Total device memory: {self.total_device_memory_gb:.3f} GB")
+        print(f"  Model weight size: {self.model_weight_size_gb:.3f} GB")
+        print(f"  KV cache: {self.kv_cache_size_gb:.3f} GB")
+        print(f"  Model activation size: {self.model_activation_size_gb:.3f} GB")
+        print(f"  Reserved memory: {self.reserved_memory_gb:.3f} GB")
+        print(f"  Memory available: {self.device_memory_available_gb:.3f} GB")
+
+        print("Stats breakdowns:")
+        for breakdown_name, breakdown in self.breakdowns.items():
+            total = sum(breakdown.values())
+            if total == 0:
+                continue
+            formatted = ", ".join(
+                f"{key}: {val * 100 / total:.2f}" for key, val in breakdown.items()
+            )
+            print(f"  {breakdown_name}: {formatted}")

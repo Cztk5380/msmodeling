@@ -259,7 +259,8 @@ def main():
 
     user_input = UserInputConfig.from_args(args)
     model_runner = ModelRunner(user_input)
-    model_runner.run_inference(generate_inputs_func=generate_inputs)
+    metrics = model_runner.run_inference(generate_inputs_func=generate_inputs)
+    metrics.print_info()
 
 
 if __name__ == "__main__":
