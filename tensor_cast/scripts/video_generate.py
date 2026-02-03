@@ -131,7 +131,6 @@ def generate_diffusers_timestamp_input(model_config):
 
 def process_input(input_kwargs, model_config):
     ulysses_size = model_config.transformer_config.parallel_config.ulysses_size
-    rank = model_config.transformer_config.parallel_config.rank
     if ulysses_size == 1:
         return input_kwargs, None
 
@@ -139,7 +138,7 @@ def process_input(input_kwargs, model_config):
     split_dim = get_ulysses_split_dim(hidden_states, ulysses_size)
 
     hidden_states = hidden_states.chunk(ulysses_size, dim=split_dim)
-    hidden_states = hidden_states[rank]
+    hidden_states = hidden_states[0]
     input_kwargs["hidden_states"] = hidden_states
 
     return input_kwargs, split_dim
