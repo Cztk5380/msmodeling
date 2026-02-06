@@ -225,7 +225,7 @@ class MergeLinearPass(TensorCastGraphModulePass):
                 with gm.graph.inserting_before(insertion_point):
                     cat_node = gm.graph.create_node(
                         "call_function",
-                        torch.ops.aten.cat.default,
+                        torch.ops.tensor_cast.cat.default,
                         args=(nodes, dim),
                     )
                 return cat_node

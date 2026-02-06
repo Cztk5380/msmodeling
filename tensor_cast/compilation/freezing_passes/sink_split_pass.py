@@ -37,7 +37,10 @@ def _get_getitem_sizes(split_node: Node) -> Dict[int, Argument]:
 
 
 def _is_cat_node(node: Node) -> bool:
-    return node.target == torch.ops.aten.cat.default
+    return node.target in (
+        torch.ops.aten.cat.default,
+        torch.ops.tensor_cast.cat.default,
+    )
 
 
 @dataclass
@@ -510,7 +513,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
             # Rewrite
             with graph.inserting_after(root_cat):
                 new_cat = graph.call_function(
-                    torch.ops.aten.cat.default, args=(new_inputs, root_dim)
+                    torch.ops.tensor_cast.cat.default, args=(new_inputs, root_dim)
                 )
                 new_cat.meta = root_cat.meta
 

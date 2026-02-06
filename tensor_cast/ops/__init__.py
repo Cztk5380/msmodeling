@@ -1,5 +1,6 @@
 from . import (  # noqa: F401
     attention,
+    cat,
     communication,
     fused_moe,
     gmm,
