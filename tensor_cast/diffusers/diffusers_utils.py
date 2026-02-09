@@ -1,12 +1,21 @@
 import importlib
 import json
+from typing import Union
 
 import torch
 
 
-def get_diffusers_transformer_module(json_path):
-    with open(json_path) as f:
-        config = json.load(f)
+def get_diffusers_transformer_module(config_or_json_path: Union[str, dict]):
+    if isinstance(config_or_json_path, str):
+        with open(config_or_json_path) as f:
+            config = json.load(f)
+    elif isinstance(config_or_json_path, dict):
+        config = config_or_json_path
+    else:
+        raise TypeError(
+            "config_or_json_path must be a dict or a path to config.json, "
+            f"but got {type(config_or_json_path)}."
+        )
 
     try:
         module = importlib.import_module("diffusers.models")

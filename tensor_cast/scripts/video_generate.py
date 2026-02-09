@@ -10,6 +10,7 @@ from .. import device_profiles  # noqa: F401
 from ..core.quantization.config import create_quant_config
 from ..core.quantization.datatypes import QuantizeLinearAction
 from ..device import DeviceProfile
+from ..diffusers.cache_agent import CacheConfig
 from ..diffusers.diffusers_attention import set_sp_group, use_custom_sdpa
 from ..diffusers.diffusers_model import build_diffusers_transformer_model
 from ..diffusers.diffusers_utils import (
@@ -24,7 +25,7 @@ from ..performance_model.memory_tracker import MemoryTracker
 from ..quantize_utils import QuantGranularity
 from ..runtime import Runtime
 from ..utils import str_to_dtype
-from .utils import check_positive_integer, LOG_LEVELS
+from .utils import check_positive_integer, LOG_LEVELS, parse_int_range
 
 
 def generate_diffusers_inputs(
@@ -154,7 +155,6 @@ def run_inference(
     width: int = 400,
     frame_num: int = 81,
     sample_step: int = 50,
-    profiler: bool = False,
     dtype: str = "float16",
     quantize_linear_action: QuantizeLinearAction = QuantizeLinearAction.W8A8_DYNAMIC,
     mxfp4_group_size: int = 32,
@@ -162,6 +162,10 @@ def run_inference(
     world_size: int = 1,
     ulysses_size: int = 1,
     cfg_parallel: bool = False,
+    dit_cache: bool = False,
+    cache_step_range: Optional[str] = None,
+    cache_step_interval: int = 1,
+    cache_block_range: Optional[str] = None,
 ):
     if device not in DeviceProfile.all_device_profiles:
         raise ValueError(f"Device '{device}' not recognized.")
@@ -192,6 +196,46 @@ def run_inference(
         quant_config,
         dtype,
     )
+
+    def _duplicate_batch_tensors_for_cfg(inputs: dict, batch: int) -> dict:
+        """
+        Align with real CFG behavior (route-A): do ONE transformer forward per denoising step,
+        by concatenating cond/uncond on the batch dimension.
+
+        This keeps cache step counting correct ("one forward == one step"), while roughly doubling compute,
+        which is what CFG does in practice.
+        """
+
+        out = dict(inputs)
+        for k, v in inputs.items():
+            if not isinstance(v, torch.Tensor):
+                continue
+            if v.ndim >= 1 and v.shape[0] == batch:
+                out[k] = torch.cat([v, v], dim=0)
+        return out
+
+    if dit_cache:
+        if cache_step_range is None:
+            raise ValueError("--cache-step-range is required when --dit-cache is set.")
+        step_start, step_end = parse_int_range(cache_step_range, "--cache-step-range")
+        if cache_block_range is None:
+            block_start, block_end = 0, 10000
+        else:
+            block_start, block_end = parse_int_range(
+                cache_block_range, "--cache-block-range"
+            )
+        # blocks_count is auto-filled inside enable_dit_block_cache() to match the model.
+        cache_config = CacheConfig(
+            method="dit_block_cache",
+            blocks_count=1,
+            steps_count=sample_step,
+            step_start=step_start,
+            step_interval=cache_step_interval,
+            step_end=step_end,
+            block_start=block_start,
+            block_end=block_end,
+        )
+        model.enable_dit_block_cache(cache_config)
     if ulysses_size > 1:
         set_sp_group(model.sp_group)
     if use_cfg and cfg_parallel:
@@ -207,6 +251,17 @@ def run_inference(
     )
     input_kwargs, split_dim = process_input(input_kwargs, model_config)
 
+    cfg_input_kwargs = None
+    if use_cfg and not cfg_parallel:
+        # TODO(dit-cache-refactor): remove this compatibility path when switching
+        # to the no-counter cache implementation (dual-model or static schedule).
+        # Current behavior keeps one forward per denoising step.
+        cfg_input_kwargs = _duplicate_batch_tensors_for_cfg(input_kwargs, batch_size)
+        if "hidden_states" in cfg_input_kwargs:
+            print(
+                f"CFG enabled (batch-concat): effective batch_size={cfg_input_kwargs['hidden_states'].shape[0]}"
+            )
+
     print(input_kwargs)
     print("Running simulated inference...")
     run_start = time.perf_counter()
@@ -219,11 +274,7 @@ def run_inference(
         use_custom_sdpa(),
     ):
         for _ in range(sample_step):
-            out = model.forward(**input_kwargs)
-            if (
-                use_cfg and not cfg_parallel
-            ):  # use cfg but not use cfg parallel, do one extra forward
-                _ = model.forward(**input_kwargs)
+            out = model.forward(**(cfg_input_kwargs or input_kwargs))
             if ulysses_size > 1:
                 out = model.sp_group.all_gather(out, dim=split_dim)
             if (
@@ -238,15 +289,16 @@ def run_inference(
     result = runtime.table_averages(group_by_input_shapes=False)
     print(result)
 
-    if profiler:
-        runtime.export_chrome_trace("tensor_cast_tracer.json")
+    if chrome_trace:
+        runtime.export_chrome_trace(chrome_trace)
+        print(f"Chrome trace written to: {chrome_trace}")
 
 
 def main():
     # TODO add parallel config
     # TODO add quant config
     parser = argparse.ArgumentParser(
-        description="Run a simulated LLM inference pass and dump the perf result.",
+        description="Run a simulated diffusion transformer forward and dump perf stats.",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter,
     )
 
@@ -260,7 +312,7 @@ def main():
     parser.add_argument(
         "model_id",
         type=str,
-        help="Model config json path.",
+        help="Diffusers model dir (needs transformer/config.json).",
     )
     parser.add_argument(
         "--batch-size",
@@ -271,13 +323,13 @@ def main():
         "--seq-len",
         type=check_positive_integer,
         required=True,
-        help="Number of inference queries to run in a batch.",
+        help="Text sequence length.",
     )
     parser.add_argument(
         "--chrome-trace",
         type=str,
         default=None,
-        help="Generate chrome trace file",
+        help="Write chrome trace JSON.",
     )
     parser.add_argument(
         "--height",
@@ -306,11 +358,6 @@ def main():
         help="Set the logging level",
     )
     parser.add_argument(
-        "--enable-profiler",
-        action="store_true",
-        default=False,
-    )
-    parser.add_argument(
         "--dtype",
         type=str,
         choices=["float16", "float32", "bfloat16"],
@@ -321,7 +368,7 @@ def main():
         type=QuantizeLinearAction,
         choices=list(QuantizeLinearAction),
         default=QuantizeLinearAction.W8A8_DYNAMIC,
-        help="Quantize all linear layers in the model from choices (currently only support symmetric quant)",
+        help="Quantize linear layers.",
     )
     parser.add_argument(
         "--use-cfg",
@@ -348,8 +395,38 @@ def main():
         default=False,
     )
 
+    cache_group = parser.add_argument_group("Cache Options")
+    cache_group.add_argument(
+        "--dit-cache",
+        action="store_true",
+        help="Enable DiT block cache.",
+    )
+    cache_group.add_argument(
+        "--cache-step-range",
+        type=str,
+        default=None,
+        help="Cache step range 'start,end' (inclusive). Required with --dit-cache.",
+    )
+    cache_group.add_argument(
+        "--cache-step-interval",
+        type=check_positive_integer,
+        default=1,
+        help="Update every N steps (1 disables).",
+    )
+    cache_group.add_argument(
+        "--cache-block-range",
+        type=str,
+        default=None,
+        help="Cache block range 'start,end' (start inclusive, end exclusive).",
+    )
+
     args = parser.parse_args()
-    logging.basicConfig(level=LOG_LEVELS[args.log_level.lower()])
+    try:
+        logging.basicConfig(level=LOG_LEVELS[args.log_level.lower()], force=True)
+    except TypeError:
+        # Fallback for runtimes without basicConfig(force=...)
+        logging.basicConfig(level=LOG_LEVELS[args.log_level.lower()])
+        logging.getLogger().setLevel(LOG_LEVELS[args.log_level.lower()])
 
     if args.world_size % args.ulysses_size != 0:
         raise ValueError(
@@ -366,13 +443,16 @@ def main():
         width=args.width,
         frame_num=args.frame_num,
         sample_step=args.sample_step,
-        profiler=args.enable_profiler,
         dtype=args.dtype,
         use_cfg=args.use_cfg,
         world_size=args.world_size,
         ulysses_size=args.ulysses_size,
         quantize_linear_action=args.quantize_linear_action,
         cfg_parallel=args.cfg_parallel,
+        dit_cache=args.dit_cache,
+        cache_step_range=args.cache_step_range,
+        cache_step_interval=args.cache_step_interval,
+        cache_block_range=args.cache_block_range,
     )
 
 

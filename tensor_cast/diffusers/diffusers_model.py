@@ -22,10 +22,11 @@ from ..parallel_group import ParallelGroup
 from ..quantize_utils import quantize_linear_modules
 
 from ..transformers.model import ModelWrapper, ModelWrapperBase
-
 from ..transformers.utils import init_on_device_without_buffers
+from .cache_agent import CacheAgent, CacheConfig
 
 from .diffusers_utils import get_diffusers_transformer_module
+from .dit_cache_registry import get_dit_block_cache_spec, wrap_blocks
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +61,7 @@ def load_config_from_file(
     if not os.path.isdir(model_path):
         raise ValueError(f"Input args.model_id should be dir, but got {model_path}")
 
-    config_path_dict = {}
+    config_path_dict: Dict[str, str] = {}
     model_path = os.path.abspath(model_path)
     for root, _, files in os.walk(model_path):
         if "config.json" in files:
@@ -69,36 +70,58 @@ def load_config_from_file(
             config_path = os.path.abspath(config_path)
             config_path_dict[folder_name] = config_path
 
-    config_dict = {}
+    config_dict: Dict[str, Dict] = {}
     for key, config_path in config_path_dict.items():
         with open(config_path) as f:
             config = json.load(f)
         config_dict[key] = config
 
-    model_config = DiffusersConfig()
+    transformer_config_json_path = config_path_dict.get("transformer")
     transformer_config = config_dict.get("transformer")
-    if transformer_config is None:
-        raise ValueError("No transformer config.json found in input model path.")
-    transformer_config_path = config_path_dict.get("transformer")
+    if transformer_config_json_path is None or transformer_config is None:
+        # Fall back to a single candidate that looks like a Diffusers Transformer config.
+        def _looks_like_transformer_config(cfg: Dict) -> bool:
+            class_name = cfg.get("_class_name")
+            return isinstance(class_name, str) and "Transformer" in class_name
+
+        transformer_candidates: Dict[str, str] = {}
+        for folder_name, cfg in config_dict.items():
+            if _looks_like_transformer_config(cfg):
+                transformer_candidates[folder_name] = config_path_dict[folder_name]
+
+        if len(transformer_candidates) == 1:
+            folder_name, path = next(iter(transformer_candidates.items()))
+            transformer_config_json_path = path
+            transformer_config = config_dict[folder_name]
+        else:
+            raise ValueError(
+                "No transformer/config.json found in input model path. "
+                "Expect a Diffusers-style model directory that contains transformer/config.json."
+            )
+
+    vae_config_json_path = config_path_dict.get("vae")
+
+    model_config = DiffusersConfig()
+    model_config.model_path = model_path
     model_config.transformer_config = DiffusersTransformerConfig(
         parallel_config=parallel_config,
         quant_config=quant_config,
-        config_json=transformer_config_path,
+        config_json=transformer_config_json_path,
         model_config=transformer_config,
         quant_linear_cls=quant_linear_cls,
         attention_cls=attention_cls,
         dtype=dtype,
     )
-
-    vae_config = config_dict.get("vae")
-    if vae_config is None:
-        raise ValueError("No vae config.json found in input model path.")
-    model_config.vae_config = DiffusersVaeConfig(
-        parallel_config=parallel_config,
-        quant_config=quant_config,
-        model_config=vae_config,
-        dtype=dtype,
-    )
+    if vae_config_json_path is not None and os.path.isfile(vae_config_json_path):
+        with open(vae_config_json_path) as f:
+            vae_config = json.load(f)
+        model_config.vae_config = DiffusersVaeConfig(
+            parallel_config=parallel_config,
+            quant_config=quant_config,
+            config_json=vae_config_json_path,
+            model_config=vae_config,
+            dtype=dtype,
+        )
     return model_config
 
 
@@ -142,15 +165,13 @@ class DiffusersTransformerModel(ModelWrapperBase):
 
         if hf_config_json is None:
             raise ValueError("hf_config_json should not be None.")
-        hf_config_json = os.path.join(
-            os.path.dirname(os.path.abspath(__file__)),
-            "conf",
-            hf_config_json,
-        )
-        model_class = get_diffusers_transformer_module(hf_config_json)
+        hf_config = self.model_config.model_config
+        if hf_config is None:
+            raise ValueError("transformer model_config should not be None.")
+        model_class = get_diffusers_transformer_module(hf_config)
 
         with init_on_device_without_buffers("meta"), no_init_weights():
-            self._inner = model_class.from_config(hf_config_json).to(model_config.dtype)
+            self._inner = model_class.from_config(hf_config).to(model_config.dtype)
         self._inner.eval()
         self.wrap_model()
         self.quantize_model()
@@ -199,6 +220,55 @@ class DiffusersTransformerModel(ModelWrapperBase):
             **kwargs,
         )[0]
         return hidden_states
+
+    def enable_dit_block_cache(self, cache_config: CacheConfig) -> int:
+        """
+        Enable DiT block cache (dit_block_cache).
+
+        Wrap each Transformer block.forward with cache_agent.apply. The agent uses
+        internal step/block counters to decide whether to compute or reuse a cached delta.
+
+        Returns: number of wrapped blocks.
+        """
+        class_name = (
+            self.model_config.model_config.get("_class_name")
+            if self.model_config.model_config is not None
+            else None
+        )
+        spec = get_dit_block_cache_spec(class_name)
+        if spec is None:
+            logger.warning(
+                "dit_block_cache is not implemented for model %r.", class_name
+            )
+            return 0
+
+        blocks = spec.get_blocks(self._inner)
+        blocks_count = len(blocks)
+        if blocks_count <= 0:
+            return 0
+
+        cache_config.blocks_count = blocks_count
+        if cache_config.block_end > blocks_count:
+            cache_config.block_end = blocks_count
+
+        agent = CacheAgent(cache_config)
+        wrapped = wrap_blocks(blocks, spec.make_wrapped_forward(agent))
+
+        logger.info(
+            "Enabled dit_block_cache for %s: wrapped %d/%d blocks, "
+            "steps_count=%d, step_start=%d, step_interval=%d, step_end=%d, "
+            "block_start=%d, block_end=%d.",
+            spec.model_type,
+            wrapped,
+            blocks_count,
+            cache_config.steps_count,
+            cache_config.step_start,
+            cache_config.step_interval,
+            cache_config.step_end,
+            cache_config.block_start,
+            cache_config.block_end,
+        )
+        return wrapped
 
 
 def get_sp_group(world_size: int, ulysses_size: int) -> ParallelGroup:

@@ -135,7 +135,24 @@ class TestVideoGeneration(unittest.TestCase):
 
     def test_basic_video_inference(self):
         """Test basic video inference without Ulysses parallelism."""
-        try:
+        run_inference(
+            device=self.device,
+            model_id=self.model_id,
+            batch_size=self.batch_size,
+            seq_len=self.seq_len,
+            height=self.height,
+            width=self.width,
+            frame_num=self.frame_num,
+            sample_step=self.sample_step,
+            dtype="float16",
+            world_size=1,
+            ulysses_size=1,
+        )
+        self._validate_inference_result("test_basic_video_inference")
+
+    def test_dit_cache_requires_step_range(self):
+        """Test dit_cache requires cache_step_range."""
+        with self.assertRaises(ValueError):
             run_inference(
                 device=self.device,
                 model_id=self.model_id,
@@ -144,15 +161,98 @@ class TestVideoGeneration(unittest.TestCase):
                 height=self.height,
                 width=self.width,
                 frame_num=self.frame_num,
-                sample_step=self.sample_step,
-                profiler=False,
+                sample_step=2,
                 dtype="float16",
                 world_size=1,
                 ulysses_size=1,
+                dit_cache=True,
+                cache_step_range=None,
             )
-            self._validate_inference_result("test_basic_video_inference")
-        except Exception as e:
-            self.fail(f"test_basic_video_inference failed with exception: {str(e)}")
+
+    def test_dit_cache_runs_with_ranges(self):
+        """Test dit_cache runs with valid step/block ranges."""
+        run_inference(
+            device=self.device,
+            model_id=self.model_id,
+            batch_size=self.batch_size,
+            seq_len=self.seq_len,
+            height=self.height,
+            width=self.width,
+            frame_num=self.frame_num,
+            sample_step=2,
+            dtype="float16",
+            world_size=1,
+            ulysses_size=1,
+            dit_cache=True,
+            cache_step_range="0,1",
+            cache_step_interval=1,
+            cache_block_range="0,1",
+        )
+        self._validate_inference_result("test_dit_cache_runs_with_ranges")
+
+    @parameterized.expand(
+        [
+            ("",),
+            ("1",),
+            ("1,",),
+            (",2",),
+            ("a,b",),
+            ("-1,2",),
+            ("3,-1",),
+            ("5,3",),
+        ]
+    )
+    def test_dit_cache_invalid_step_range(self, value):
+        """Range parse errors should surface through run_inference."""
+        with self.assertRaises(ValueError):
+            run_inference(
+                device=self.device,
+                model_id=self.model_id,
+                batch_size=self.batch_size,
+                seq_len=self.seq_len,
+                height=self.height,
+                width=self.width,
+                frame_num=self.frame_num,
+                sample_step=2,
+                dtype="float16",
+                world_size=1,
+                ulysses_size=1,
+                dit_cache=True,
+                cache_step_range=value,
+                cache_step_interval=1,
+            )
+
+    @parameterized.expand(
+        [
+            ("",),
+            ("1",),
+            ("1,",),
+            (",2",),
+            ("x,y",),
+            ("-1,2",),
+            ("5,3",),
+        ]
+    )
+    def test_dit_cache_invalid_block_range(self, value):
+        """Invalid block range should be rejected when cache is enabled."""
+        with self.assertRaises(ValueError):
+            run_inference(
+                device=self.device,
+                model_id=self.model_id,
+                batch_size=self.batch_size,
+                seq_len=self.seq_len,
+                height=self.height,
+                width=self.width,
+                frame_num=self.frame_num,
+                sample_step=2,
+                dtype="float16",
+                world_size=1,
+                ulysses_size=1,
+                dit_cache=True,
+                cache_step_range="0,1",
+                cache_step_interval=1,
+                cache_block_range=value,
+            )
 
     @parameterized.expand(
         [
@@ -177,7 +277,6 @@ class TestVideoGeneration(unittest.TestCase):
                 width=self.width,
                 frame_num=self.frame_num,
                 sample_step=self.sample_step,
-                profiler=False,
                 dtype="float16",
                 world_size=world_size,
                 ulysses_size=1,
@@ -233,7 +332,6 @@ class TestVideoGeneration(unittest.TestCase):
                 width=self.width,
                 frame_num=self.frame_num,
                 sample_step=self.sample_step,
-                profiler=False,
                 dtype=dtype,
                 world_size=1,
                 ulysses_size=1,
@@ -266,7 +364,6 @@ class TestVideoGeneration(unittest.TestCase):
                 width=self.width,
                 frame_num=self.frame_num,
                 sample_step=self.sample_step,
-                profiler=False,
                 dtype="float16",
                 world_size=world_size,
                 ulysses_size=ulysses_size,
@@ -454,7 +551,6 @@ class TestVideoGeneration(unittest.TestCase):
                 width=600,
                 frame_num=121,
                 sample_step=1,
-                profiler=False,
                 dtype="float16",
                 world_size=1,
                 ulysses_size=1,
