@@ -7,7 +7,7 @@ from ..core.model_runner import ModelRunner
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..core.user_config import UserInputConfig
 from ..device import DeviceProfile
-from .utils import check_positive_integer
+from .utils import check_positive_integer, LOG_LEVELS
 
 
 def main():
@@ -104,9 +104,9 @@ def main():
     )
     parser.add_argument(
         "--log-level",
-        type=str,
-        default=None,
-        help="Logging level",
+        choices=LOG_LEVELS,
+        default="info",
+        help="Set the logging level",
     )
     parser.add_argument(
         "--decode",
@@ -250,9 +250,7 @@ def main():
     )
 
     args = parser.parse_args()
-
-    if args.log_level:
-        logging.basicConfig(level=args.log_level.upper())
+    logging.basicConfig(level=LOG_LEVELS[args.log_level.lower()])
 
     if args.graph_log_url:
         config.compilation.debug.graph_log_url = args.graph_log_url

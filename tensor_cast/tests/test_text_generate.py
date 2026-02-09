@@ -1,3 +1,4 @@
+import sys
 import unittest
 from dataclasses import asdict
 from io import StringIO
@@ -11,6 +12,7 @@ from ..core.input_generator import generate_image_inputs, generate_inputs
 from ..core.model_runner import ModelRunner, ModelRunnerMetrics
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..core.user_config import UserInputConfig
+from ..scripts.text_generate import main
 
 
 class TestTextGenerate(unittest.TestCase):
@@ -116,6 +118,29 @@ class TestTextGenerate(unittest.TestCase):
         self.assertIsInstance(
             result["breakdowns"], dict, f"{test_name}: Breakdowns should be a dict"
         )
+
+    def test_main_given_invalid_log_level_argument_when_invoked_then_system_exits_with_code_2(
+        self,
+    ):
+        '''Test the "main" function in "text_generate"'''
+        original_argv = sys.argv
+
+        try:
+            sys.argv = [
+                self.model_id,
+                "--num-queries",
+                str(self.num_queries),
+                "--query-length",
+                str(self.query_len),
+                "--log-level",
+                "2",
+            ]
+            with self.assertRaises(SystemExit) as cm:
+                main()
+
+            self.assertEqual(cm.exception.code, 2)
+        finally:
+            sys.argv = original_argv
 
     def test_basic_prefill(self):
         """Test basic prefill operation without quantization."""

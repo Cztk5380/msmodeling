@@ -1,5 +1,6 @@
 import json
 import os
+import sys
 import tempfile
 import unittest
 from unittest.mock import MagicMock
@@ -8,7 +9,7 @@ import torch
 from parameterized import parameterized
 
 from ..core.quantization.datatypes import QuantizeLinearAction
-from ..scripts.video_generate import process_input, run_inference
+from ..scripts.video_generate import main, process_input, run_inference
 
 
 class TestVideoGeneration(unittest.TestCase):
@@ -108,6 +109,29 @@ class TestVideoGeneration(unittest.TestCase):
         """
         # If we reach this point, the function executed successfully
         self.assertTrue(True, f"{test_name}: Inference ran without exceptions")
+
+    def test_main_given_invalid_log_level_argument_when_invoked_then_system_exits_with_code_2(
+        self,
+    ):
+        '''Test the "main" function in "text_generate"'''
+        original_argv = sys.argv
+
+        try:
+            sys.argv = [
+                self.model_id,
+                "--batch-size",
+                str(self.batch_size),
+                "--seq-len",
+                str(self.seq_len),
+                "--log-level",
+                "2",
+            ]
+            with self.assertRaises(SystemExit) as cm:
+                main()
+
+            self.assertEqual(cm.exception.code, 2)
+        finally:
+            sys.argv = original_argv
 
     def test_basic_video_inference(self):
         """Test basic video inference without Ulysses parallelism."""
