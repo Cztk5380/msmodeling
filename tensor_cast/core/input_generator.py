@@ -4,10 +4,10 @@ input_generation
 """
 
 from dataclasses import dataclass
+from importlib import import_module
 from typing import Any, List, Tuple
 
 import torch
-from transformers.models.qwen2_vl.image_processing_qwen2_vl import smart_resize
 
 from ..layers.attention import AttentionMetadataTensorCast
 from ..layers.sampler import SamplingMetadata
@@ -156,21 +156,72 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
     return kwargs
 
 
+def resize_image(
+    model_type, image_height, image_width, patch_size, merge_size, temporal_patch_size
+):
+    factor = patch_size * merge_size
+
+    def build_qwen_resize_params():
+        return {
+            "height": image_height,
+            "width": image_width,
+            "factor": factor,
+        }
+
+    def build_glm_resize_params():
+        return {
+            "height": image_height,
+            "width": image_width,
+            "factor": factor,
+            "num_frames": temporal_patch_size,
+            "temporal_factor": temporal_patch_size,
+        }
+
+    resize_specs = {
+        "glm4v_moe": (
+            "transformers.models.glm4v.image_processing_glm4v",
+            build_glm_resize_params,
+        ),
+        "qwen3_vl": (
+            "transformers.models.qwen2_vl.image_processing_qwen2_vl",
+            build_qwen_resize_params,
+        ),
+        "qwen3_vl_moe": (
+            "transformers.models.qwen2_vl.image_processing_qwen2_vl",
+            build_qwen_resize_params,
+        ),
+    }
+
+    module_path, params_builder = resize_specs.get(model_type, resize_specs["qwen3_vl"])
+    smart_resize = import_module(module_path).smart_resize
+    return smart_resize(**params_builder())
+
+
 def generate_image_inputs(
     model, image_batch_size, image_height, image_width, concurrency
 ):
     if image_batch_size is None or image_height is None or image_width is None:
         print("For vision-language models,without image input")
         return {}
-    vision_config = model.model_config.hf_config.vision_config
+    hf_config = model.model_config.hf_config
+    vision_config = hf_config.vision_config
     patch_size = vision_config.patch_size
     merge_size = (
         vision_config.spatial_merge_size if vision_config.spatial_merge_size else 2
     )
     # Rescales the image
-    resized_height, resized_width = smart_resize(
-        image_height, image_width, factor=patch_size * merge_size
+    temporal_patch_size = (
+        vision_config.temporal_patch_size if vision_config.temporal_patch_size else 2
     )
+    resized_height, resized_width = resize_image(
+        hf_config.model_type,
+        image_height,
+        image_width,
+        patch_size=patch_size,
+        merge_size=merge_size,
+        temporal_patch_size=temporal_patch_size,
+    )
+
     # For images, the value of grid_t is 1.
     grid_t = 1
     grid_h, grid_w = resized_height // patch_size, resized_width // patch_size
@@ -178,9 +229,6 @@ def generate_image_inputs(
         image_batch_size, 3
     )
     channel = vision_config.in_channels if vision_config.in_channels else 3
-    temporal_patch_size = (
-        vision_config.temporal_patch_size if vision_config.temporal_patch_size else 2
-    )
     hidden_dim = channel * temporal_patch_size * patch_size * patch_size
     tokens = grid_t * grid_h * grid_w
     pixel_values = torch.empty(

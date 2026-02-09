@@ -16,15 +16,20 @@ class CachingRotaryEmb(torch.nn.Module):
         rotary_emb: torch.nn.Module,
         act_dtype: torch.dtype,
         max_position_embeddings: int,
+        expand_to_3d_position_ids: bool = False,
     ):
         super().__init__()
         self.act_dtype = act_dtype
+        self.use_3d_position_index = False
         x = torch.empty(
             max_position_embeddings, device="meta", dtype=act_dtype
         ).unsqueeze(0)
         position_ids = torch.arange(
             0, max_position_embeddings, device="meta", dtype=torch.long
         ).unsqueeze(0)
+        if expand_to_3d_position_ids:
+            # Expand to (3, 1, max_position_embeddings) for T/H/W dimensions
+            position_ids = position_ids[None, ...].expand(3, position_ids.shape[0], -1)
         with support_autocast_for_meta():
             position_embeddings = rotary_emb(x, position_ids)
         self.cos_sin_cache: Optional[torch.Tensor]
@@ -33,6 +38,8 @@ class CachingRotaryEmb(torch.nn.Module):
             and len(position_embeddings) == 2
         ):
             position_embeddings = torch.cat(position_embeddings, dim=-1).squeeze()
+            if expand_to_3d_position_ids and position_embeddings.ndim == 3:
+                self.use_3d_position_index = True
             self.register_buffer("cos_sin_cache", position_embeddings, persistent=False)
         else:
             self.cos_sin_cache = None
@@ -40,6 +47,12 @@ class CachingRotaryEmb(torch.nn.Module):
 
     def forward(self, x: torch.Tensor, position_ids: torch.Tensor) -> torch.Tensor:
         if self.cos_sin_cache is not None and x.dtype == self.act_dtype:
+            if self.use_3d_position_index:
+                batch_idx = torch.arange(
+                    position_ids.size(0), device=position_ids.device
+                )[:, None, None]
+                return self.cos_sin_cache[batch_idx, position_ids].chunk(2, dim=-1)
+
             if position_ids.ndim == 3:
                 # Determine whether the input is text-only or multimodal based on tensor dimensions.
                 # If it is multimodal, use the text shape (B, S).

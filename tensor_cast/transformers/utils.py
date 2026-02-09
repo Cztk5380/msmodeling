@@ -50,6 +50,10 @@ _model_type_to_moe_config: Dict[str, MoEConfig] = {
         module_name="Qwen3VLMoeTextSparseMoeBlock",
         gate_returns_raw_logits=True,
     ),
+    "glm4v_moe": MoEConfig(
+        module_name="Glm4vMoeTextMoE",
+        gate_returns_raw_logits=False,
+    ),
     "qwen3_next": MoEConfig(
         module_name="Qwen3NextSparseMoeBlock",
         gate_returns_raw_logits=True,
@@ -227,8 +231,8 @@ _VISUAL_FAMILY = {
         {
             "visual_merger_linear": lambda _: {
                 "visual.merger.gate_proj": COLWISE_LINEAR,
-                "visual.merger.down_proj": COLWISE_LINEAR,
-                "visual.merger.up_proj": ROWWISE_LINEAR,
+                "visual.merger.up_proj": COLWISE_LINEAR,
+                "visual.merger.down_proj": ROWWISE_LINEAR,
             },
             "visual_mlp_linear": lambda _: {
                 "visual.blocks.*.mlp.gate_proj": COLWISE_LINEAR,
@@ -255,6 +259,58 @@ _MODEL_TYPE_TO_FAMILY = {
     "glm4v_moe": "glm4v",
     "internvl": "internvl",
 }
+
+
+def patch_method_for_glm4_vl():
+    """
+    Patch the GLM4V-MoE model to fix simulation issues in meta mode.
+
+    Problem background:
+    1. VisionEmbeddings.forward converts lengths in list form to a meta tensor,
+        while subsequent computations require actual values (implicitly calling item), which causes errors;
+    2. get_placeholder_mask uses boolean-mask-based tensor indexing operations,
+        which fail or cause dimension mismatch in meta mode.
+
+    Solution:
+    * Convert list-based lengths to a tensor before entering forward, avoiding the creation of a meta tensor.
+    * Force image_features=None to skip image-related checks in get_placeholder_mask.
+    """
+
+    from transformers.models.glm4v_moe import Glm4vMoeModel
+
+    original_get_placeholder_mask = Glm4vMoeModel.get_placeholder_mask
+
+    def patched_get_placeholder_mask(self, *args, **kwargs):
+        # Forcibly skip image_features
+        kwargs["image_features"] = None
+        return original_get_placeholder_mask(self, *args, **kwargs)
+
+    Glm4vMoeModel.get_placeholder_mask = patched_get_placeholder_mask
+
+    from transformers.models.glm4v_moe.modeling_glm4v_moe import (
+        Glm4vMoeVisionEmbeddings,
+    )
+
+    original_forward = Glm4vMoeVisionEmbeddings.forward
+
+    def patched_forward(self, *args, **kwargs):
+        if len(args) > 1 and isinstance(args[1], list):
+            lengths_tensor = torch.tensor(args[1], dtype=torch.long)
+            args = (args[0], lengths_tensor) + args[2:]
+        return original_forward(self, *args, **kwargs)
+
+    Glm4vMoeVisionEmbeddings.forward = patched_forward
+
+
+def patch_method_for_vl(model_type):
+    patchers = {
+        "qwen3_vl": patch_method_for_qwen3_vl,
+        "qwen3_vl_moe": patch_method_for_qwen3_vl,
+        "glm4v_moe": patch_method_for_glm4_vl,
+    }
+    patcher = patchers.get(model_type)
+    if patcher is not None:
+        patcher()
 
 
 def patch_method_for_qwen3_vl():

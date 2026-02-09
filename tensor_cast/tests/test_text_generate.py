@@ -1075,11 +1075,18 @@ class TestTextGenerate(unittest.TestCase):
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_external_shared_experts")
 
-    def test_qwen3_vl_with_basic_prefill(self):
-        """Test qwen3_vl prefill operation."""
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3-VL-32B-Instruct"],
+            ["Qwen/Qwen3-VL-30B-A3B-Instruct"],
+            ["zai-org/GLM-4.5V"],
+        ]
+    )
+    def test_vl_with_basic_prefill(self, model_id):
+        """Test vl prefill operation."""
         user_input = UserInputConfig(
             device=self.device,
-            model_id="Qwen/Qwen3-VL-8B-Instruct",
+            model_id=model_id,
             num_queries=self.num_queries,
             query_len=self.query_len,
             context_length=self.context_length,
@@ -1192,10 +1199,11 @@ class TestTextGenerate(unittest.TestCase):
         [
             ["Qwen/Qwen3-VL-32B-Instruct", False],
             ["Qwen/Qwen3-VL-30B-A3B-Instruct", True],
+            ["zai-org/GLM-4.5V", True],
         ]
     )
-    def test_qwen3_vl_parallel(self, model_id, ep):
-        """Test qwen3_vl parallel operation."""
+    def test_vl_parallel(self, model_id, ep):
+        """Test vl parallel operation."""
         user_input = UserInputConfig(
             device=self.device,
             model_id=model_id,

@@ -37,7 +37,7 @@ from .utils import (
     init_on_device_without_buffers,
     model_type_to_custom_attention_module_mapping,
     model_type_to_custom_expert_module_mapping,
-    patch_method_for_qwen3_vl,
+    patch_method_for_vl,
     strip_module_name,
 )
 
@@ -327,7 +327,7 @@ class TransformerModel(ModelWrapperBase):
         vl_language_model = self.get_vl_language_model()
         if vl_language_model is not None:
             unwrapped = vl_language_model
-            patch_method_for_qwen3_vl()
+            patch_method_for_vl(self.hf_config.model_type)
         if self.model_config.cache_rotary_embedding and hasattr(
             unwrapped, "rotary_emb"
         ):
@@ -335,6 +335,7 @@ class TransformerModel(ModelWrapperBase):
                 unwrapped.rotary_emb,
                 act_dtype=self.model_config.dtype,
                 max_position_embeddings=self.text_config.max_position_embeddings,
+                expand_to_3d_position_ids=vl_language_model is not None,
             )
         # replace attention with custom implementation if defined
         if self.model_config.attention_cls is not None:
