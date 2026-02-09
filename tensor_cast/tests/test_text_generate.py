@@ -505,6 +505,54 @@ class TestTextGenerate(unittest.TestCase):
             "tensor_cast.multihead_latent_attention_quant", result["table_result"]
         )
 
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1"],
+        ]
+    )
+    def test_mlapo_quant_disabled(self, model_id):
+        """Ensure MLAPO fusion stays enabled when linear quantization is disabled."""
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id=model_id,
+            num_queries=2,
+            query_len=32,
+            context_length=64,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            quantize_attention_action=QuantizeAttentionAction.DISABLED,
+        )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
+        self.assertIn("tensor_cast.mlapo.default", result["table_result"])
+
+    @parameterized.expand(
+        [
+            ["deepseek-ai/DeepSeek-V3.1"],
+        ]
+    )
+    def test_mlapo_linear_quant(self, model_id):
+        """Ensure MLAPO fusion stays enabled when linear quantization is applied."""
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id=model_id,
+            num_queries=2,
+            query_len=32,
+            context_length=64,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_STATIC,
+            quantize_attention_action=QuantizeAttentionAction.DISABLED,
+        )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
+        self.assertIn("tensor_cast.mlapo_quant.default", result["table_result"])
+
     def test_with_quantized_lmhead(self):
         """Test with LM head quantization enabled."""
         user_input = UserInputConfig(

@@ -54,6 +54,36 @@ class PerfAnalysisTestCase(unittest.TestCase):
         actual_execution_time = analytic_result.execution_time_s
         return actual_execution_time
 
+    def _execute_mlapo_and_get_base_data(self, mlapo_args):
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            torch.ops.tensor_cast.mlapo(*mlapo_args)
+        self.assertEqual(len(runtime.event_list), 1)
+        analytic_result = runtime.event_list[0].perf_results.get("analytic")
+        actual_execution_time = analytic_result.execution_time_s
+        return actual_execution_time
+
+    def _execute_mlapo_quant_and_get_base_data(self, mlapo_args):
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            torch.ops.tensor_cast.mlapo_quant(*mlapo_args)
+        self.assertEqual(len(runtime.event_list), 1)
+        analytic_result = runtime.event_list[0].perf_results.get("analytic")
+        actual_execution_time = analytic_result.execution_time_s
+        return actual_execution_time
+
     def test_simple_model_eager(self):
         def func(x):
             return x + x
@@ -127,6 +157,118 @@ class PerfAnalysisTestCase(unittest.TestCase):
         )
 
         assert_close(self, actual_execution_time, 5.99e-6)
+
+    def test_mlapo_eager(self):
+        num_tokens = 8192
+        hidden_size = 7168
+        dtype = torch.float16
+        num_heads = 64
+        qk_head_dim = 192
+        qk_rope_head_dim = 64
+        qk_nope_head_dim = qk_head_dim - qk_rope_head_dim
+        kv_lora_rank = 512
+        q_lora_rank = 1536
+
+        hidden_states = torch.randn(num_tokens, hidden_size, device="meta", dtype=dtype)
+        cos = torch.randn(1, num_tokens, qk_rope_head_dim, device="meta", dtype=dtype)
+        sin = torch.randn(1, num_tokens, qk_rope_head_dim, device="meta", dtype=dtype)
+        q_a_proj_weight = torch.randn(
+            hidden_size, q_lora_rank, device="meta", dtype=dtype
+        )
+        q_a_layernorm_weight = torch.randn(q_lora_rank, device="meta", dtype=dtype)
+        q_b_proj_weight = torch.randn(
+            q_lora_rank, num_heads * qk_head_dim, device="meta", dtype=dtype
+        )
+        kv_a_proj_weight = torch.randn(
+            hidden_size, kv_lora_rank + qk_rope_head_dim, device="meta", dtype=dtype
+        )
+        kv_a_layernorm_weight = torch.randn(
+            kv_lora_rank + qk_rope_head_dim, device="meta", dtype=dtype
+        )
+
+        actual_execution_time = self._execute_mlapo_and_get_base_data(
+            (
+                hidden_states,
+                cos,
+                sin,
+                q_a_proj_weight,
+                q_a_layernorm_weight,
+                q_b_proj_weight,
+                kv_a_proj_weight,
+                kv_a_layernorm_weight,
+                num_heads,
+                qk_head_dim,
+                qk_nope_head_dim,
+                qk_rope_head_dim,
+                kv_lora_rank,
+                q_lora_rank,
+            )
+        )
+
+        assert_close(self, actual_execution_time, 2.28e-3)
+
+    def test_mlapo_quant(self):
+        num_tokens = 8192
+        hidden_size = 7168
+        dtype = torch.float16
+        quant_dtype = torch.int8
+        num_heads = 64
+        qk_head_dim = 192
+        qk_rope_head_dim = 64
+        qk_nope_head_dim = qk_head_dim - qk_rope_head_dim
+        kv_lora_rank = 512
+        q_lora_rank = 1536
+
+        hidden_states = torch.randn(num_tokens, hidden_size, device="meta", dtype=dtype)
+        cos = torch.randn(1, num_tokens, qk_rope_head_dim, device="meta", dtype=dtype)
+        sin = torch.randn(1, num_tokens, qk_rope_head_dim, device="meta", dtype=dtype)
+        q_a_proj_weight = torch.empty(
+            hidden_size, q_lora_rank, device="meta", dtype=quant_dtype
+        )
+        q_a_layernorm_weight = torch.randn(q_lora_rank, device="meta", dtype=dtype)
+        q_b_proj_weight = torch.empty(
+            q_lora_rank, num_heads * qk_head_dim, device="meta", dtype=quant_dtype
+        )
+        kv_a_proj_weight = torch.empty(
+            hidden_size,
+            kv_lora_rank + qk_rope_head_dim,
+            device="meta",
+            dtype=quant_dtype,
+        )
+        kv_a_layernorm_weight = torch.randn(
+            kv_lora_rank + qk_rope_head_dim, device="meta", dtype=dtype
+        )
+
+        q_a_proj_scale = torch.ones(q_lora_rank, device="meta")
+        q_b_proj_scale = torch.ones(num_heads * qk_head_dim, device="meta")
+        kv_a_proj_scale = torch.ones(kv_lora_rank + qk_rope_head_dim, device="meta")
+
+        actual_execution_time = self._execute_mlapo_quant_and_get_base_data(
+            (
+                hidden_states,
+                cos,
+                sin,
+                q_a_proj_weight,
+                q_a_layernorm_weight,
+                q_b_proj_weight,
+                kv_a_proj_weight,
+                kv_a_layernorm_weight,
+                num_heads,
+                qk_head_dim,
+                qk_nope_head_dim,
+                qk_rope_head_dim,
+                kv_lora_rank,
+                q_lora_rank,
+                q_a_proj_scale,
+                None,
+                q_b_proj_scale,
+                None,
+                kv_a_proj_scale,
+                None,
+            )
+        )
+
+        assert_close(self, actual_execution_time, 1.18e-3)
 
     def test_mla_eager_prefill_without_context(self):
         B, S, num_heads, q_head_dim = 2, 3500, 8, 192

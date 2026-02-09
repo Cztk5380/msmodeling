@@ -450,6 +450,154 @@ def _(
 _PREDICTIVE_DECODING_THRESHOLD = 5
 
 
+def _mlapo_properties_helper(
+    op_invoke_info: OpInvokeInfo,
+    hidden_states,
+    kv_a_proj_weight,
+    num_heads,
+    qk_head_dim,
+    qk_rope_head_dim,
+    kv_lora_rank,
+    q_lora_rank,
+) -> OpInvokeInfo.PerformanceProperties:
+    num_tokens = hidden_states.size(0)
+    hidden_size = hidden_states.size(1)
+
+    total_mma_ops = 0
+    total_gp_ops = 0
+
+    # Fused MLA preprocessing op that models RMS norm, matmuls, and RoPE
+
+    # Op1: q_a_proj
+    # Shapes: (num_tokens, hidden_size) @ (hidden_size, q_lora_rank)
+    op1_ops = num_tokens * hidden_size * q_lora_rank * 2
+
+    # Op2: q_a_layernorm
+    # Each RMS norm element (mean, variance, scale) is approximated as ~5 FLOPs.
+    op2_ops = num_tokens * q_lora_rank * 5
+
+    # Op3: q_b_proj
+    # Shapes: (num_tokens, q_lora_rank) @ (q_lora_rank, num_heads * qk_head_dim)
+    op3_ops = num_tokens * q_lora_rank * num_heads * qk_head_dim * 2
+
+    # Op4: q_RoPE
+    # Each RoPE element (multiply by cos, rotate + multiply by sin, add) is approximated as ~3 FLOPs.
+    op4_ops = num_tokens * num_heads * qk_rope_head_dim * 3
+
+    # Op5: kv_a_proj_with_mqa
+    # Shapes: (num_tokens, hidden_size) @ (hidden_size, kv_lora_rank + qk_rope_head_dim)
+    op5_ops = num_tokens * hidden_size * (kv_lora_rank + qk_rope_head_dim) * 2
+
+    # Op6: kv_a_layernorm
+    op6_ops = num_tokens * q_lora_rank * 5
+
+    # Op7: k_RoPE
+    op7_ops = num_tokens * qk_rope_head_dim * 3
+
+    total_mma_ops += op1_ops + op3_ops + op5_ops
+    total_gp_ops += op2_ops + op4_ops + op6_ops + op7_ops
+
+    properties = op_invoke_info.get_memory_access_properties()
+    compute_ops = properties.compute_ops.setdefault(
+        kv_a_proj_weight.dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.mma_ops += total_mma_ops
+    compute_ops = properties.compute_ops.setdefault(
+        hidden_states.dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.gp_ops += total_gp_ops
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.mlapo.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    hidden_states = op_invoke_info.args[0]
+    kv_a_proj_weight = op_invoke_info.args[6]
+    num_heads = op_invoke_info.args[8]
+    qk_head_dim = op_invoke_info.args[9]
+    qk_rope_head_dim = op_invoke_info.args[11]
+    kv_lora_rank = op_invoke_info.args[12]
+    q_lora_rank = op_invoke_info.args[13]
+
+    return _mlapo_properties_helper(
+        op_invoke_info,
+        hidden_states,
+        kv_a_proj_weight,
+        num_heads,
+        qk_head_dim,
+        qk_rope_head_dim,
+        kv_lora_rank,
+        q_lora_rank,
+    )
+
+
+@OpInvokeInfo.register_op_properties(torch.ops.tensor_cast.mlapo_quant.default)
+def _(
+    op_invoke_info: OpInvokeInfo,
+) -> OpInvokeInfo.PerformanceProperties:
+    hidden_states = op_invoke_info.args[0]
+    kv_a_proj_weight = op_invoke_info.args[6]
+    num_heads = op_invoke_info.args[8]
+    qk_head_dim = op_invoke_info.args[9]
+    qk_rope_head_dim = op_invoke_info.args[11]
+    kv_lora_rank = op_invoke_info.args[12]
+    q_lora_rank = op_invoke_info.args[13]
+    q_a_proj_offset = op_invoke_info.args[15]
+    q_b_proj_offset = op_invoke_info.args[17]
+    kv_a_proj_offset = op_invoke_info.args[19]
+    num_tokens = hidden_states.size(0)
+    hidden_size = hidden_states.size(1)
+    properties = _mlapo_properties_helper(
+        op_invoke_info,
+        hidden_states,
+        kv_a_proj_weight,
+        num_heads,
+        qk_head_dim,
+        qk_rope_head_dim,
+        kv_lora_rank,
+        q_lora_rank,
+    )
+    qdq_op_factor1 = 2 if q_a_proj_offset else 1
+    qdq_op_factor2 = 2 if q_b_proj_offset else 1
+    qdq_op_factor3 = 2 if kv_a_proj_offset else 1
+    if kv_a_proj_weight.dtype == torch.float8_e5m2:
+        # QDQ for q_a_proj
+        quant1_ops = num_tokens * hidden_size
+        dequant1_ops = hidden_size * q_lora_rank
+        # QDQ for q_b_proj
+        quant2_ops = num_tokens * q_lora_rank
+        dequant2_ops = q_lora_rank * num_heads * qk_head_dim
+        # QDQ for kv_a_proj
+        quant3_ops = num_tokens * hidden_size
+        dequant3_ops = hidden_size * (kv_lora_rank + qk_rope_head_dim)
+    else:
+        # QDQ for q_a_proj
+        quant1_ops = num_tokens * hidden_size * qdq_op_factor1
+        dequant1_ops = hidden_size * q_lora_rank * qdq_op_factor1
+        # QDQ for q_b_proj
+        quant2_ops = num_tokens * q_lora_rank * qdq_op_factor2
+        dequant2_ops = q_lora_rank * num_heads * qk_head_dim * qdq_op_factor2
+        # QDQ for kv_a_proj
+        quant3_ops = num_tokens * hidden_size * qdq_op_factor3
+        dequant3_ops = hidden_size * (kv_lora_rank + qk_rope_head_dim) * qdq_op_factor3
+    total_quant_dequant_ops = (
+        quant1_ops
+        + dequant1_ops
+        + quant2_ops
+        + dequant2_ops
+        + quant3_ops
+        + dequant3_ops
+    )
+    compute_ops = properties.compute_ops.setdefault(
+        hidden_states.dtype, OpInvokeInfo.ComputeOps()
+    )
+    compute_ops.gp_ops += total_quant_dequant_ops
+
+    return properties
+
+
 def _multihead_latent_attention_properties_helper(
     op_invoke_info: OpInvokeInfo,
     softmax_dtype: torch.dtype,
@@ -566,7 +714,7 @@ def _multihead_latent_attention_properties_helper(
     # The size of a cached entry is (kv_lora_rank + qk_rope_head_dim).
     cache_entry_size = bytes_of_elements(kv_cache.size(-1), kv_cache.dtype)
 
-    properties.memory_read_bytes += torch.sum(seq_lens * cache_entry_size)
+    properties.memory_read_bytes += torch.sum(seq_lens * cache_entry_size).item()
 
     compute_ops = properties.compute_ops.setdefault(q.dtype, OpInvokeInfo.ComputeOps())
     compute_ops.mma_ops = total_fma_ops

@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import Optional, Tuple
 
 import torch
 
@@ -21,6 +21,100 @@ def _(
         kv_cache: (total_num_blocks, block_size, kv_lora_rank + qk_rope_head_dim)
         slot_mapping: see `AttentionMetadataBase`
     """
+
+
+@register_tensor_cast_op("mlapo")
+def _(
+    hidden_states: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    q_a_proj_weight: Optional[torch.Tensor],
+    q_a_layernorm_weight: Optional[torch.Tensor],
+    q_b_proj_weight: Optional[torch.Tensor],
+    kv_a_proj_weight: Optional[torch.Tensor],
+    kv_a_layernorm_weight: torch.Tensor,
+    num_heads: int,
+    qk_head_dim: int,
+    qk_nope_head_dim: int,
+    qk_rope_head_dim: int,
+    kv_lora_rank: int,
+    q_lora_rank: int,
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Fused MLA preprocessing op that models RMS norm, matmuls, and RoPE rotation.
+
+    Args:
+        hidden_states: (num_tokens, hidden_size) activations entering MLA.
+        cos/sin: rotary embedding caches shaped (1, seq_len, qk_rope_head_dim).
+        q_a_proj_weight / q_b_proj_weight: LoRA weights with shapes
+            (hidden_size, q_lora_rank) and (q_lora_rank, num_heads * qk_head_dim).
+        q_a_layernorm_weight: RMSNorm scale for the LoRA branch (q_lora_rank,).
+        kv_a_proj_weight: (hidden_size, kv_lora_rank + qk_rope_head_dim) matrix
+            producing compressed key/value streams; kv_a_layernorm_weight matches
+            its last dimension.
+        num_heads/qk_* dims/kv_lora_rank/q_lora_rank: structural scalars that
+            describe the MLA layout.
+
+    Returns:
+        q_states: (num_tokens, num_heads, qk_head_dim)
+        kv_c_normed: (num_tokens, kv_lora_rank)
+        k_rot: (num_tokens, qk_rope_head_dim)
+    """
+
+    num_tokens = hidden_states.size(0)
+    device = hidden_states.device
+    dtype = hidden_states.dtype
+    return (
+        torch.empty((num_tokens, num_heads, qk_head_dim), dtype=dtype, device=device),
+        torch.empty((num_tokens, kv_lora_rank), dtype=dtype, device=device),
+        torch.empty((num_tokens, qk_rope_head_dim), dtype=dtype, device=device),
+    )
+
+
+@register_tensor_cast_op("mlapo_quant")
+def _(
+    hidden_states: torch.Tensor,
+    cos: torch.Tensor,
+    sin: torch.Tensor,
+    q_a_proj_weight: Optional[torch.Tensor],
+    q_a_layernorm_weight: Optional[torch.Tensor],
+    q_b_proj_weight: Optional[torch.Tensor],
+    kv_a_proj_weight: Optional[torch.Tensor],
+    kv_a_layernorm_weight: torch.Tensor,
+    num_heads: int,
+    qk_head_dim: int,
+    qk_nope_head_dim: int,
+    qk_rope_head_dim: int,
+    kv_lora_rank: int,
+    q_lora_rank: int,
+    q_a_proj_scale: torch.Tensor,
+    q_a_proj_offset: Optional[torch.Tensor],
+    q_b_proj_scale: torch.Tensor,
+    q_b_proj_offset: Optional[torch.Tensor],
+    kv_a_proj_scale: torch.Tensor,
+    kv_a_proj_offset: Optional[torch.Tensor],
+) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """
+    Quantized variant of the fused MLA preprocessing op.
+
+    Args mirror `mlapo`, but q_a/q_b/kv_a *_scale/*_offset tensors encode the
+    quantization scheme (per-tensor/per-group) applied to their respective
+    linear layers.
+
+    Returns:
+        q_states: (num_tokens, num_heads, qk_head_dim)
+        kv_c_normed: (num_tokens, kv_lora_rank)
+        k_rot: (num_tokens, qk_rope_head_dim)
+    """
+
+    num_tokens = hidden_states.size(0)
+    device = hidden_states.device
+    dtype = hidden_states.dtype
+    return (
+        torch.empty((num_tokens, num_heads, qk_head_dim), dtype=dtype, device=device),
+        torch.empty((num_tokens, kv_lora_rank), dtype=dtype, device=device),
+        torch.empty((num_tokens, qk_rope_head_dim), dtype=dtype, device=device),
+    )
 
 
 @register_tensor_cast_op("multihead_latent_attention")

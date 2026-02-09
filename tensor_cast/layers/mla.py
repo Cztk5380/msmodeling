@@ -8,7 +8,6 @@ from ..model_config import MlaConfig, MultiheadLatentAttentionQuantConfig
 from ..parallel_group import ParallelGroup
 from ..utils import exact_division
 from .attention import AttentionMetadataBase
-
 from .quant_linear import TensorCastQuantLinear
 from .utils import get_partial_sharded
 
@@ -104,10 +103,30 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
         W_UK, W_UV = kv_b_proj_view.split(
             [self.qk_nope_head_dim, self.v_head_dim], dim=-1
         )
-        self.W_UV = W_UV.transpose(0, 1)  # (num_heads, kv_lora_rank, v_head_dim)
+        self.W_UV = W_UV.transpose(
+            0, 1
+        )  # (num_heads_per_rank, kv_lora_rank, v_head_dim)
         self.W_UK_T = W_UK.permute(
             1, 2, 0
-        )  # (num_heads, qk_nope_head_dim, kv_lora_rank)
+        )  # (num_heads_per_rank, qk_nope_head_dim, kv_lora_rank)
+        self._num_heads_per_rank = self.W_UV.size(0)
+        self.tp_group = tp_group
+
+    @staticmethod
+    def extract_qparams(
+        module: torch.nn.Module,
+    ) -> tuple[torch.Tensor, Optional[torch.Tensor], Optional[torch.Tensor]]:
+        target = module
+        if hasattr(module, "_inner"):
+            target = module._inner
+        if isinstance(target, TensorCastQuantLinear):
+            return target.qweight, target.weight_scale, target.weight_offset
+        weight = getattr(target, "weight", None)
+        if weight is None:
+            raise AttributeError(
+                f"Module {module.__class__.__name__} does not expose a weight tensor. "
+            )
+        return weight.data, None, None
 
     def forward(
         self,
@@ -123,39 +142,69 @@ class MultiheadLatentAttentionTensorCast(MultiheadLatentAttentionBase):
         batch_size, seq_length = hidden_states.shape[:-1]
         num_tokens = batch_size * seq_length
         hidden_states = hidden_states.view(num_tokens, -1)  # (num_tokens, hidden_size)
-        query_shape = (num_tokens, -1, self.qk_head_dim)
-
-        if self.q_lora_rank is None:
-            q_states = self.q_proj(hidden_states)
-        else:
-            q_states = self.q_b_proj(self.q_a_layernorm(self.q_a_proj(hidden_states)))
-        q_states = q_states.view(query_shape)  # (num_tokens, num_heads, qk_head_dim)
-        # q_pass: (num_tokens, num_heads, qk_nope_head_dim)
-        # q_rot: (num_tokens, num_heads, qk_rope_head_dim)
-        q_pass, q_rot = torch.split(
-            q_states, [self.qk_nope_head_dim, self.qk_rope_head_dim], dim=-1
-        )
-
-        compressed_kv = self.kv_a_proj_with_mqa(
-            hidden_states
-        )  # (num_tokens, kv_lora_rank + qk_rope_head_dim)
-        # k_pass: (num_tokens, kv_lora_rank), k_rot: (num_tokens, qk_rope_head_dim)
-        k_pass, k_rot = torch.split(
-            compressed_kv, [self.kv_lora_rank, self.qk_rope_head_dim], dim=-1
-        )
-        kv_c_normed = self.kv_a_layernorm(k_pass)  # (num_tokens, kv_lora_rank)
-
         cos, sin = position_embeddings
-        # TODO: only two rope algorithms are provided below, needed by DeepSeek but
-        #       other models might need more alternatives
-        if self.config.rope_interleave:
-            q_rot, k_rot = apply_rotary_pos_emb_interleave(q_rot, k_rot, cos, sin)
+        self.q_a_proj_weight, self.q_a_proj_scale, self.q_a_proj_offset = (
+            self.extract_qparams(self.q_a_proj)
+        )
+        self.q_b_proj_weight, self.q_b_proj_scale, self.q_b_proj_offset = (
+            self.extract_qparams(self.q_b_proj)
+        )
+        self.kv_a_proj_weight, self.kv_a_proj_scale, self.kv_a_proj_offset = (
+            self.extract_qparams(self.kv_a_proj_with_mqa)
+        )
+        self.q_a_layernorm_weight = self.q_a_layernorm.weight.data
+        self.kv_a_layernorm_weight = self.kv_a_layernorm.weight.data
+        self.q_b_proj_weight = get_partial_sharded(
+            self.q_b_proj_weight,
+            self.tp_group.world_size,
+            self.tp_group.rank_in_group,
+            unit_num=self.num_heads,
+        )
+        linear_quant_enabled = (
+            getattr(self, "q_a_proj_scale", None) is not None
+            and getattr(self, "q_b_proj_scale", None) is not None
+            and getattr(self, "kv_a_proj_scale", None) is not None
+        )
+        if linear_quant_enabled:
+            q_states, kv_c_normed, k_rot = torch.ops.tensor_cast.mlapo_quant(
+                hidden_states,
+                cos,
+                sin,
+                self.q_a_proj_weight,
+                self.q_a_layernorm_weight,
+                self.q_b_proj_weight,
+                self.kv_a_proj_weight,
+                self.kv_a_layernorm_weight,
+                self._num_heads_per_rank,
+                self.qk_head_dim,
+                self.qk_nope_head_dim,
+                self.qk_rope_head_dim,
+                self.kv_lora_rank,
+                self.q_lora_rank,
+                self.q_a_proj_scale,
+                self.q_a_proj_offset,
+                self.q_b_proj_scale,
+                self.q_b_proj_offset,
+                self.kv_a_proj_scale,
+                self.kv_a_proj_offset,
+            )
         else:
-            q_rot, k_rot = apply_rotary_pos_emb(q_rot, k_rot, cos, sin)
-
-        # TODO: do inplace rotary embedding and save this torch.cat? Perhaps we can do this in graph rewrites?
-        q_states = torch.cat((q_pass, q_rot), dim=-1)
-
+            q_states, kv_c_normed, k_rot = torch.ops.tensor_cast.mlapo(
+                hidden_states,
+                cos,
+                sin,
+                self.q_a_proj_weight,
+                self.q_a_layernorm_weight,
+                self.q_b_proj_weight,
+                self.kv_a_proj_weight,
+                self.kv_a_layernorm_weight,
+                self._num_heads_per_rank,
+                self.qk_head_dim,
+                self.qk_nope_head_dim,
+                self.qk_rope_head_dim,
+                self.kv_lora_rank,
+                self.q_lora_rank,
+            )
         query_start_loc = attention_meta.query_start_loc if attention_meta else None
         seq_lens = attention_meta.seq_lens if attention_meta else None
         query_lens = attention_meta.query_lens if attention_meta else None
