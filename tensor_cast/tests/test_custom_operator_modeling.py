@@ -115,7 +115,9 @@ class CustomModelingOperatorTestCase(unittest.TestCase):
             tensor_parallel_size=2,
             mlp_tensor_parallel_size=4,
             lmhead_tensor_parallel_size=1,
-            expert_parallel=True,
+            expert_parallel_size=16,
+            moe_data_parallel_size=1,
+            moe_tensor_parallel_size=1,
         )
         model_config = ModelConfig(
             parallel_config,

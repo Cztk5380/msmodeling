@@ -173,14 +173,6 @@ class ParallelMoELayer(ModelWrapperBase):
             self.transform_dp_group = (
                 self.global_dp_group.world_size != self.ep_group.world_size
             )
-            if (
-                self.transform_dp_group
-                and self.ep_group.world_size != self.ep_group.global_world_size
-            ):
-                raise ValueError(
-                    f"The scenario where expert_parallel_size {self.ep_group.world_size}"
-                    f"!= world_size {self.ep_group.global_world_size} is not supported."
-                )
         else:
             self.transform_dp_group = self.global_dp_group.world_size != 1
 

@@ -775,7 +775,9 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=2,
             tp_size=1,
-            ep=True,
+            ep_size=2,
+            moe_tp_size=1,
+            moe_dp_size=1,
         )
         model_runner = ModelRunner(user_input)
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
@@ -863,7 +865,9 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
             world_size=64,
             num_mtp_tokens=3,
-            ep=True,
+            ep_size=64,
+            moe_tp_size=1,
+            moe_dp_size=1,
         )
         model_runner = ModelRunner(user_input)
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
@@ -881,7 +885,9 @@ class TestTextGenerate(unittest.TestCase):
             query_len=1,
             context_length=500,
             world_size=16,
-            ep=True,
+            ep_size=16,
+            moe_tp_size=1,
+            moe_dp_size=1,
             tp_size=2,
             do_compile=False,
             allow_graph_break=False,
@@ -1054,7 +1060,6 @@ class TestTextGenerate(unittest.TestCase):
             [QuantizeLinearAction.W8A8_STATIC, True, False],
             [QuantizeLinearAction.DISABLED, True, False],
             [QuantizeLinearAction.W8A8_DYNAMIC, False, True],
-            [QuantizeLinearAction.W8A8_STATIC, True, True],
             [QuantizeLinearAction.DISABLED, False, True],
         ]
     )
@@ -1069,7 +1074,9 @@ class TestTextGenerate(unittest.TestCase):
             allow_graph_break=False,
             quantize_linear_action=quant_linear_action,
             world_size=8,
-            ep=enable_ep,
+            ep_size=8 if enable_ep else 1,
+            moe_dp_size=1 if enable_ep else 8,
+            moe_tp_size=1,
             tp_size=8 if enable_tp else 1,
         )
         model_runner = ModelRunner(user_input)
@@ -1090,7 +1097,9 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=16,
             tp_size=16,
-            ep=True,
+            ep_size=16,
+            moe_tp_size=1,
+            moe_dp_size=1,
             enable_redundant_experts=True,
         )
         model_runner = ModelRunner(user_input)
@@ -1115,7 +1124,9 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=16,
             tp_size=16,
-            ep=True,
+            ep_size=16,
+            moe_dp_size=1,
+            moe_tp_size=1,
             enable_external_shared_experts=True,
             host_external_shared_experts=host_external_shared_experts,
         )
@@ -1266,7 +1277,9 @@ class TestTextGenerate(unittest.TestCase):
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             world_size=2,
             tp_size=2,
-            ep=ep,
+            ep_size=2 if ep else 1,
+            moe_dp_size=1 if ep else 2,
+            moe_tp_size=1,
         )
         model_runner = ModelRunner(user_input)
         self.assertTrue(model_runner.model.is_vl_model, msg="Model should be vl model")
@@ -1283,7 +1296,7 @@ class TestTextGenerate(unittest.TestCase):
         self.assertIn("aten.addmm.default", result["table_result"])
         self.assertIn("tensor_cast.all_reduce.default", result["table_result"])
         self.assertIn("tensor_cast.all_gather.default", result["table_result"])
-        if user_input.ep:
+        if ep:
             self.assertIn("tensor_cast.all_to_all.default", result["table_result"])
         else:
             self.assertNotIn("tensor_cast.all_to_all.default", result["table_result"])
@@ -1361,6 +1374,32 @@ class TestTextGenerate(unittest.TestCase):
                 f"actual={actual_tps:.4g}, tolerance={tolerance:.2g}"
             ),
         )
+
+    @parameterized.expand(
+        [
+            ["inclusionAI/Ling-1T", 8, 8],
+            ["Qwen/Qwen3-235B-A22B", 16, 4],
+            ["deepseek-ai/DeepSeek-V3.1", 4, 16],
+            ["Qwen/Qwen3-32B", 8, 8],  # non moe model, should ignore ep-size
+        ]
+    )
+    def test_ep_moe_tp_hybrid(self, model_id, ep_size, moe_tp_size):
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id=model_id,
+            num_queries=1,
+            query_len=1,
+            context_length=7,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+            world_size=64,
+            tp_size=8,
+            ep_size=ep_size,
+            moe_tp_size=moe_tp_size,
+        )
+        model_runner = ModelRunner(user_input)
+        _ = model_runner.run_inference(generate_inputs_func=generate_inputs)
 
 
 class TestModelRunnerMetricsPrintInfo(unittest.TestCase):

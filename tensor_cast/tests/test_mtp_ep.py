@@ -34,7 +34,9 @@ class MtpTestCase(unittest.TestCase):
             num_mtp_tokens=num_mtp_layers,
             do_compile=do_compile,
             world_size=parallel_configuration[0],
-            ep=parallel_configuration[1],
+            ep_size=parallel_configuration[0] if parallel_configuration[1] else 1,
+            moe_dp_size=1 if parallel_configuration[1] else parallel_configuration[0],
+            moe_tp_size=1,
         )
         model = build_model(user_config)
         mtp_block_module_name = get_mtp_block_module_name(
@@ -71,7 +73,9 @@ class MtpTestCase(unittest.TestCase):
             num_mtp_tokens=num_mtp_layers,
             do_compile=do_compile,
             world_size=parallel_configuration[0],
-            ep=parallel_configuration[1],
+            ep_size=parallel_configuration[0] if parallel_configuration[1] else 1,
+            moe_dp_size=1 if parallel_configuration[1] else parallel_configuration[0],
+            moe_tp_size=1,
         )
         model = build_model(user_config)
         mtp_block_module_name = get_mtp_block_module_name(
@@ -117,7 +121,9 @@ class MtpTestCase(unittest.TestCase):
             num_mtp_tokens=num_mtp_layers,
             do_compile=do_compile,
             world_size=parallel_configuration[0],
-            ep=parallel_configuration[1],
+            ep_size=parallel_configuration[0] if parallel_configuration[1] else 1,
+            moe_dp_size=1 if parallel_configuration[1] else parallel_configuration[0],
+            moe_tp_size=1,
         )
         model = build_model(user_config)
         mtp_block_module_name = get_mtp_block_module_name(

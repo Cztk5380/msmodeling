@@ -193,9 +193,22 @@ def main():
         help="The dp size for lm head, can override dp-size for lm head",
     )
     parser.add_argument(
-        "--ep",
-        action="store_true",
-        help="Whether or not to implement expert parallel",
+        "--moe-dp-size",
+        type=check_positive_integer,
+        default=1,
+        help="The dp size for experts, can override dp-size for experts",
+    )
+    parser.add_argument(
+        "--moe-tp-size",
+        type=check_positive_integer,
+        default=None,
+        help="The tp size for experts, can override tp-size for experts",
+    )
+    parser.add_argument(
+        "--ep-size",
+        type=check_positive_integer,
+        default=1,
+        help="The ep size for experts",
     )
     parser.add_argument(
         "--word-embedding-tp",

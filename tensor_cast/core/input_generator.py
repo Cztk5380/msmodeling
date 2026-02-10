@@ -13,7 +13,7 @@ from ..layers.attention import AttentionMetadataTensorCast
 from ..layers.sampler import SamplingMetadata
 from ..performance_model import bytes_of_tensor
 from ..transformers.utils import get_attention_quant_config, logger
-from ..utils import exact_division
+from ..utils import exact_division, get_nested_attr
 
 
 @dataclass
@@ -27,6 +27,23 @@ class RequestInfo:
     image_batch_size: int = None
     image_height: int = None
     image_width: int = None
+
+
+def _get_padding_alignment(model_config) -> int:
+    parallel_config = model_config.parallel_config
+    if (
+        parallel_config.moe_tensor_parallel_size != parallel_config.tensor_parallel_size
+        and parallel_config.has_ep()
+    ):
+        num_experts = get_nested_attr(
+            model_config.hf_config, model_config.moe_config.num_experts_key
+        )
+        if num_experts is None:
+            raise ValueError("failed to access number of experts from model config")
+        division_num = num_experts * parallel_config.tensor_parallel_size
+    else:
+        division_num = parallel_config.tensor_parallel_size
+    return division_num
 
 
 def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
@@ -106,11 +123,14 @@ def generate_inputs(model, requests: List[RequestInfo], block_size: int = 128):
     # We use padding to ensure that the number of tokens in each DP domain is divisible by tp_size.
     # This allows the data to be evenly distributed across each device if needed,
     # thereby enabling arbitrary conversion of DP domains.
+    # two cases:
+    # prefill, moe-tp-size and tp-size usually is different, padding to multiples of (moe-tp-size * tp-size)
+    # decode, moe-tp-size and tp-size usually is same, padding to multiples of tp-size
     padding_tokens = 0
-    if batch_size * query_len % parallel_config.tensor_parallel_size != 0:
-        padding_tokens = parallel_config.tensor_parallel_size - (
-            batch_size * query_len % parallel_config.tensor_parallel_size
-        )
+    division_num = _get_padding_alignment(model_config)
+
+    if batch_size * query_len % division_num != 0:
+        padding_tokens = division_num - (batch_size * query_len % division_num)
 
     query_start_loc[-1] = query_start_loc[-1] + padding_tokens
 
@@ -358,7 +378,6 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     requests: List[RequestInfo], each dict represents a request, containing keys: query_len, seq_len, is_decode
     """
     model_config = model.model_config
-    parallel_config = model_config.parallel_config
     mtp = getattr(model_config, "mtp_config", None)
     num_mtp_tokens = mtp.num_mtp_layers if mtp else 0
 
@@ -372,9 +391,8 @@ def generate_inputs_varlen(model, requests: List[RequestInfo], block_size):
     num_tokens = sum(query_lens)
 
     # padding query to make sure total num_tokens is divisible by tp_size in each dp domain
-    padding_nums = parallel_config.tensor_parallel_size - (
-        num_tokens % parallel_config.tensor_parallel_size
-    )
+    division_num = _get_padding_alignment(model_config)
+    padding_nums = (-num_tokens) % division_num
     num_tokens += padding_nums
 
     query_start_loc = [0]

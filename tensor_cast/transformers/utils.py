@@ -34,13 +34,16 @@ logger = logging.getLogger(__name__)
 _model_type_to_moe_config: Dict[str, MoEConfig] = {
     "deepseek_v3": MoEConfig(
         module_name="DeepseekV3MoE",
+        num_experts_key="n_routed_experts",
     ),
     "glm4_moe": MoEConfig(
         module_name="Glm4MoeMoE",
+        num_experts_key="n_routed_experts",
     ),
     "minimax_m2": MoEConfig(
         module_name="MiniMaxM2SparseMoeBlock",
         gate_returns_raw_logits=True,
+        num_experts_key="num_local_experts",
     ),
     "qwen3_moe": MoEConfig(
         module_name="Qwen3MoeSparseMoeBlock",
@@ -49,10 +52,12 @@ _model_type_to_moe_config: Dict[str, MoEConfig] = {
     "qwen3_vl_moe": MoEConfig(
         module_name="Qwen3VLMoeTextSparseMoeBlock",
         gate_returns_raw_logits=True,
+        num_experts_key=["text_config", "num_experts"],
     ),
     "glm4v_moe": MoEConfig(
         module_name="Glm4vMoeTextMoE",
         gate_returns_raw_logits=False,
+        num_experts_key=["text_config", "n_routed_experts"],
     ),
     "qwen3_next": MoEConfig(
         module_name="Qwen3NextSparseMoeBlock",
@@ -63,6 +68,7 @@ _model_type_to_moe_config: Dict[str, MoEConfig] = {
     ),
     "mimo_v2_flash": MoEConfig(
         module_name="MiMoV2MoE",
+        num_experts_key="n_routed_experts",
     ),
     "ernie4_5_moe": MoEConfig(
         # This is not a strict mapping to ERNIE MoE which has bias correction
@@ -72,6 +78,7 @@ _model_type_to_moe_config: Dict[str, MoEConfig] = {
         # is minor and ignorable compared to other primary ones.
         module_name="Ernie4_5_MoeSparseMoeBlock",
         gate_returns_raw_logits=True,
+        num_experts_key="moe_num_experts",
     ),
     "bailing_moe": MoEConfig(
         module_name="BailingMoeV2SparseMoeBlock",

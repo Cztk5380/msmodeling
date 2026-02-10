@@ -65,7 +65,6 @@ class ServingTestCase(unittest.TestCase):
                 mlp_dp_size=None,
                 lmhead_tp_size=None,
                 lmhead_dp_size=None,
-                ep=False,
             ),
             communication_config=CommunicationConfig(
                 host2device_bandwidth=1e10,
@@ -87,7 +86,6 @@ class ServingTestCase(unittest.TestCase):
                 mlp_dp_size=None,
                 lmhead_tp_size=None,
                 lmhead_dp_size=None,
-                ep=False,
             ),
             communication_config=CommunicationConfig(
                 host2device_bandwidth=1e10,
@@ -146,7 +144,6 @@ class ServingTestCase(unittest.TestCase):
                 mlp_dp_size=None,
                 lmhead_tp_size=None,
                 lmhead_dp_size=None,
-                ep=False,
             ),
             communication_config=CommunicationConfig(
                 host2device_bandwidth=1e10,
@@ -195,7 +192,6 @@ class ServingTestCase(unittest.TestCase):
                 mlp_dp_size=None,
                 lmhead_tp_size=None,
                 lmhead_dp_size=None,
-                ep=False,
             ),
             communication_config=CommunicationConfig(
                 host2device_bandwidth=1e10,
@@ -241,7 +237,6 @@ class ServingTestCase(unittest.TestCase):
                 mlp_dp_size=None,
                 lmhead_tp_size=None,
                 lmhead_dp_size=None,
-                ep=False,
             ),
             communication_config=CommunicationConfig(
                 host2device_bandwidth=1e10,

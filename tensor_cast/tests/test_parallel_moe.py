@@ -16,12 +16,18 @@ from .test_common import create_mla_metadata_and_kv_cache
 
 
 def get_parallel_config(parallel_configuration: tuple):
+    world_size = parallel_configuration[0]
+    do_ep = parallel_configuration[4]
+    ep_size = world_size if do_ep else 1
+    moe_dp_size = 1 if do_ep else world_size
     parallel_config = ParallelConfig(
         world_size=parallel_configuration[0],
         tensor_parallel_size=parallel_configuration[1],
         mlp_tensor_parallel_size=parallel_configuration[2],
         lmhead_tensor_parallel_size=parallel_configuration[3],
-        expert_parallel=parallel_configuration[4],
+        expert_parallel_size=ep_size,
+        moe_data_parallel_size=moe_dp_size,
+        moe_tensor_parallel_size=1,
     )
     return parallel_config
 
@@ -104,7 +110,9 @@ class ParallelMoETestCase(unittest.TestCase):
             tp_size=parallel_configuration[1],
             mlp_tp_size=parallel_configuration[2],
             lmhead_tp_size=parallel_configuration[3],
-            ep=parallel_configuration[4],
+            ep_size=parallel_configuration[0] if parallel_configuration[4] else 1,
+            moe_dp_size=1 if parallel_configuration[4] else parallel_configuration[0],
+            moe_tp_size=1,
             enable_redundant_experts=moe_configuration[0],
             enable_external_shared_experts=moe_configuration[1],
         )
@@ -159,7 +167,9 @@ class ParallelMoETestCase(unittest.TestCase):
             tp_size=parallel_configuration[1],
             mlp_tp_size=parallel_configuration[2],
             lmhead_tp_size=parallel_configuration[3],
-            ep=parallel_configuration[4],
+            ep_size=parallel_configuration[0] if parallel_configuration[4] else 1,
+            moe_dp_size=1 if parallel_configuration[4] else parallel_configuration[0],
+            moe_tp_size=1,
             enable_redundant_experts=moe_configuration[0],
             enable_external_shared_experts=moe_configuration[1],
         )

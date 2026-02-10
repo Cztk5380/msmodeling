@@ -50,7 +50,9 @@ class UserInputConfig:
     mlp_dp_size: Optional[int] = None
     lmhead_tp_size: Optional[int] = None
     lmhead_dp_size: Optional[int] = None
-    ep: bool = False
+    ep_size: int = 1
+    moe_dp_size: int = 1
+    moe_tp_size: Optional[int] = None
     word_embedding_tp: bool = False
     enable_redundant_experts: bool = False
     enable_external_shared_experts: bool = False
@@ -114,7 +116,9 @@ class UserInputConfig:
             mlp_data_parallel_size=self.mlp_dp_size,
             lmhead_tensor_parallel_size=self.lmhead_tp_size,
             lmhead_data_parallel_size=self.lmhead_dp_size,
-            expert_parallel=self.ep,
+            expert_parallel_size=self.ep_size,
+            moe_tensor_parallel_size=self.moe_tp_size,
+            moe_data_parallel_size=self.moe_dp_size,
             embedding_parallel=self.word_embedding_tp,
             pipeline_parallel_size=self.pp_size,
         )

@@ -505,6 +505,7 @@ class TransformerModel(ModelWrapperBase):
         mlp_tp_group = self.parallel_group_manager.mlp_tp_group
         lmhead_tp_group = self.parallel_group_manager.lmhead_tp_group
         all_rank_group = self.parallel_group_manager.all_rank_group
+        moe_tp_group = self.parallel_group_manager.moe_tp_group
 
         def get_tp_plan():
             # TODO:
@@ -619,6 +620,39 @@ class TransformerModel(ModelWrapperBase):
                         # Adaptation to gate_up
                         f"{language_layers}.*.experts.*.gate_up_proj": (
                             COLWISE_LINEAR,
+                            params,
+                        ),
+                    }
+                )
+            else:
+                params = {
+                    "tp_group": moe_tp_group,
+                    "global_tp_group": tp_group,
+                }
+                tp_plan.update(
+                    {
+                        f"{language_layers}.*.experts.*.gate_proj": (
+                            COLWISE_LINEAR,
+                            params,
+                        ),
+                        f"{language_layers}.*.experts.*.up_proj": (
+                            COLWISE_LINEAR,
+                            params,
+                        ),
+                        f"{language_layers}.*.experts.*.down_proj": (
+                            ROWWISE_LINEAR,
+                            params,
+                        ),
+                        f"{language_layers}.*.shared_expert.*.gate_proj": (
+                            COLWISE_LINEAR,
+                            params,
+                        ),
+                        f"{language_layers}.*.shared_expert.*.up_proj": (
+                            COLWISE_LINEAR,
+                            params,
+                        ),
+                        f"{language_layers}.*.shared_expert.*.down_proj": (
+                            ROWWISE_LINEAR,
                             params,
                         ),
                     }

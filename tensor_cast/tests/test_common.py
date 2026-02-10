@@ -177,4 +177,4 @@ def update_parallel_parameter(
 ):
     user_input.world_size = world_size
     user_input.tp_size = tp_size
-    user_input.ep = ep
+    user_input.ep_size = world_size if ep else 1

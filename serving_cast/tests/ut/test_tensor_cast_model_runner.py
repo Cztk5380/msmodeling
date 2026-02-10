@@ -65,7 +65,7 @@ class TestModelRunner(unittest.TestCase):
                 world_size=8,
                 tp_size=8,
                 dp_size=1,
-                ep=True,
+                ep_size=8,
             )
         )
         requests = [RequestInfo(1, 65, True)]

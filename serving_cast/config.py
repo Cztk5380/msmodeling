@@ -16,7 +16,9 @@ class ParallelConfig:
     mlp_dp_size: Optional[int] = None
     lmhead_tp_size: Optional[int] = None
     lmhead_dp_size: Optional[int] = None
-    ep: bool = False
+    ep_size: int = 1
+    moe_tp_size: int = 1
+    moe_dp_size: Optional[int] = None
 
 
 @dataclass

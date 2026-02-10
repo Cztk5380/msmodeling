@@ -1,3 +1,9 @@
+try:
+    # Native in Python 3.11+
+    from enum import StrEnum
+except ImportError:
+    # Fallback for Python 3.10
+    from strenum import StrEnum
 from typing import List
 
 import numpy as np
@@ -94,6 +100,13 @@ class ParallelGroup:
 _DEFAULT_PG = ParallelGroup(0, [[0]], 1)
 
 
+class ParallelGroupType(StrEnum):
+    TENSOR_PARALLEL = "tensor_parallel"
+    DATA_PARALLEL = "data_parallel"
+    EXPERT_PARALLEL = "expert_parallel"
+    PIPELINE_PARALLEL = "pipeline_parallel"
+
+
 class ParallelGroupManager:
     def __init__(self, parallel_config: ParallelConfig):
         self.parallel_config = parallel_config
@@ -111,27 +124,42 @@ class ParallelGroupManager:
             rank = 0
 
         tensor_parallel_size = self.parallel_config.tensor_parallel_size
-        pipeline_parallel_size = self.parallel_config.pipeline_parallel_size
         data_parallel_size = self.parallel_config.data_parallel_size
+        pipeline_parallel_size = self.parallel_config.pipeline_parallel_size
 
         all_ranks = np.arange(world_size)
 
         def initialize_parallel(
-            init_tensor_parallel, tensor_parallel_size, data_parallel_size
+            parallel_type,
+            tensor_parallel_size,
+            data_parallel_size,
+            expert_parallel_size=1,
+            pipeline_parallel_size=1,
         ):
-            if init_tensor_parallel:
-                rank_groups = all_ranks.reshape(-1, tensor_parallel_size)
-            else:
-                rank_groups = (
-                    all_ranks.reshape(
-                        -1,
-                        data_parallel_size,
-                        pipeline_parallel_size,
-                        tensor_parallel_size,
-                    )
-                    .swapaxes(1, 3)
-                    .reshape(-1, data_parallel_size)
+            rank_groups_raw = all_ranks.reshape(
+                -1,
+                data_parallel_size,
+                pipeline_parallel_size,
+                expert_parallel_size,
+                tensor_parallel_size,
+            )
+
+            if parallel_type == ParallelGroupType.EXPERT_PARALLEL:
+                rank_groups = rank_groups_raw.swapaxes(3, -1).reshape(
+                    -1, expert_parallel_size
                 )
+            elif parallel_type == ParallelGroupType.DATA_PARALLEL:
+                rank_groups = rank_groups_raw.swapaxes(1, -1).reshape(
+                    -1, data_parallel_size
+                )
+            elif parallel_type == ParallelGroupType.PIPELINE_PARALLEL:
+                rank_groups = rank_groups_raw.swapaxes(2, -1).reshape(
+                    -1, pipeline_parallel_size
+                )
+            elif parallel_type == ParallelGroupType.TENSOR_PARALLEL:
+                rank_groups = rank_groups_raw.reshape(-1, tensor_parallel_size)
+            else:
+                raise ValueError(f"parallel_type: {parallel_type} is invalid")
 
             _ParallelGroup = ParallelGroup(
                 rank=rank,
@@ -141,49 +169,83 @@ class ParallelGroupManager:
             return _ParallelGroup
 
         self.tp_group = initialize_parallel(
-            True, tensor_parallel_size, data_parallel_size
+            ParallelGroupType.TENSOR_PARALLEL,
+            tensor_parallel_size,
+            data_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
         )
 
         self.dp_group = initialize_parallel(
-            False, tensor_parallel_size, data_parallel_size
+            ParallelGroupType.DATA_PARALLEL,
+            tensor_parallel_size,
+            data_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
         )
 
         self.o_proj_tp_group = initialize_parallel(
-            True,
+            ParallelGroupType.TENSOR_PARALLEL,
             self.parallel_config.o_proj_tensor_parallel_size,
             self.parallel_config.o_proj_data_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
         )
         self.o_proj_dp_group = initialize_parallel(
-            False,
+            ParallelGroupType.DATA_PARALLEL,
             self.parallel_config.o_proj_tensor_parallel_size,
             self.parallel_config.o_proj_data_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
         )
 
         self.mlp_tp_group = initialize_parallel(
-            True,
+            ParallelGroupType.TENSOR_PARALLEL,
             self.parallel_config.mlp_tensor_parallel_size,
             self.parallel_config.mlp_data_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
         )
         self.mlp_dp_group = initialize_parallel(
-            False,
+            ParallelGroupType.DATA_PARALLEL,
             self.parallel_config.mlp_tensor_parallel_size,
             self.parallel_config.mlp_data_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
         )
 
         self.lmhead_tp_group = initialize_parallel(
-            True,
+            ParallelGroupType.TENSOR_PARALLEL,
             self.parallel_config.lmhead_tensor_parallel_size,
             self.parallel_config.lmhead_data_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
         )
         self.lmhead_dp_group = initialize_parallel(
-            False,
+            ParallelGroupType.DATA_PARALLEL,
             self.parallel_config.lmhead_tensor_parallel_size,
             self.parallel_config.lmhead_data_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
         )
 
-        self.all_rank_group = initialize_parallel(True, world_size, 1)
+        self.all_rank_group = initialize_parallel(
+            ParallelGroupType.TENSOR_PARALLEL,
+            world_size,
+            1,
+            pipeline_parallel_size=pipeline_parallel_size,
+        )
 
-        if self.parallel_config.has_ep():
-            self.ep_group = initialize_parallel(False, 1, world_size)
-        else:
-            self.ep_group = initialize_parallel(False, world_size, 1)
+        self.ep_group = initialize_parallel(
+            ParallelGroupType.EXPERT_PARALLEL,
+            self.parallel_config.moe_tensor_parallel_size,
+            self.parallel_config.moe_data_parallel_size,
+            expert_parallel_size=self.parallel_config.expert_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
+        )
+        self.moe_tp_group = initialize_parallel(
+            ParallelGroupType.TENSOR_PARALLEL,
+            self.parallel_config.moe_tensor_parallel_size,
+            self.parallel_config.moe_data_parallel_size,
+            expert_parallel_size=self.parallel_config.expert_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
+        )
+        self.moe_dp_group = initialize_parallel(
+            ParallelGroupType.DATA_PARALLEL,
+            self.parallel_config.moe_tensor_parallel_size,
+            self.parallel_config.moe_data_parallel_size,
+            expert_parallel_size=self.parallel_config.expert_parallel_size,
+            pipeline_parallel_size=pipeline_parallel_size,
+        )

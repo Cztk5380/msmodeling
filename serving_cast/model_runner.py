@@ -100,7 +100,9 @@ class ModelRunner:
                 mlp_dp_size=parallel_config.mlp_dp_size,
                 lmhead_tp_size=parallel_config.lmhead_tp_size,
                 lmhead_dp_size=parallel_config.lmhead_dp_size,
-                ep=parallel_config.ep,
+                ep_size=parallel_config.ep_size,
+                moe_tp_size=parallel_config.moe_tp_size,
+                moe_dp_size=parallel_config.moe_dp_size,
                 reserved_memory_gb=0.0,
                 block_size=common_config.serving_config.block_size,
             )

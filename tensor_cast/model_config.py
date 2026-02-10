@@ -6,7 +6,7 @@ try:
 except ImportError:
     # Fallback for Python 3.10
     from strenum import StrEnum
-from typing import Dict, List, Optional, Type
+from typing import Dict, List, Optional, Type, Union
 
 import torch
 from transformers import PretrainedConfig
@@ -231,8 +231,9 @@ class ParallelConfig:
     lmhead_tensor_parallel_size: Optional[int] = None
     lmhead_data_parallel_size: Optional[int] = None
     embedding_parallel: bool = False
-    # TODO: use expert_parallel_size instead of expert_parallel
-    expert_parallel: bool = False
+    expert_parallel_size: int = 1
+    moe_tensor_parallel_size: Optional[int] = None
+    moe_data_parallel_size: int = 1
     ulysses_size: int = 1
 
     def has_attn_tp(self) -> bool:
@@ -248,7 +249,7 @@ class ParallelConfig:
         return self.lmhead_tensor_parallel_size > 1
 
     def has_ep(self) -> bool:
-        return self.expert_parallel and self.world_size > 1
+        return self.expert_parallel_size > 1
 
     def __post_init__(self) -> None:
         if self.data_parallel_size is None:
@@ -271,6 +272,24 @@ class ParallelConfig:
                 f"must equal world_size ({self.world_size})"
             )
 
+        if self.moe_tensor_parallel_size is None:
+            self.moe_tensor_parallel_size = (
+                self.world_size
+                // self.moe_data_parallel_size
+                // self.expert_parallel_size
+            )
+        if (
+            self.moe_data_parallel_size
+            * self.moe_tensor_parallel_size
+            * self.expert_parallel_size
+            != self.world_size
+        ):
+            raise ValueError(
+                f"moe_tensor_parallel_size ({self.moe_tensor_parallel_size}) * "
+                f"moe_data_parallel_size ({self.moe_data_parallel_size}) * "
+                f"expert_parallel_size ({self.expert_parallel_size}) "
+                f"must equal to world_size ({self.world_size})"
+            )
         if self.o_proj_tensor_parallel_size is None:
             self.o_proj_tensor_parallel_size = self.tensor_parallel_size
         if self.o_proj_data_parallel_size is None:
@@ -356,6 +375,7 @@ class MoEConfig:
     enable_redundant_experts: bool = False
     enable_external_shared_experts: bool = False
     host_external_shared_experts: bool = False
+    num_experts_key: Union[str, List[str]] = "num_experts"
 
 
 @dataclasses.dataclass(frozen=True)
