@@ -119,7 +119,7 @@ class ParallelRunner:
         try:
             model_runner = ModelRunner(user_input)
         except Exception:
-            logger.error("Failed to build model %r", self.model_id)
+            logger.error("Failed to build model %r", self.args.model_id)
 
         return model_runner
 
@@ -134,7 +134,9 @@ class ParallelRunner:
             tmp_user_input.tp_size = tp
             # if the moe_config is None, ep will be set False in update_parallel_config
             # so set it True here, moe models can enable ep parallel correctly
-            tmp_user_input.ep = True
+            tmp_user_input.ep_size = tmp_user_input.world_size
+            tmp_user_input.moe_dp_size = 1
+            tmp_user_input.moe_tp_size = 1
             if self.args.num_devices % tp != 0:
                 continue
             yield tmp_user_input
@@ -180,7 +182,7 @@ class ParallelRunner:
             != 0
         ):
             logger.warning(
-                "No MLA or TEXT config found for model %r, skip.", self.model_id
+                "No MLA or TEXT config found for model %r, skip.", self.args.model_id
             )
             return None
         # 2. get strategy result

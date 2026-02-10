@@ -5,15 +5,18 @@
 ```bash
 git clone https://gitcode.com/Ascend/msmodeling.git -b develop
 cd msmodeling
-pip install -r ./serving_cast/requirements.txt
+pip install -r ./requirements.txt
 ```
 
-## Set environment variable
+## Supported python versions
+3.10+
+
+## Run simulation
+
+### Set environment variable
 ```bash
 export PYTHONPATH=/path/to/msmodeling:$PYTHONPATH
 ```
-
-## Run simulation
 
 Its general usage is shown below:
 ```text
@@ -108,43 +111,62 @@ The parsed profiling result is stored in the directory ```profiling_output_path/
 A ```chrome_tracing.json``` and a ```profiler.db``` will be generated in parsed_result directory, you can view it by ```chrome://tracing``` or MindStudio Insight
 
 
-## Performance analyze for PD aggregation mode
-We provide a script `scripts/performance_analyze.py` to analyze the performance of PD aggregation mode.
+## Throughput optimizer under SLO constraints
+We provide a script `throughput_optimizer.py` to optimize the throughput under SLO constraints.
 
 ### Quick Start
 ```bash
 cd /path/to/msmodeling
-pip install -r ./tensor_cast/requirements.txt
-python -m serving_cast.scripts.performance_analyze --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --tpot-limits 50
+```
+
+#### Run in aggregation mode
+If you want to run the script in aggregation mode, you need to set the `--num-devices` to the number of devices you want to use. And set the `--input-length` and `--output-length` to the maximum input and output tokens you want to support. For example, to run `Qwen3-32B` model on `8 TEST_DEVICE` devices with `3500` input tokens and `1500` output tokens, you can run the following command:
+```bash
+python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --tpot-limits 50
+```
+
+#### Run in disaggregation mode
+
+**Prefill Mode**
+If you want to run the script in Prefill mode, you need to set the `--disagg` flag and `--ttft-limits` to the maximum TTFT you want to support. The other parameters are similar to aggregation mode.
+```bash
+python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --ttft-limits 2000
+```
+
+**Decode Mode**
+If you want to run the script in Decode mode, you need to set the `--disagg` flag and `--tpot-limits` to the maximum TPOT you want to support. The other parameters are similar to aggregation mode.
+```bash
+python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --tpot-limits 50
 ```
 
 ### Result Information
-The script will output the performance metrics of PD aggregation mode, including throughput, TTFT, TPOT, and concurrency. Like the example below:
+The script will output the performance metrics, including throughput, TTFT, TPOT, and concurrency. Like the example below:
 ```
 ********************************************************************************
   ----------------------------------------------------------------------------
-  Input Configuration: 
+  Input Configuration:
     Model: Qwen/Qwen3-32B
+    Quantize Linear action: W8A8_DYNAMIC
+    Quantize Attention action: DISABLED
     Devices: 8 TEST_DEVICE
-    TTFT Limits: inf
-    TPOT Limits: 50.0
+    TTFT Limits: None ms
+    TPOT Limits: 50.0 ms
   ----------------------------------------------------------------------------
-  Overall Best Configuration: 
-    Best Throughput: 2013.44
-    TTFT: 16805.59
-    TPOT: 49.89
+  Overall Best Configuration:
+    Best Throughput: 2888.45 tokens/s
+    TTFT: 16032.05 ms
+    TPOT: 49.90 ms
   ----------------------------------------------------------------------------
-Top 4 Aggregation Configurations: 
-+-----+------------+----------+-------+-------------+---------------+-----------+------------+
-| Top | Throughput |   TTFT   |  TPOT | concurrency | total_devices |  parallel | batch_size |
-+-----+------------+----------+-------+-------------+---------------+-----------+------------+
-|  1  |  2013.44   | 16805.59 | 49.89 |     123     |       8       | tp8pp1dp1 |    123     |
-|  2  |  1536.53   | 21028.76 | 49.76 |      98     |       8       | tp4pp1dp2 |     49     |
-|  3  |   891.36   | 21079.72 | 48.77 |      56     |       8       | tp2pp1dp4 |     14     |
-|  4  |   300.11   | 7848.78  | 48.08 |      16     |       8       | tp1pp1dp8 |     2      |
-+-----+------------+----------+-------+-------------+---------------+-----------+------------+
+Top 4 Aggregation Configurations:
++-----+----------------------+-----------+-----------+-------------+---------------+-----------+------------+
+| Top | Throughput (token/s) | TTFT (ms) | TPOT (ms) | concurrency | total_devices |  parallel | batch_size |
++-----+----------------------+-----------+-----------+-------------+---------------+-----------+------------+
+|  1  |       2888.45        |  16032.05 |   49.90   |     175     |       8       | tp8pp1dp1 |    175     |
+|  2  |       2013.49        |  22512.86 |   49.56   |     130     |       8       | tp4pp1dp2 |     65     |
+|  3  |       1140.23        |  25817.73 |   49.44   |      76     |       8       | tp2pp1dp4 |     19     |
+|  4  |        549.89        |  14214.54 |   48.72   |      32     |       8       | tp1pp1dp8 |     4      |
++-----+----------------------+-----------+-----------+-------------+---------------+-----------+------------+
 ********************************************************************************
-2025-12-16 03:31:33,042 - msmodeling_logger - INFO - All experiments completed in 18.33 seconds.
 ```
 
 ### Parameters
@@ -154,7 +176,7 @@ Common options:
                         The input length of the prompt. (default: None)
   --output-length OUTPUT_LENGTH
                         The expected output length. (default: None)
-  --device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}     
+  --device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}
                         The device type for benchmarking. (default: None)
   --model-id MODEL_ID   Model ID from Hugging Face (e.g., 'meta-llama/Llama-2-7b-hf'). (default: None)
   --num-devices NUM_DEVICES
@@ -163,33 +185,42 @@ Common options:
                         Acceptance rate list for MTP (default: [0.9, 0.6, 0.4, 0.2])
   --log-level {debug,info,warning,error,critical}
                         Log level to print (default: info)
+  --dump-original-results
+                        If set, dump the original results for analysis. (default: False)
 
 Model & Quantization Options:
   --compile             If set, invoke torch.compile() on the model before inference. (default: False)
   --compile-allow-graph-break
                         If set, invoke torch.compile() on the model before inference. (default: False)
-  --num-mtp-tokens {0,1,2,3,4}
+  --num-mtp-tokens {0,1,2,3,4,5,6,7,8,9}
                         Number of MTP tokens, 0 means disabled - only support models having MTP like DeepSeek (default: 0)
   --quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}
                         Quantize all linear layers in the model from choices (currently only support symmetric quant) (default: W8A8_DYNAMIC)
   --mxfp4-group-size MXFP4_GROUP_SIZE
                         Group size for MXFP4 quantization (default: 32)
-  --quantize-attention-action {DISABLED,INT8}
+  --quantize-attention-action {DISABLED,INT8,FP8}
                         Quantize the KV cache with the given action (default: DISABLED)
+  --reserved-memory-gb RESERVED_MEMORY_GB
+                        Size of reserved device memory (in GB) that we cannot use from applications. (default: 0)
+  --tp-sizes TP_SIZES [TP_SIZES ...]
+                        TP sizes to search (default: powers of 2 up to world_size) (default: None)
 
 Service Options:
   --ttft-limits TTFT_LIMITS
-                        TTFT constraints under which to search for the best throughput. inf means no constraint. (default: inf)
-  --tpot-limits TPOT_LIMITS [TPOT_LIMITS ...]
-                        A list of TPOT constraints under which to search for the best throughput. (default: [50.0])
-  --backend {MindIE}    Backend name. (default: MindIE)
+                        TTFT constraints under which to search for the best throughput. None means no constraint. (default: None)
+  --tpot-limits TPOT_LIMITS
+                        TPOT constraints under which to search for the best throughput. None means no constraint. (default: None)
   --max-prefill-tokens MAX_PREFILL_TOKENS
                         Max prefill tokens (default: 8192)
-  -disagg, --disaggregation
-                        If set, run in disaggregation mode. (default: False)
+  --batch-range BATCH_RANGE [BATCH_RANGE ...]
+                        Batch size range: [min max] or [max] (default: 1 for min, no limit for max) (default: None)
+  --serving-cost SERVING_COST
+                        Serving cost represents the cost of service delivery (default: 0)
+  --disagg              If set, run disaggregation mode. disagg means disaggregation mode. (default: False)
+  --jobs JOBS           Number of parallel jobs. (default: 8)
 ```
 
-### How to calculate the performance metrics
+### How to calculate the performance metrics in aggregation mode
 - TTFT:
 
   We get average `ttft = sum_for_ttft / concurrency`. For sum_for_ttft, we assume the prefill batch size is the max prefill tokens divided by input length.
