@@ -3,9 +3,9 @@ import itertools
 from enum import auto, Enum
 from typing import Optional
 
-import stime
-
 from blinker import signal
+
+from . import stime
 
 
 class RequestState(Enum):

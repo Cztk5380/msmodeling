@@ -2,9 +2,9 @@ import unittest
 
 import torch
 
-from ..device import TEST_DEVICE
-from ..performance_model.memory_tracker import MemoryTracker
-from ..runtime import Runtime
+from tensor_cast.device import TEST_DEVICE
+from tensor_cast.performance_model.memory_tracker import MemoryTracker
+from tensor_cast.runtime import Runtime
 
 
 class TestMemoryTracker(unittest.TestCase):

@@ -9,7 +9,6 @@ from multiprocessing import Event, Manager
 from typing import List, Optional, Tuple
 
 import numpy as np
-import stime
 from scipy.interpolate import LinearNDInterpolator
 from serving_cast.config import Config
 from serving_cast.request import Request, RequestState
@@ -20,6 +19,7 @@ from tensor_cast.core.model_runner import (
     ModelRunnerMetrics,
 )
 from tensor_cast.core.user_config import UserInputConfig
+from . import stime
 
 logger = stime.get_logger(__name__)
 

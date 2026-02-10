@@ -4,20 +4,19 @@ from unittest.mock import Mock
 import torch
 from parameterized import parameterized
 
-from ..core.input_generator import (
+from tensor_cast.core.input_generator import (
     _get_padding_alignment,
     generate_inputs,
     generate_inputs_varlen,
     RequestInfo,
 )
-
-from ..device import TEST_DEVICE
-from ..layers.attention import AttentionTensorCast
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..runtime import Runtime
-from ..transformers.model import TransformerModel
-from ..transformers.utils import AutoModelConfigLoader
+from tensor_cast.device import TEST_DEVICE
+from tensor_cast.layers.attention import AttentionTensorCast
+from tensor_cast.model_config import ModelConfig, ParallelConfig, QuantConfig
+from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
+from tensor_cast.runtime import Runtime
+from tensor_cast.transformers.model import TransformerModel
+from tensor_cast.transformers.utils import AutoModelConfigLoader
 
 
 class InputGeneratorTestCase(unittest.TestCase):

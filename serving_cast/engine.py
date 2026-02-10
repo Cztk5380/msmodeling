@@ -1,13 +1,14 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from typing import Dict, List
 
-import stime
 from serving_cast.communication import CommunicationManager
 from serving_cast.config import Config
 from serving_cast.kv_cache_manager import KVCacheManager
 from serving_cast.model_runner import ModelRunner
 from serving_cast.profiler import profiler_interface
 from serving_cast.request import Request, RequestState
+
+from . import stime
 
 
 logger = stime.get_logger(__name__)

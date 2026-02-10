@@ -1,1 +1,27 @@
+torch>=2.7,<=2.10
+optree
+
+Pillow
+transformers>=4.57,<5.0
+modelscope
+diffusers
+compressed-tensors
+
+strenum
+aenum
+overrides
+
+# serving_cast
+salabim
 blinker
+greenlet
+scikit-learn
+scipy
+prettytable
+pyyaml
+pandas
+
+# test
+pytest
+pytest-xdist
+parameterized

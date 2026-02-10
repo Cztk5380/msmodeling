@@ -3,9 +3,9 @@ import unittest
 import torch
 from torch._inductor.compile_fx import fake_tensor_prop
 
-from .. import ops  # noqa: F401
-from ..compilation.compile_backend import CompilerBackend
-from ..utils import DTYPE_FP8
+from tensor_cast import ops  # noqa: F401
+from tensor_cast.compilation.compile_backend import CompilerBackend
+from tensor_cast.utils import DTYPE_FP8
 
 
 def _count_nodes(gm: torch.fx.GraphModule, target) -> int:

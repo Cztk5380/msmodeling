@@ -3,7 +3,7 @@ import unittest
 
 from serving_cast.communication import CommunicationManager
 from serving_cast.config import CommunicationConfig
-from stime import (
+from serving_cast.stime import (
     CallableTask,
     elapse,
     get_logger,

@@ -2,7 +2,7 @@
 import unittest
 
 import salabim as sim
-from stime import (
+from serving_cast.stime import (
     elapse,
     init_simulation,
     now,

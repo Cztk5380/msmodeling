@@ -8,11 +8,14 @@ from unittest.mock import patch
 import torch
 from parameterized import parameterized
 
-from ..core.input_generator import generate_image_inputs, generate_inputs
-from ..core.model_runner import ModelRunner, ModelRunnerMetrics
-from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
-from ..core.user_config import UserInputConfig
-from ..scripts.text_generate import main
+from tensor_cast.core.input_generator import generate_image_inputs, generate_inputs
+from tensor_cast.core.model_runner import ModelRunner, ModelRunnerMetrics
+from tensor_cast.core.quantization.datatypes import (
+    QuantizeAttentionAction,
+    QuantizeLinearAction,
+)
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.scripts.text_generate import main
 
 
 class TestTextGenerate(unittest.TestCase):

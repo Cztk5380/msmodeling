@@ -1,9 +1,0 @@
-salabim
-blinker
-pandas
-numpy
-pyyaml
-greenlet
-scikit-learn
-scipy
-prettytable

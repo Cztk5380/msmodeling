@@ -6,10 +6,10 @@ import unittest
 from unittest.mock import MagicMock
 
 import torch
+from cli.inference.video_generate import main, process_input, run_inference
 from parameterized import parameterized
 
-from ..core.quantization.datatypes import QuantizeLinearAction
-from ..scripts.video_generate import main, process_input, run_inference
+from tensor_cast.core.quantization.datatypes import QuantizeLinearAction
 
 
 class TestVideoGeneration(unittest.TestCase):

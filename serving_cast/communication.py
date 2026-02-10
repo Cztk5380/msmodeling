@@ -1,7 +1,7 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from collections import deque
 
-import stime
+from . import stime
 
 logger = stime.get_logger(__name__)
 

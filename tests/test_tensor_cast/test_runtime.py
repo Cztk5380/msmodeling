@@ -4,14 +4,14 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..compilation import get_backend
-from ..core.model_builder import build_model
-from ..core.user_config import UserInputConfig
-from ..device import TEST_DEVICE
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..performance_model.empirical import EmpiricalPerformanceModel
-from ..performance_model.memory_tracker import MemoryTracker
-from ..runtime import Runtime
+from tensor_cast.compilation import get_backend
+from tensor_cast.core.model_builder import build_model
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.device import TEST_DEVICE
+from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
+from tensor_cast.performance_model.empirical import EmpiricalPerformanceModel
+from tensor_cast.performance_model.memory_tracker import MemoryTracker
+from tensor_cast.runtime import Runtime
 from .test_common import (
     assert_close,
     create_attn_metadata_and_kv_cache,

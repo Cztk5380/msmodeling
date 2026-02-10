@@ -3,9 +3,10 @@
 import itertools
 from typing import List
 
-import stime
 from serving_cast.engine import Engine, EngineLoadBalancer
 from serving_cast.request import Request, RequestState
+
+from . import stime
 
 
 logger = stime.get_logger(__name__)

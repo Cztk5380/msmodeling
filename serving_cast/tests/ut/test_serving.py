@@ -2,7 +2,7 @@
 import unittest
 from unittest.mock import Mock, patch
 
-import stime
+import serving_cast.stime as stime
 from serving_cast.config import (
     CommunicationConfig,
     Config,

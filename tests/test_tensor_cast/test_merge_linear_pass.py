@@ -3,16 +3,16 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..compilation import get_backend
-from ..device import TEST_DEVICE
-from ..layers.attention import AttentionTensorCast
-from ..layers.quant_linear import TensorCastQuantLinear
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..performance_model.memory_tracker import MemoryTracker
-from ..quantize_utils import LinearQuantType, QuantGranularity
-from ..runtime import Runtime
-from ..transformers.model import TransformerModel
+from tensor_cast.compilation import get_backend
+from tensor_cast.device import TEST_DEVICE
+from tensor_cast.layers.attention import AttentionTensorCast
+from tensor_cast.layers.quant_linear import TensorCastQuantLinear
+from tensor_cast.model_config import ModelConfig, ParallelConfig, QuantConfig
+from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
+from tensor_cast.performance_model.memory_tracker import MemoryTracker
+from tensor_cast.quantize_utils import LinearQuantType, QuantGranularity
+from tensor_cast.runtime import Runtime
+from tensor_cast.transformers.model import TransformerModel
 from .test_common import count_events, get_quant_config
 
 

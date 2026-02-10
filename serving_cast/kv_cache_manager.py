@@ -1,9 +1,10 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 from typing import Dict, List, Optional
 
-import stime
 from serving_cast.config import Config
 from serving_cast.profiler import profiler_interface
+
+from . import stime
 
 
 logger = stime.get_logger(__name__)

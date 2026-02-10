@@ -1,5 +1,5 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
-from stime import current_task_name, get_logger, now
+from serving_cast.stime import current_task_name, get_logger, now
 
 logger = get_logger(__name__)
 

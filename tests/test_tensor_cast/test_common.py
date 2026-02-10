@@ -2,12 +2,12 @@ import random
 
 import torch
 
-from ..core.user_config import UserInputConfig
-from ..layers.attention import AttentionMetadataTensorCast
-from ..model_config import LinearQuantConfig, ModelConfig, QuantConfig
-from ..quantize_utils import LinearQuantType
-from ..transformers.utils import get_attention_quant_config, strip_module_name
-from ..utils import exact_division
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.layers.attention import AttentionMetadataTensorCast
+from tensor_cast.model_config import LinearQuantConfig, ModelConfig, QuantConfig
+from tensor_cast.quantize_utils import LinearQuantType
+from tensor_cast.transformers.utils import get_attention_quant_config, strip_module_name
+from tensor_cast.utils import exact_division
 
 
 def assert_close(self, value1, value2, rtol=0.01):

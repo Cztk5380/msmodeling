@@ -8,9 +8,9 @@ from typing import Any, Dict
 import numpy as np
 
 import pandas as pd
+from serving_cast.stime import get_logger
 
-import stime
-from stime import get_logger
+from . import stime
 
 logger = get_logger(__name__)
 

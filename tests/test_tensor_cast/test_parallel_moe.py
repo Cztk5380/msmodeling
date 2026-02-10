@@ -3,15 +3,15 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..compilation import get_backend
-from ..core.model_builder import build_model
-from ..core.user_config import UserInputConfig
-from ..device import TEST_DEVICE
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..runtime import Runtime
-from ..transformers.model import TransformerModel
-from ..transformers.utils import AutoModelConfigLoader, get_moe_config
+from tensor_cast.compilation import get_backend
+from tensor_cast.core.model_builder import build_model
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.device import TEST_DEVICE
+from tensor_cast.model_config import ModelConfig, ParallelConfig, QuantConfig
+from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
+from tensor_cast.runtime import Runtime
+from tensor_cast.transformers.model import TransformerModel
+from tensor_cast.transformers.utils import AutoModelConfigLoader, get_moe_config
 from .test_common import create_mla_metadata_and_kv_cache
 
 

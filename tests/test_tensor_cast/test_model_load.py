@@ -3,10 +3,10 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..compilation import get_backend
-from ..core.model_builder import build_model
-from ..core.user_config import UserInputConfig
-from ..patch_torch import patch_torch
+from tensor_cast.compilation import get_backend
+from tensor_cast.core.model_builder import build_model
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.patch_torch import patch_torch
 from .test_common import (
     create_attn_metadata_and_kv_cache,
     create_mla_metadata_and_kv_cache,

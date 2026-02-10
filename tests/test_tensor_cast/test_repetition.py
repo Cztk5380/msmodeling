@@ -3,19 +3,19 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..compilation import get_backend
-from ..core.model_builder import build_model
-from ..core.user_config import UserInputConfig
-from ..device import TEST_DEVICE
-from ..layers.attention import AttentionTensorCast
-from ..layers.internal import CopyLayerWrapper
-from ..layers.sampler import SamplingMetadata
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..performance_model.memory_tracker import MemoryTracker
-from ..runtime import Runtime
-from ..transformers.model import TransformerModel
-from ..transformers.utils import get_mtp_block_module_name
+from tensor_cast.compilation import get_backend
+from tensor_cast.core.model_builder import build_model
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.device import TEST_DEVICE
+from tensor_cast.layers.attention import AttentionTensorCast
+from tensor_cast.layers.internal import CopyLayerWrapper
+from tensor_cast.layers.sampler import SamplingMetadata
+from tensor_cast.model_config import ModelConfig, ParallelConfig, QuantConfig
+from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
+from tensor_cast.performance_model.memory_tracker import MemoryTracker
+from tensor_cast.runtime import Runtime
+from tensor_cast.transformers.model import TransformerModel
+from tensor_cast.transformers.utils import get_mtp_block_module_name
 from .test_common import (
     assert_close,
     create_mla_metadata_and_kv_cache,

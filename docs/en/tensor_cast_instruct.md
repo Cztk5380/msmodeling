@@ -33,7 +33,7 @@ You may also define your own device types in a Python file and drop it under `de
 ```bash
 git clone https://gitcode.com/Ascend/msmodeling.git -b develop
 cd msmodeling
-pip install -r ./tensor_cast/requirements.txt
+pip install -r requirements.txt
 ```
 
 ### Run text generation with given query length
@@ -56,7 +56,7 @@ usage: text_generate.py [-h]
 
 Run a simulated LLM inference pass and dump the perf result.
 ```
-Run `python -m tensor_cast.scripts.text_generate --help` for details.
+Run `python -m cli.inference.text_generate --help` for details.
 #### External Shared Experts & Redundant Experts Implementation
 The following outlines the implementation logic for External Shared Experts and Redundant Experts.
 
@@ -74,17 +74,17 @@ The allocation logic is identical to the "External Shared Experts Only" mode, wi
 #### Run Prefill
 To run a prefill of Qwen3-32B with two requests with 3500-token input length each on A2. You can run the following command:
 ```bash
-python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 2 --query-length 3500 --device TEST_DEVICE
+python -m cli.inference.text_generate Qwen/Qwen3-32B --num-queries 2 --query-length 3500 --device TEST_DEVICE
 ```
 You can also quantize the linear with various quantization schemes, such as W8A8 dynamic quantization and with 4500-token context as the prefix:
 ```bash
-python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 2 --query-length 3500 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_DYNAMIC
+python -m cli.inference.text_generate Qwen/Qwen3-32B --num-queries 2 --query-length 3500 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_DYNAMIC
 ```
 
 #### Run Decode
 Running decode is similar by tweaking the input length and context length. Usually, the input length is 1.
 ```bash
-python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 10 --query-length 1 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_STATIC
+python -m cli.inference.text_generate Qwen/Qwen3-32B --num-queries 10 --query-length 1 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_STATIC
 ```
 
 ## TODO List
@@ -115,7 +115,7 @@ python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 10 --qu
 
 ## Contributions
 ### Installation
-`pip install -r ./tensor_cast/requirements.txt`
+`pip install -r requirements.txt`
 
 ### Coding style
 Use `lintrunner` to make sure the coding style aligns:
@@ -129,7 +129,7 @@ Fix the remaining lint issues reported by `lintrunner`.
 
 ### Unit tests
 ```bash
-pip install pytest-xdist
+pip install -r requirements.txt
 cd /path/to/msmodeling
 ```
-Make sure unit tests pass by running: `pytest ./tensor_cast/tests -n auto`
+Make sure unit tests pass by running: `pytest tests/tensor_cast -n auto`

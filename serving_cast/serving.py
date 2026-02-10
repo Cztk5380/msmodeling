@@ -4,10 +4,11 @@
 from abc import ABC, abstractmethod
 from typing import List
 
-import stime
 from serving_cast.config import Config
 from serving_cast.instance import Instance, InstanceLoadBalancer
 from serving_cast.request import Request, RequestState
+
+from . import stime
 
 
 logger = stime.get_logger(__name__)

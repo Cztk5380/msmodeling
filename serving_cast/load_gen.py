@@ -2,8 +2,9 @@
 from abc import ABC, abstractmethod
 from typing import Dict
 
-import stime
 from serving_cast.request import Request, RequestState
+
+from . import stime
 
 logger = stime.get_logger(__name__)
 

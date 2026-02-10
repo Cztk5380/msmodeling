@@ -3,11 +3,11 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..core.model_builder import build_model
-from ..core.user_config import UserInputConfig
-from ..layers.sampler import SamplingMetadata
-from ..patch_torch import patch_torch
-from ..transformers.utils import get_mtp_block_module_name
+from tensor_cast.core.model_builder import build_model
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.layers.sampler import SamplingMetadata
+from tensor_cast.patch_torch import patch_torch
+from tensor_cast.transformers.utils import get_mtp_block_module_name
 from .test_common import create_mla_metadata_and_kv_cache, has_submodule_with_cls_name
 
 

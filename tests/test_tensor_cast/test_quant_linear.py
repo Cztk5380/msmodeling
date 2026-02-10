@@ -3,14 +3,14 @@ import unittest
 import torch
 from parameterized import parameterized
 
-from ..core.model_builder import build_model
-from ..core.quantization.datatypes import QuantizeLinearAction
-from ..core.user_config import UserInputConfig
-from ..device import TEST_DEVICE
-from ..layers.mla import MultiheadLatentAttentionTensorCast
-from ..layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
-from ..layers.sampler import SamplingMetadata
-from ..model_config import (
+from tensor_cast.core.model_builder import build_model
+from tensor_cast.core.quantization.datatypes import QuantizeLinearAction
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.device import TEST_DEVICE
+from tensor_cast.layers.mla import MultiheadLatentAttentionTensorCast
+from tensor_cast.layers.quant_linear import QuantLinearBase, TensorCastQuantLinear
+from tensor_cast.layers.sampler import SamplingMetadata
+from tensor_cast.model_config import (
     LinearQuantConfig,
     MlaConfig,
     ModelConfig,
@@ -18,17 +18,17 @@ from ..model_config import (
     ParallelConfig,
     QuantConfig,
 )
-from ..patch_torch import patch_torch
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
-from ..runtime import Runtime
-from ..transformers.model import TransformerModel
-from ..transformers.utils import (
+from tensor_cast.patch_torch import patch_torch
+from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
+from tensor_cast.quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
+from tensor_cast.runtime import Runtime
+from tensor_cast.transformers.model import TransformerModel
+from tensor_cast.transformers.utils import (
     AutoModelConfigLoader,
     get_moe_config,
     get_mtp_block_module_name,
 )
-from ..utils import DTYPE_FP8
+from tensor_cast.utils import DTYPE_FP8
 from .test_common import (
     create_mla_metadata_and_kv_cache,
     get_linear_quant_config,

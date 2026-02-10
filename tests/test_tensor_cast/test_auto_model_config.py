@@ -23,8 +23,16 @@ from enum import Enum
 from parameterized import parameterized
 from transformers.modeling_utils import no_init_weights
 
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig, RemoteSource
-from ..transformers.utils import AutoModelConfigLoader, init_on_device_without_buffers
+from tensor_cast.model_config import (
+    ModelConfig,
+    ParallelConfig,
+    QuantConfig,
+    RemoteSource,
+)
+from tensor_cast.transformers.utils import (
+    AutoModelConfigLoader,
+    init_on_device_without_buffers,
+)
 
 
 class ConfigMode(Enum):

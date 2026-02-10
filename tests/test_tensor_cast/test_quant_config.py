@@ -16,8 +16,11 @@ from enum import Enum
 from parameterized import parameterized
 from transformers.modeling_utils import no_init_weights
 
-from ..transformers.utils import AutoModelConfigLoader, init_on_device_without_buffers
-from ..utils import get_modules_to_not_convert, pattern_match
+from tensor_cast.transformers.utils import (
+    AutoModelConfigLoader,
+    init_on_device_without_buffers,
+)
+from tensor_cast.utils import get_modules_to_not_convert, pattern_match
 
 
 class ConfigMode(Enum):

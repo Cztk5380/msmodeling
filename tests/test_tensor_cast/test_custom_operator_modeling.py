@@ -2,19 +2,19 @@ import unittest
 
 import torch
 
-from ..core.model_builder import build_model
-from ..core.user_config import UserInputConfig
-from ..device import TEST_DEVICE
-from ..model_config import ModelConfig, ParallelConfig, QuantConfig
-from ..performance_model.analytic import AnalyticPerformanceModel
-from ..performance_model.base import PerformanceModel
-from ..performance_model.memory_tracker import MemoryTracker
-from ..performance_model.op_estimator_registry import register_op_estimator
+from tensor_cast.core.model_builder import build_model
+from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.device import TEST_DEVICE
+from tensor_cast.model_config import ModelConfig, ParallelConfig, QuantConfig
+from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
+from tensor_cast.performance_model.base import PerformanceModel
+from tensor_cast.performance_model.memory_tracker import MemoryTracker
+from tensor_cast.performance_model.op_estimator_registry import register_op_estimator
 
-from ..performance_model.op_invoke_info import OpInvokeInfo
-from ..runtime import Runtime
-from ..transformers.model import TransformerModel
-from ..transformers.utils import AutoModelConfigLoader, get_moe_config
+from tensor_cast.performance_model.op_invoke_info import OpInvokeInfo
+from tensor_cast.runtime import Runtime
+from tensor_cast.transformers.model import TransformerModel
+from tensor_cast.transformers.utils import AutoModelConfigLoader, get_moe_config
 from .test_common import create_attn_metadata_and_kv_cache
 
 

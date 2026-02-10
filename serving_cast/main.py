@@ -2,8 +2,6 @@
 import argparse
 import os
 
-import stime
-
 from serving_cast.config import Config
 from serving_cast.instance import Instance
 from serving_cast.load_gen import FixedLengthLoadGen
@@ -15,6 +13,8 @@ from serving_cast.utils import (
     main_processing,
     summarize,
 )
+
+from . import stime
 
 
 def parse_command_line_args():
