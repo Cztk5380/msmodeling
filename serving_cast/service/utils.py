@@ -3,16 +3,8 @@
 import argparse
 import logging
 import re
-import time
 from dataclasses import dataclass
-from enum import Enum
-
-import torch
-
-from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
-from tensor_cast.performance_model.memory_tracker import MemoryTracker
-from tensor_cast.performance_model.utils import bytes_of_tensor
-from tensor_cast.runtime import Runtime
+from typing import Dict
 
 
 LOG_LEVELS = {
@@ -23,39 +15,43 @@ LOG_LEVELS = {
     "fatal": logging.FATAL,
     "critical": logging.CRITICAL,
 }
-LIMIT_TIME = 1e6
+LIMIT_COUNT = 1e6
 BYTES_TO_GB = 1024**3
 MAX_ITER_NUMS = 10
 
 COMMON_COLUMNS = [
-    "model_name",
+    "device_name",
+    "num_devices",
+    "model_id",
+    "quantize_linear_action",
+    "quantize_attention_action",
     "input_length",
     "output_length",
     "concurrency",
     "ttft",
     "tpot",
-    "total_devices",
-    "backend",
-    "device_name",
+    "token/s",
+    "token/s/device",
+    "parallel",
+    "batch_size",
 ]
 
-AGG_COLUMNS = COMMON_COLUMNS + ["token/s", "token/s/device", "parallel", "batch_size"]
+AGG_COLUMNS = COMMON_COLUMNS + ["percentage_breakdowns(p)", "percentage_breakdowns(d)"]
+DISAGG_COLUMNS = COMMON_COLUMNS + ["percentage_breakdowns"]
 
 
 @dataclass
-class DataConfig:
+class OptimizerData:
     input_length: int = None
     output_length: int = None
     batch_size: int = None
     ttft_limits: float = None
     tpot_limits: float = None
     max_prefill_tokens: int = None
-    device_nums: int = None
-    device_profile: object = None
-
-
-class BackendName(Enum):
-    MindIE = "MindIE"
+    num_devices: int = None
+    serving_cost: float = None
+    num_mtp_tokens: int = None
+    mtp_acceptance_rate: list = None
 
 
 def set_log_level(level="info"):
@@ -79,45 +75,6 @@ def set_logger(logger_: logging.Logger):
 
 logger = logging.getLogger("msmodeling_logger")
 set_logger(logger)
-
-
-def run_static(model, input_kwargs, device_profile, reserved_memory_gb=0.0):
-    perf_model = AnalyticPerformanceModel(device_profile)
-
-    run_start = time.perf_counter()
-    with (
-        Runtime(
-            perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
-        ) as runtime,
-        torch.no_grad(),
-    ):
-        _ = model.forward(**input_kwargs)
-    run_end = time.perf_counter()
-    logger.debug("Model compilation and execution time: %.2f s", run_end - run_start)
-    execution_time_s = runtime.total_execution_time_s()[perf_model.name]
-    total_device_memory_gb = device_profile.memory_size_bytes / BYTES_TO_GB
-    model_weight_size_gb = model.weight_size / BYTES_TO_GB
-    peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / BYTES_TO_GB
-    total_kv_cache_size_gb = (
-        sum(
-            bytes_of_tensor(kv_cache)
-            for kv_cache in input_kwargs["kv_cache_by_layers"].values()
-        )
-        / BYTES_TO_GB
-    )
-    model_activation_size_gb = (
-        peak_memory_usage_gb - total_kv_cache_size_gb - model_weight_size_gb
-    )
-
-    device_memory_available_gb = (
-        total_device_memory_gb - peak_memory_usage_gb - reserved_memory_gb
-    )
-
-    return {
-        "execution_time_s": execution_time_s * 1000,
-        "device_memory_available_gb": device_memory_available_gb,
-        "model_activation_size_gb": model_activation_size_gb,
-    }
 
 
 def check_string_valid(string: str, max_len=256):
@@ -145,6 +102,8 @@ def check_positive_integer(value):
 
 
 def check_positive_float(value):
+    if value is None:
+        return None
     if value.lower() == "inf":
         return float("inf")
     try:
@@ -154,3 +113,42 @@ def check_positive_float(value):
     if value <= 0:
         raise argparse.ArgumentTypeError("%r is not a positive number", value)
     return value
+
+
+class BatchRangeAction(argparse.Action):
+    def __call__(self, parser, namespace, values, option_string=None):
+        if len(values) not in (1, 2):
+            raise argparse.ArgumentTypeError(
+                f"{option_string} expects [min max] or [max], got {values}"
+            )
+        if len(values) == 2 and values[0] > values[1]:
+            raise argparse.ArgumentTypeError(
+                f"{option_string} min must be <= max, got {values}"
+            )
+        if any(v <= 0 for v in values):
+            raise argparse.ArgumentTypeError(
+                f"{option_string} values must be > 0, got {values}"
+            )
+        setattr(namespace, self.dest, values)
+
+
+def format_breakdowns(breakdowns: Dict[str, Dict[str, float]]):
+    # format the breakdowns to a string
+    expected_keys = ["Mem", "Comm", "Cube", "Vec"]
+    all_values = []
+    for sub_dict in breakdowns.values():
+        total = sum(sub_dict.values())
+        if total == 0:
+            continue
+        for value in sub_dict.values():
+            if isinstance(value, float):
+                all_values.append(value / total * 100)
+
+    formatted_parts = []
+    for i, key in enumerate(expected_keys):
+        if i < len(all_values):
+            formatted_parts.append(f"{key} {all_values[i]:.2f}")
+        else:
+            formatted_parts.append(f"{key} 0.00")
+
+    return " | ".join(formatted_parts)

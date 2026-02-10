@@ -87,38 +87,6 @@ Running decode is similar by tweaking the input length and context length. Usual
 python -m tensor_cast.scripts.text_generate Qwen/Qwen3-32B --num-queries 10 --query-length 1 --context-length 4500 --device TEST_DEVICE --quantize-linear-action W8A8_STATIC
 ```
 
-### Benchmark the optimal throughput under SLO constraints
-Use `scripts/benchmark.py` to search for optimal throughput given models and device lists.
-```
-usage: benchmark.py [-h] --input-length INPUT_LENGTH --output-length OUTPUT_LENGTH
-                    [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}]
-                    [--model-id MODEL_ID] [--num-devices NUM_DEVICES] [-c CONFIG] [--compile] [--compile-allow-graph-break] [--num-mtp-tokens NUM_MTP_TOKENS]
-                    [--ttft-limits TTFT_LIMITS [TTFT_LIMITS ...]] [--tpot-limits TPOT_LIMITS [TPOT_LIMITS ...]] [--mode {decode,prefill,both}]
-                    [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}]
-                    [--mxfp4-group-size MXFP4_GROUP_SIZE] [--quantize-attention-action {DISABLED,INT8}] [--log-level LOG_LEVEL]
-
-Benchmark LLM inference on given devices and models to search for best throughput under given input/output sequence length and SLO limitations
-```
-Run `python -m tensor_cast.scripts.benchmark --help` for details.
-
-Example:
-Below command line benchmarks the optimal throughput for Qwen3-235B-A22B on 16 A2_280T_64G cards under TTFT/TPOT limits and 3.5k+1.5k input/output.
-```bash
-python -m tensor_cast.scripts.benchmark --model-id Qwen/Qwen3-235B-A22B --device ATLAS_800_A2_280T_64G --num-devices 16 --input-length 3500 --output-length 1500 --num-mtp-tokens 1 --ttft-limits 3 --tpot-limits 0.1 0.05
-```
-You may provide a YAML configuration file to replace `--model-id Qwen/Qwen3-235B-A22B --device ATLAS_800_A2_280T_64G --num-devices 16` in the
-example above. The configuration file can provide a list of devices and models to benchmark at the same time. Below is an example of the file:
-```yaml
-devices:
-  - "ATLAS_800_A2_280T_64G"
-  - "H20"
-
-models:
-  "Qwen/Qwen3-32B": [1, 2, 4]  # number of devices to test
-  "zai-org/GLM-4.5": [4, 8]
-```
-
-
 ## TODO List
 - [X] Qwen3-32B: op perf model, memory allocation, TP, W8A8 (dynamic quant), interconnect modeling
 - [X] Model: Add more model support (make them compilable): kimi-k2, DSv3-671B, Qwen3-235B, GLM-4.5

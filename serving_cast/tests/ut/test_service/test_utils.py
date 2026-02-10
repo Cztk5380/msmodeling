@@ -5,11 +5,11 @@ import logging
 import unittest
 
 from serving_cast.service.utils import (
-    BackendName,
+    BatchRangeAction,
     check_positive_float,
     check_positive_integer,
     check_string_valid,
-    DataConfig,
+    OptimizerData,
     set_logger,
 )
 
@@ -63,16 +63,11 @@ class TestServiceUtils(unittest.TestCase):
         with self.assertRaises(argparse.ArgumentTypeError):
             check_positive_float("-1.5")
 
-    def test_data_config_creation(self):
-        """Test DataConfig creation with default values"""
-        config = DataConfig()
+    def test_optimizer_data_creation(self):
+        """Test OptimizerData creation with default values"""
+        config = OptimizerData()
         self.assertIsNone(config.input_length)
         self.assertIsNone(config.output_length)
-        self.assertIsNone(config.device_profile)
-
-    def test_backend_name_enum(self):
-        """Test BackendName enum values"""
-        self.assertEqual(BackendName.MindIE.value, "MindIE")
 
     def test_set_logger_functionality(self):
         """Test set_logger function sets up logger properly"""
@@ -90,3 +85,42 @@ class TestServiceUtils(unittest.TestCase):
 
         # Clean up
         test_logger.handlers.clear()
+
+
+class TestBatchRangeAction(unittest.TestCase):
+    """Test BatchRangeAction class functionality"""
+
+    def setUp(self):
+        """Set up test fixtures before each test method."""
+        self.parser = argparse.ArgumentParser()
+        self.namespace = argparse.Namespace()
+        self.action = BatchRangeAction(
+            option_strings=["--batch-range"], dest="batch_range"
+        )
+
+    def test_valid_single_value(self):
+        """Test BatchRangeAction with valid single value"""
+        parser = argparse.ArgumentParser()
+        namespace = argparse.Namespace()
+
+        # Test single value (e.g., --batch-range 100)
+        self.action(parser, namespace, [100])
+        self.assertEqual(namespace.batch_range, [100])
+
+    def test_valid_range_values(self):
+        """Test BatchRangeAction with valid range values"""
+        parser = argparse.ArgumentParser()
+        namespace = argparse.Namespace()
+
+        # Test range values (e.g., --batch-range 10 100)
+        self.action(parser, namespace, [10, 100])
+        self.assertEqual(namespace.batch_range, [10, 100])
+
+    def test_invalid_range_order(self):
+        """Test BatchRangeAction with invalid range order"""
+        parser = argparse.ArgumentParser()
+        namespace = argparse.Namespace()
+
+        # Test with min > max (should raise ArgumentTypeError)
+        with self.assertRaises(argparse.ArgumentTypeError):
+            self.action(parser, namespace, [100, 10])

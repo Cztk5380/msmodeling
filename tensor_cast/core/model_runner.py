@@ -38,14 +38,14 @@ class ModelRunner:
     def __init__(self, user_input: UserInputConfig):
         self.user_input = user_input
         # ---------- 1. init device profile and performance_model ----------
-        print("Initializing model on 'meta' device...")
         if user_input.device not in DeviceProfile.all_device_profiles:
             raise ValueError(f"Device '{user_input.device}' not recognized.")
         self.device_profile = DeviceProfile.all_device_profiles[user_input.device]
         self.perf_model = AnalyticPerformanceModel(self.device_profile)
 
         #  ---------- 2. generate default request from user config----------
-        self.request_info_default = [user_input.get_request_info()]
+        if user_input.num_queries != 0:
+            self.request_info_default = [user_input.get_request_info()]
 
         # ---------- 3. build model ----------
         self.model = build_model(user_input).eval()
