@@ -29,6 +29,9 @@ You may also define your own device types in a Python file and drop it under `de
 ### Supported python versions
 3.10+
 
+> [!Warning] Warning
+> If your operating system is Windows, please ensure that your PyTorch version is 2.8 or earlier, otherwise the program may not function correctly.
+
 ### Install required packages
 ```bash
 git clone https://gitcode.com/Ascend/msmodeling.git -b develop

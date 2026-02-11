@@ -1,5 +1,8 @@
 import argparse
 import logging
+import re
+
+from tensor_cast.device import DeviceProfile
 
 
 LOG_LEVELS = {
@@ -55,3 +58,77 @@ def parse_int_range(value: str, name: str) -> tuple[int, int]:
             f"{name} must be 'start,end' with end >= start, got {value!r}."
         )
     return start, end
+
+
+def check_string_valid(string: str, max_len=256):
+    if len(string) > max_len:
+        raise argparse.ArgumentTypeError(
+            "String length exceeds %d characters: %r", max_len, string
+        )
+    if not re.match(r"^[a-zA-Z0-9_/.-]+$", string):
+        raise argparse.ArgumentTypeError(
+            "String contains invalid characters: %r", string
+        )
+    return string
+
+
+def get_common_argparser():
+    common_parser = argparse.ArgumentParser(
+        add_help=False,
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+
+    general_group = common_parser.add_argument_group("General Options")
+
+    general_group.add_argument(
+        "model_id",
+        type=check_string_valid,
+        help="The model identifier, which can be: "
+        "1) A Hugging Face model ID (e.g., 'meta-llama/Llama-2-7b-hf') to load from the Hub; "
+        "2) A local directory path containing a diffusers model (must include 'transformer/config.json').",
+    )
+
+    general_group.add_argument(
+        "--device",
+        type=str,
+        choices=list(DeviceProfile.all_device_profiles.keys()),
+        default="TEST_DEVICE",
+        help=(
+            "Specifies the target device profile to use for benchmarking and simulation. "
+            "Must be a valid device name as defined in DeviceProfile. "
+            "The default device 'TEST_DEVICE' is used for standard simulation runs."
+        ),
+    )
+
+    general_group.add_argument(
+        "--num-devices",
+        type=check_positive_integer,
+        default=1,
+        help=(
+            "Specifies the total number of devices/processes to use. "
+            "Must be a positive integer. "
+            "A value of 1 indicates single-device execution."
+        ),
+    )
+
+    general_group.add_argument(
+        "--reserved-memory-gb",
+        type=float,
+        default=0.0,
+        help=(
+            "Amount of device memory (in gigabytes) reserved for system usage and unavailable for application. "
+            "Set to 0 to disable memory reservation."
+        ),
+    )
+
+    general_group.add_argument(
+        "--log-level",
+        choices=LOG_LEVELS,
+        default="error",
+        help=(
+            "Specifies the verbosity level for log output. "
+            "Available levels: 'debug' (most verbose), 'info', 'warning', 'error', 'critical' (least verbose)."
+        ),
+    )
+
+    return common_parser

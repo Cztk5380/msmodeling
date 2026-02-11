@@ -11,6 +11,9 @@ pip install -r requirements.txt
 ## Supported python versions
 3.10+
 
+> [!Warning] Warning
+> If your operating system is Windows, please ensure that your PyTorch version is 2.8 or earlier, otherwise the program may not function correctly.
+
 ## Run simulation
 
 ### Set environment variable
@@ -111,18 +114,13 @@ The parsed profiling result is stored in the directory ```profiling_output_path/
 A ```chrome_tracing.json``` and a ```profiler.db``` will be generated in parsed_result directory, you can view it by ```chrome://tracing``` or MindStudio Insight
 
 
-<<<<<<< HEAD
 ## Throughput optimizer under SLO constraints
-We provide a script `throughput_optimizer.py` to optimize the throughput under SLO constraints.
-=======
-## Performance analyze for PD aggregation mode
-We provide a script `cli/inference/throughput_optimizer.py` to analyze the performance of PD aggregation mode.
->>>>>>> ce2a67b (docs: update installation and script paths in English documentation)
+We provide a script `cli/inference/throughput_optimizer.py` to optimize the throughput under SLO constraints.
 
 ### Quick Start
 ```bash
 cd /path/to/msmodeling
-<<<<<<< HEAD
+pip install -r requirements.txt
 ```
 
 #### Run in aggregation mode
@@ -143,10 +141,6 @@ python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device 
 If you want to run the script in Decode mode, you need to set the `--disagg` flag and `--tpot-limits` to the maximum TPOT you want to support. The other parameters are similar to aggregation mode.
 ```bash
 python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --tpot-limits 50
-=======
-pip install -r requirements.txt
-python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --tpot-limits 50
->>>>>>> ce2a67b (docs: update installation and script paths in English documentation)
 ```
 
 ### Result Information
