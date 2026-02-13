@@ -1,6 +1,5 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
-from unittest.mock import Mock
 
 from serving_cast.service.agg_throughput_optimizer import AggThroughputOptimizer
 from serving_cast.service.utils import OptimizerData
@@ -8,22 +7,19 @@ from serving_cast.service.utils import OptimizerData
 from tensor_cast.core.model_runner import ModelRunner
 from tensor_cast.core.user_config import UserInputConfig
 from tensor_cast.device import DeviceProfile
+from .test_common import SimpleArgs
 
 
 class TestAggThroughputOptimizer(unittest.TestCase):
     def setUp(self):
         """Set up test fixtures before each test method."""
         self.strategy = AggThroughputOptimizer()
-        self.mock_args = Mock()
-        self.mock_args.model_id = "Qwen/Qwen3-32B"
-        self.mock_args.device = "TEST_DEVICE"
-        self.mock_args.num_devices = 8
-        self.mock_args.mtp_acceptance_rate = [0.8, 0.7, 0.6]
-        self.mock_args.num_mtp_tokens = 3
+        self.args = SimpleArgs()
+        self.args.model_id = "Qwen/Qwen3-32B"
 
-        self.device_profile = DeviceProfile.all_device_profiles[self.mock_args.device]
+        self.device_profile = DeviceProfile.all_device_profiles[self.args.device]
 
-        self.user_input = UserInputConfig.from_args(self.mock_args)
+        self.user_input = UserInputConfig.from_args(self.args)
         self.model_runner = ModelRunner(self.user_input)
         # Initialize strategy
         self.strategy.initialize(self.model_runner)

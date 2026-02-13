@@ -1,0 +1,20 @@
+class SimpleArgs:
+    def __init__(self):
+        self.model_id = "Qwen/Qwen3-8B"
+        self.device = "TEST_DEVICE"
+        self.compile = True
+        self.compile_allow_graph_break = False
+        self.num_mtp_tokens = 0
+        self.mtp_acceptance_rate = [0.9, 0.8]
+        self.quantize_linear_action = "DISABLED"
+        self.mxfp4_group_size = 128
+        self.quantize_attention_action = "DISABLED"
+        self.max_prefill_tokens = 2048
+        self.input_length = 100
+        self.output_length = 100
+        self.ttft_limits = None
+        self.tpot_limits = 100
+        self.disagg = False
+        self.tp_sizes = None
+        self.num_devices = 1
+        self.batch_range = None

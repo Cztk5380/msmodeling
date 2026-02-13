@@ -24,15 +24,42 @@ from .utils import AGG_COLUMNS, MAX_ITER_NUMS, OptimizerData
 
 
 class BaseThroughputOptimizer(ABC):
+    """
+    Abstract base class for throughput optimization strategies.
+    This class provides a framework for optimizing model inference throughput by
+    finding the optimal batch size through binary search. Subclasses must implement
+    the initialize and get_inference_info methods to support specific optimization
+    strategies.
+    Attributes:
+        name: Identifier for the optimizer strategy, defaults to "base".
+    """
+
     name = "base"
 
     @abstractmethod
     def initialize(self, model_runner: ModelRunner):
-        pass
+        """
+        Initialize the optimizer with a model runner instance.
+        Args:
+            model_runner: The ModelRunner instance used for model inference.
+        Note:
+            This method should be implemented to set up any required resources
+            or configurations for the optimization process.
+        """
 
     @abstractmethod
     def get_inference_info(self, optimizer_data: OptimizerData) -> OptimizerSummary:
-        pass
+        """
+        Execute inference and return optimization summary.
+        Args:
+            optimizer_data: Contains optimization parameters including batch size,
+                input length, output length, etc.
+        Returns:
+            OptimizerSummary containing inference metrics and results.
+        Note:
+            This method should be implemented to perform model inference with
+            the specified batch size and return performance metrics.
+        """
 
     def run(
         self, optimizer_data: OptimizerData, batch_range: list[int]

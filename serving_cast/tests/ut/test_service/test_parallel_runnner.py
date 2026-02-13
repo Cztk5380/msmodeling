@@ -4,32 +4,11 @@ import unittest
 from cli.inference.throughput_optimizer import ParallelRunner
 
 from serving_cast.service.optimizer_summary import OptimizerSummary
+from serving_cast.service.utils import OptimizerData
 
 from tensor_cast.core.user_config import UserInputConfig
 from tensor_cast.device import DeviceProfile
-
-
-class SimpleArgs:
-    def __init__(self):
-        self.model_id = "Qwen/Qwen3-8B"
-        self.device = "TEST_DEVICE"
-        self.compile = True
-        self.compile_allow_graph_break = False
-        self.num_mtp_tokens = 0
-        self.mtp_acceptance_rate = [0.9, 0.8]
-        self.quantize_linear_action = "DISABLED"
-        self.mxfp4_group_size = 128
-        self.quantize_attention_action = "DISABLED"
-        self.backend = "mindie"
-        self.max_prefill_tokens = 2048
-        self.input_length = 512
-        self.output_length = 128
-        self.ttft_limits = 1000
-        self.tpot_limits = 100
-        self.disagg = False
-        self.tp_sizes = None
-        self.num_devices = 1
-        self.batch_range = None
+from .test_common import SimpleArgs
 
 
 class TestTaskRunner(unittest.TestCase):
@@ -88,6 +67,50 @@ class TestTaskRunner(unittest.TestCase):
         summary_df = result[0].get_summary_df()
         row = summary_df.iloc[0]
         self.assertEqual(row["concurrency"], 2)
+
+    def test_run_disagg_with_ttft_and_tpot_limit(self):
+        """Test run_disagg method with ttft and tpot limit"""
+        self.args.ttft_limits = 1000
+        self.args.tpot_limits = 50
+        self.args.batch_range = [2, 2]
+        self.args.disagg = True
+        task_runner = ParallelRunner(self.args)
+        result = task_runner.run_disagg()
+
+        # Prefill and decode
+        self.assertEqual(len(result), 2)
+        self.assertIsInstance(result[0], OptimizerSummary)
+
+        prefill_df = result[0].get_summary_df()
+        row = prefill_df.iloc[0]
+        self.assertEqual(row["concurrency"], 2)
+        self.assertIsNone(row["tpot"])
+
+        decode_df = result[1].get_summary_df()
+        row = decode_df.iloc[0]
+        self.assertEqual(row["concurrency"], 2)
+        self.assertIsNone(row["ttft"])
+
+    def test_submit_task(self):
+        """Test _submit_task method"""
+        user_config = UserInputConfig.from_args(self.args)
+        optimizer_data = OptimizerData(
+            input_length=self.args.input_length,
+            output_length=self.args.output_length,
+            ttft_limits=1000,
+            tpot_limits=50,
+            max_prefill_tokens=self.args.max_prefill_tokens,
+            num_devices=self.args.num_devices,
+            num_mtp_tokens=1,
+            mtp_acceptance_rate=[0.9],
+        )
+
+        task_runner = ParallelRunner(self.args)
+        result_df = task_runner._submit_task(user_config, optimizer_data)
+        self.assertIsNotNone(result_df)
+        row = result_df.iloc[0]
+        self.assertEqual(row["model_id"], self.args.model_id)
+        self.assertEqual(row["parallel"], "tp1pp1dp1")
 
 
 if __name__ == "__main__":
