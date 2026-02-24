@@ -11,4 +11,5 @@ from . import (  # noqa: F401
     mtp,
     quantization,
     rotary_embedding,
+    swiglu,
 )

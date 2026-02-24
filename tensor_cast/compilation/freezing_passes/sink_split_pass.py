@@ -208,6 +208,7 @@ class SinkSplitPass(TensorCastGraphModulePass):
         # Binary ops
         binary_ops = [
             torch.ops.aten.mul.Tensor,
+            torch.ops.tensor_cast.swiglu.default,
         ]
         for op in binary_ops:
             add_config(op, {0, 1}, {0})
@@ -644,11 +645,45 @@ class SinkSplitPass(TensorCastGraphModulePass):
                     group = target_to_group.setdefault(user.target, [])
                     group.append(user)
 
-            source_op_groups = [
-                group
-                for group in target_to_group.values()
-                if len(group) == num_split_users
-            ]
+            # Check that every user uses its getitem at the *same argument position*.
+            # This pattern is required for "grouped" fusion (e.g., grouped_matmul).
+            #
+            # Valid example (multiple ops, same arg position):
+            #   a, b = split(x)  # split produces 2 getitem nodes
+            #   y1 = linear(a)   # a is at args[0] of linear1
+            #   y2 = linear(b)   # b is at args[0] of linear2 → same position → OK
+            #
+            # Invalid (SwiGLU pattern):
+            #   a, b = split(x)  # split produces 2 getitem nodes
+            #   y = swiglu(a, b) # 1 op uses 2 getitems → filtered out
+            source_op_groups = []
+            for group in target_to_group.values():
+                if len(group) != num_split_users:
+                    continue
+
+                arg_pos_set = set()
+                for user_node in group:
+                    if user_node.op != "call_function":
+                        break
+
+                    current_pos = []
+                    for arg_idx, arg in enumerate(user_node.args):
+                        if (
+                            isinstance(arg, Node)
+                            and arg.target == operator.getitem
+                            and len(arg.args) > 0
+                            and arg.args[0] == split_node
+                        ):
+                            current_pos.append(arg_idx)
+
+                    if len(current_pos) != 1:
+                        break
+
+                    arg_pos_set.add(current_pos[0])
+                    if len(arg_pos_set) > 1:
+                        break
+                if len(arg_pos_set) == 1:
+                    source_op_groups.append(group)
             return source_op_groups
 
         matches = []

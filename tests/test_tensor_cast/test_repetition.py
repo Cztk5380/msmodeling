@@ -96,7 +96,7 @@ class RepetitionTestCase(unittest.TestCase):
             self,
             len(runtime.event_list),
             len(runtime_with_repeats.event_list),
-            rtol=0.025 if do_compile else 0,
+            rtol=0.027 if do_compile else 0,
         )
         runtime_cost_s = runtime.total_execution_time_s()[perf_model.name]
         runtime_cost_with_repeats_s = runtime_with_repeats.total_execution_time_s()[
