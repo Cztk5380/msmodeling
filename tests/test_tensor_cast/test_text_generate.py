@@ -6,6 +6,7 @@ from typing import Union
 from unittest.mock import patch
 
 import torch
+from cli.inference.text_generate import main
 from parameterized import parameterized
 
 from tensor_cast.core.input_generator import generate_image_inputs, generate_inputs
@@ -15,7 +16,6 @@ from tensor_cast.core.quantization.datatypes import (
     QuantizeLinearAction,
 )
 from tensor_cast.core.user_config import UserInputConfig
-from tensor_cast.scripts.text_generate import main
 
 
 class TestTextGenerate(unittest.TestCase):

@@ -1,8 +1,8 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
+from unittest.mock import MagicMock, Mock
 
-from cli.inference.throughput_optimizer import ParallelRunner
-
+from serving_cast.parallel_runner import ParallelRunner
 from serving_cast.service.optimizer_summary import OptimizerSummary
 from serving_cast.service.utils import OptimizerData
 
@@ -67,6 +67,53 @@ class TestTaskRunner(unittest.TestCase):
         summary_df = result[0].get_summary_df()
         row = summary_df.iloc[0]
         self.assertEqual(row["concurrency"], 2)
+
+    def test_given_mocked_executor_when_called_then_returns_empty_list_and_verifies_executor_initialization(
+        self,
+    ):
+        executor_cls = Mock()
+        executor_inst = MagicMock()
+        executor_cls.return_value = executor_inst
+        executor_inst.__enter__.return_value = executor_inst
+        executor_inst.__exit__.return_value = None
+        initializer = Mock()
+
+        def test_map(fn, *iterables, timeout=None, chunksize=1):
+            initializer()
+            return []
+
+        executor_inst.map = test_map
+
+        task_runner = ParallelRunner(self.args, executor_cls, initializer)
+        df_list = task_runner._get_df_list(task_runner.optimizer_data)
+
+        executor_cls.assert_called_once_with(
+            max_workers=self.args.jobs, initializer=initializer
+        )
+        initializer.assert_called_once_with()
+
+        self.assertEqual(df_list, [])
+
+    def test_given_worker_initializer_raises_runtime_error_when_called_then_raises_and_logs_expected_errors(
+        self,
+    ):
+        initializer = MagicMock(side_effect=RuntimeError)
+        task_runner = ParallelRunner(self.args, worker_initializer=initializer)
+
+        with self.assertLogs("serving_cast.parallel_runner", "ERROR") as cm:
+            self.assertRaises(
+                RuntimeError, task_runner._get_df_list, task_runner.optimizer_data
+            )
+            self.assertTrue(len(cm.output), 3)
+            self.assertRegex(
+                cm.output[0],
+                "ERROR:serving_cast.parallel_runner:A worker process crashed unexpectedly during execution. "
+                "Common causes: memory issues, unpicklable objects, or unhandled exceptions in worker.",
+            )
+            self.assertRegex(
+                cm.output[1],
+                "ERROR:serving_cast.parallel_runner:Executor: ProcessPoolExecutor, Workers: 4",
+            )
 
     def test_run_disagg_with_ttft_and_tpot_limit(self):
         """Test run_disagg method with ttft and tpot limit"""

@@ -6,6 +6,8 @@ ModelRuner
 
 from __future__ import annotations
 
+import logging
+
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, TYPE_CHECKING
@@ -30,6 +32,9 @@ if TYPE_CHECKING:
     from .user_config import UserInputConfig
 
 
+logger = logging.getLogger(__name__)
+
+
 class ModelRunner:
     """
     corresponding to one data-parallel partition ('dp_rank')
@@ -37,24 +42,45 @@ class ModelRunner:
 
     def __init__(self, user_input: UserInputConfig):
         self.user_input = user_input
+
         # ---------- 1. init device profile and performance_model ----------
         if user_input.device not in DeviceProfile.all_device_profiles:
+            logger.error(
+                "Unsupported device: %s. Available devices: %s",
+                user_input.device,
+                list(DeviceProfile.all_device_profiles.keys()),
+            )
             raise ValueError(f"Device '{user_input.device}' not recognized.")
+
+        logger.info("Loading device profile")
         self.device_profile = DeviceProfile.all_device_profiles[user_input.device]
+        logger.debug("Device profile loaded: %s", self.device_profile)
+
+        logger.info("Initializing performance model")
         self.perf_model = AnalyticPerformanceModel(self.device_profile)
+        logger.debug("Performance model initialized: %s", self.perf_model)
 
         #  ---------- 2. generate default request from user config----------
+        logger.info("Generating request information")
         if user_input.num_queries != 0:
             self.request_info_default = [user_input.get_request_info()]
+            logger.debug("Request configured: %s", self.request_info_default)
+        else:
+            logger.debug("No default requests configured (num_queries = 0)")
+            self.request_info_default = None
 
         # ---------- 3. build model ----------
+        logger.info("Building model architecture")
         self.model = build_model(user_input).eval()
+        logger.debug("Model built:_%s", self.model)
 
         # ---------- 4. static_memory ----------
         self.total_device_memory_gb = self.device_profile.memory_size_bytes / 1024**3
         self.model_weight_size_gb = self.model.weight_size / 1024**3
 
+        logger.info("Initializing Sampler")
         self.sampler = Sampler()
+        logger.debug("Sampler initialized: %s", self.sampler)
 
     # -----------------------------------------------------
     # public API
@@ -73,14 +99,18 @@ class ModelRunner:
             )
             return tps
 
+        data_parallel_size = self.model.model_config.parallel_config.data_parallel_size
+        logger.debug("data_parallel_size: %s", data_parallel_size)
+
         batch_size = (
-            self.user_input.num_queries
-            + self.model.model_config.parallel_config.data_parallel_size
-            - 1
-        ) // self.model.model_config.parallel_config.data_parallel_size
+            self.user_input.num_queries + data_parallel_size - 1
+        ) // data_parallel_size
+        logger.debug("batch_size: %s", batch_size)
 
         if requests is None:
             requests = self.request_info_default
+        logger.debug("requests: %s", requests)
+
         input_kwargs = generate_inputs_func(
             self.model,
             requests,

@@ -1,4 +1,5 @@
 import fnmatch
+import logging
 import re
 from typing import List, Optional, Union
 
@@ -15,6 +16,9 @@ DTYPE_FP8 = torch.float8_e5m2
 DTYPE_FP4 = torch.int4
 
 
+logger = logging.getLogger(__name__)
+
+
 def register_tensor_cast_op(name, mutates_args=(), **kwargs):
     """
     Register tensor_cast custom op with `name` under tensor_cast namespace.
@@ -27,6 +31,7 @@ def register_tensor_cast_op(name, mutates_args=(), **kwargs):
             f"tensor_cast::{name}", mutates_args=mutates_args, **kwargs
         )(func)
         custom_op.register_fake(func)
+        logger.debug("Registered Operator: tensor_cast::%s", name)
         return func
 
     return decorator

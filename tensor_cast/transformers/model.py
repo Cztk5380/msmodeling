@@ -170,11 +170,19 @@ class TransformerModel(ModelWrapperBase):
         super().__init__(None)
         self.model_id = model_id
         self.model_config = model_config
+
+        logger.info("Initializing 'TransformerModel' for model_id: %s", model_id)
         with init_on_device_without_buffers("meta"), no_init_weights():
             auto_loader = AutoModelConfigLoader()
             if self.model_config.hf_config is not None:
+                logger.info("Using provided HuggingFace configuration")
                 self.hf_config = self.model_config.hf_config
+
                 if self.model_config.num_hidden_layers_override:
+                    logger.info(
+                        "Overriding num_hidden_layers to %s",
+                        model_config.num_hidden_layers_override,
+                    )
                     self.hf_config.get_text_config().num_hidden_layers = (
                         model_config.num_hidden_layers_override
                     )
@@ -184,6 +192,7 @@ class TransformerModel(ModelWrapperBase):
                     trust_remote_code=self.model_config.trust_remote_code,
                 )
             else:
+                logger.info("Auto-loading model and configuration for: %s", model_id)
                 self.hf_config, self._inner = auto_loader.auto_load_model_and_config(
                     self.model_id, self.model_config
                 )
@@ -191,22 +200,27 @@ class TransformerModel(ModelWrapperBase):
 
             self.text_config = self.hf_config.get_text_config()
             self.is_vl_model = hasattr(self.hf_config, "vision_config")
+            logger.info(
+                "Model type: %s", "Vision-Language" if self.is_vl_model else "Text-only"
+            )
+
             if (
                 self.model_config.attention_cls
                 and self.model_config.attention_cls.attn_implmentation
             ):
-                self.text_config._attn_implementation = (
-                    self.model_config.attention_cls.attn_implmentation
-                )
+                attn_impl = self.model_config.attention_cls.attn_implmentation
+                logger.info("Setting attention implementation to: %s", attn_impl)
+                self.text_config._attn_implementation = attn_impl
                 if self.is_vl_model:
-                    self.hf_config.vision_config._attn_implementation = (
-                        self.model_config.attention_cls.attn_implmentation
-                    )
+                    self.hf_config.vision_config._attn_implementation = attn_impl
 
+            logger.info("Initializing parallel groups")
             self.parallel_group_manager = ParallelGroupManager(
                 self.model_config.parallel_config
             )
             # the order of these functions matters!
+
+            logger.info("Applying model transformations")
             with self.set_default_dtype():
                 self.wrap_model()
                 self.maybe_enable_mtp()
@@ -214,6 +228,8 @@ class TransformerModel(ModelWrapperBase):
                 self.patch_model()
                 self.quantize_model()
                 self.shard_model()
+
+        logger.info("Loading model weights")
         self.load_weights()
 
     @contextlib.contextmanager

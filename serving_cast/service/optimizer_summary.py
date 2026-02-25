@@ -12,10 +12,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+import logging
+
 import pandas as pd
 from prettytable import PrettyTable
 
-from .utils import logger
+
+logger = logging.getLogger()
 
 
 TTFT_COLUMN = "TTFT (ms)"
@@ -92,7 +95,7 @@ class OptimizerSummary:
             print("\n" + first_rows.to_string(index=False) + "\n")
         else:
             final_out = self._get_final_out(args, first_rows)
-            logger.info("%s", "\n" + "\n".join(final_out))
+            print("\n" + "\n".join(final_out))
 
     def _get_final_out(self, args, sorted_summary_df):
         best_result = sorted_summary_df.loc[0]

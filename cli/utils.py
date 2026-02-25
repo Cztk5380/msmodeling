@@ -12,6 +12,7 @@ LOG_LEVELS = {
     "error": logging.ERROR,
     "critical": logging.CRITICAL,
 }
+LOG_FORMAT = "[%(levelname)s] [%(name)s] %(message)s"
 
 
 def check_positive_integer(value):

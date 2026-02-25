@@ -18,3 +18,4 @@ class SimpleArgs:
         self.tp_sizes = None
         self.num_devices = 1
         self.batch_range = None
+        self.log_level = "INFO"

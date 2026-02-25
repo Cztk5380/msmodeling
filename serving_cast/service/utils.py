@@ -54,29 +54,6 @@ class OptimizerData:
     mtp_acceptance_rate: list = None
 
 
-def set_log_level(level="info"):
-    if level.lower() in LOG_LEVELS:
-        logger.setLevel(LOG_LEVELS.get(level.lower()))
-    else:
-        logger.warning("log level %r not found, set to info", level)
-
-
-def set_logger(logger_: logging.Logger):
-    logger_.propagate = False
-    logger_.setLevel(logging.INFO)
-    if not logger_.handlers:
-        console_handler = logging.StreamHandler()
-        formatter = logging.Formatter(
-            "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-        )
-        console_handler.setFormatter(formatter)
-        logger_.addHandler(console_handler)
-
-
-logger = logging.getLogger("msmodeling_logger")
-set_logger(logger)
-
-
 def check_string_valid(string: str, max_len=256):
     if len(string) > max_len:
         raise argparse.ArgumentTypeError(

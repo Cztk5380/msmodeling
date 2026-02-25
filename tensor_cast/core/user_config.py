@@ -3,6 +3,7 @@
 user_config
 """
 
+import logging
 from dataclasses import dataclass, field, fields
 from typing import List, Optional
 
@@ -11,6 +12,9 @@ from ..core.quantization.config import create_quant_config
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..device import DeviceProfile
 from ..model_config import ParallelConfig, QuantConfig, RemoteSource
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -159,6 +163,13 @@ class UserInputConfig:
     def from_args(cls, args) -> "UserInputConfig":
         # get all names of cls
         field_names = {_field.name for _field in fields(cls)}
+        logger.debug(
+            "Initializing %s from command-line arguments. "
+            "Class has %d defined fields: %s",
+            cls.__name__,
+            len(field_names),
+            sorted(field_names),
+        )
 
         # Extract only the fields that exist in the cls from args.
 
@@ -171,6 +182,10 @@ class UserInputConfig:
             "query_length": "query_len",
             "num_devices": "world_size",
         }
+        logger.debug(
+            "Using special input key mapping for backward compatibility: %s",
+            special_input_key_map,
+        )
         filtered_kwargs = {}
         for field_name, field_value in vars(args).items():
             if field_name in special_input_key_map:

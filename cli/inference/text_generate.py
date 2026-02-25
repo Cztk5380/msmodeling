@@ -2,14 +2,11 @@ import argparse
 import logging
 
 from tensor_cast import config, device_profiles  # noqa: F401
-from tensor_cast.core.input_generator import generate_inputs
-from tensor_cast.core.model_runner import ModelRunner
 from tensor_cast.core.quantization.datatypes import (
     QuantizeAttentionAction,
     QuantizeLinearAction,
 )
-from tensor_cast.core.user_config import UserInputConfig
-from ..utils import check_positive_integer, get_common_argparser, LOG_LEVELS
+from ..utils import check_positive_integer, get_common_argparser, LOG_FORMAT, LOG_LEVELS
 
 
 def main():
@@ -241,13 +238,32 @@ def main():
     )
 
     args = parser.parse_args()
-    logging.basicConfig(level=LOG_LEVELS[args.log_level.lower()])
+    logging.basicConfig(
+        level=LOG_LEVELS[args.log_level.lower()],
+        format=LOG_FORMAT,
+    )
+    logger = logging.getLogger(__name__)
 
     if args.graph_log_url:
         config.compilation.debug.graph_log_url = args.graph_log_url
 
+    # import here to make sure the logger level is set
+    logger.info("Importing core modules...")
+    from tensor_cast.core.input_generator import generate_inputs
+    from tensor_cast.core.model_runner import ModelRunner
+    from tensor_cast.core.user_config import UserInputConfig
+
+    logger.debug("Core modules imported")
+
+    logger.info("Initializing user configuration...")
     user_input = UserInputConfig.from_args(args)
+    logger.debug("User configuration initialized: %s", user_input)
+
+    logger.info("Initializing ModelRunner")
     model_runner = ModelRunner(user_input)
+    logger.info("ModelRunner initialization completed: %s", model_runner)
+
+    logger.info("Running inference...")
     metrics = model_runner.run_inference(generate_inputs_func=generate_inputs)
     metrics.print_info()
 
