@@ -126,7 +126,7 @@ pip install -r requirements.txt
 #### Run in aggregation mode
 If you want to run the script in aggregation mode, you need to set the `--num-devices` to the number of devices you want to use. And set the `--input-length` and `--output-length` to the maximum input and output tokens you want to support. For example, to run `Qwen3-32B` model on `8 TEST_DEVICE` devices with `3500` input tokens and `1500` output tokens, you can run the following command:
 ```bash
-python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --tpot-limits 50
+python -m cli.inference.throughput_optimizer Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --tpot-limits 50
 ```
 
 #### Run in disaggregation mode
@@ -134,13 +134,13 @@ python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device 
 **Prefill Mode**
 If you want to run the script in Prefill mode, you need to set the `--disagg` flag and `--ttft-limits` to the maximum TTFT you want to support. The other parameters are similar to aggregation mode.
 ```bash
-python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --ttft-limits 2000
+python -m cli.inference.throughput_optimizer Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --ttft-limits 2000
 ```
 
 **Decode Mode**
 If you want to run the script in Decode mode, you need to set the `--disagg` flag and `--tpot-limits` to the maximum TPOT you want to support. The other parameters are similar to aggregation mode.
 ```bash
-python -m cli.inference.throughput_optimizer --model-id Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --tpot-limits 50
+python -m cli.inference.throughput_optimizer Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --tpot-limits 50
 ```
 
 ### Result Information
@@ -175,22 +175,32 @@ Top 4 Aggregation Configurations:
 
 ### Parameters
 ```
-Common options:
+Options:
   --input-length INPUT_LENGTH
                         The input length of the prompt. (default: None)
   --output-length OUTPUT_LENGTH
                         The expected output length. (default: None)
-  --device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}
                         The device type for benchmarking. (default: None)
-  --model-id MODEL_ID   Model ID from Hugging Face (e.g., 'meta-llama/Llama-2-7b-hf'). (default: None)
-  --num-devices NUM_DEVICES
-                        Number of devices (default: 1)
   --mtp-acceptance-rate MTP_ACCEPTANCE_RATE [MTP_ACCEPTANCE_RATE ...]
                         Acceptance rate list for MTP (default: [0.9, 0.6, 0.4, 0.2])
-  --log-level {debug,info,warning,error,critical}
-                        Log level to print (default: info)
   --dump-original-results
                         If set, dump the original results for analysis. (default: False)
+                
+General Options:
+  model_id              The model identifier, which can be: 1) A Hugging Face model ID (e.g., 'meta-llama/Llama-2-7b-hf') to load from the Hub;    
+                        2) A local directory path containing a diffusers model (must include 'transformer/config.json').
+  --device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}
+                        Specifies the target device profile to use for benchmarking and simulation. Must be a valid device name as defined in      
+                        DeviceProfile. The default device 'TEST_DEVICE' is used for standard simulation runs. (default: TEST_DEVICE)
+  --num-devices NUM_DEVICES
+                        Specifies the total number of devices/processes to use. Must be a positive integer. A value of 1 indicates single-device   
+                        execution. (default: 1)
+  --reserved-memory-gb RESERVED_MEMORY_GB
+                        Amount of device memory (in gigabytes) reserved for system usage and unavailable for application. Set to 0 to disable      
+                        memory reservation. (default: 0.0)
+  --log-level {debug,info,warning,error,critical}
+                        Specifies the verbosity level for log output. Available levels: 'debug' (most verbose), 'info', 'warning', 'error',        
+                        'critical' (least verbose). (default: error)
 
 Model & Quantization Options:
   --compile             If set, invoke torch.compile() on the model before inference. (default: False)

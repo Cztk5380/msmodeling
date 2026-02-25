@@ -73,7 +73,7 @@ class TestThroughputOptimizer(TestCase):
         args = [
             "--input-length=3500",
             "--output-length=1500",
-            "--model-id=Qwen/Qwen3-32B",
+            "Qwen/Qwen3-32B",
             "--device=TEST_DEVICE",
             "--num-devices=8",
             "--tpot-limits=50",
@@ -104,7 +104,7 @@ class TestThroughputOptimizer(TestCase):
         args = [
             "--input-length=1024",
             "--output-length=1024",
-            "--model-id=Qwen/Qwen3-32B",
+            "Qwen/Qwen3-32B",
             "--device=TEST_DEVICE",
             "--num-devices=8",
             "--ttft-limits=1000",
@@ -134,7 +134,7 @@ class TestThroughputOptimizer(TestCase):
         args = [
             "--input-length=1024",
             "--output-length=1024",
-            "--model-id=Qwen/Qwen3-32B",
+            "Qwen/Qwen3-32B",
             "--device=TEST_DEVICE",
             "--num-devices=8",
             "--tpot-limits=50",
