@@ -8,15 +8,13 @@ import time
 from typing import Dict, List, Optional, Union
 
 import torch
-from torch.utils._cxx_pytree import tree_map
-from torch.utils._mode_utils import no_dispatch
 from torch.utils._python_dispatch import TorchDispatchMode
 
 from .device import DeviceProfile
 from .patch_torch import patch_torch
 from .performance_model.base import CachingPerformanceModel, PerformanceModel
 from .performance_model.memory_tracker import MemoryTracker
-from .performance_model.op_invoke_info import OpInvokeInfo
+from .performance_model.op_invoke_info import OpInvokeInfo, Region
 
 logger = logging.getLogger(__name__)
 
@@ -59,6 +57,7 @@ class Runtime(TorchDispatchMode):
         self.device_profile = device_profile
         self.memory_tracker: Optional[MemoryTracker] = memory_tracker
         self.op_invoke_infos: List[OpInvokeInfo] = []
+        self.op_info_group: List[Union[OpInvokeInfo, Region]] = []
         self.event_list: List[RuntimeEvent] = []
         # TODO: add multi-stream support
 
@@ -94,96 +93,6 @@ class Runtime(TorchDispatchMode):
             return func(*args, **kwargs)
 
     def repeat_op_invoke_infos(self):
-        class Region:
-            def __init__(self, mark_begin: OpInvokeInfo):
-                # Region contains a sequence of op invocations excluding the region markers
-                self.mark_begin = mark_begin
-                self.mark_end: Optional[OpInvokeInfo] = None
-                self.op_invoke_infos: List[OpInvokeInfo] = []
-
-            def finalize(self, mark_end: OpInvokeInfo):
-                # Patch op_invoke_infos' in/out tensors so that they use the input of mark_begin
-                # and output of mark_end so that the region is connected to the full model after
-                # removing the markers.
-                def patch_inout(t):
-                    if not isinstance(t, torch.Tensor):
-                        return t
-                    if id(t) == id(self.mark_begin.out):
-                        return self.mark_begin.args[0]
-                    if id(t) == id(mark_end.args[0]):
-                        return mark_end.out
-                    return t
-
-                self.mark_end = mark_end
-                inouts = []
-                for op_invoke_info in self.op_invoke_infos:
-                    inouts.append(
-                        (op_invoke_info.args, op_invoke_info.kwargs, op_invoke_info.out)
-                    )
-                new_inouts = tree_map(patch_inout, inouts)
-                for op_invoke_info, (new_args, new_kwargs, new_out) in zip(
-                    self.op_invoke_infos, new_inouts
-                ):
-                    op_invoke_info.args = new_args
-                    op_invoke_info.kwargs = new_kwargs
-                    op_invoke_info.out = new_out
-
-            @property
-            def input_tensor(self):
-                return self.mark_begin.args[0]
-
-            @property
-            def output_tensor(self):
-                assert self.mark_end is not None, "Region end not finalized"
-                return self.mark_end.out
-
-        def copy_region(
-            input_tensor, output_tensor, region: Region
-        ) -> List[OpInvokeInfo]:
-            """
-            Copy a region of op invocations and return the copied op invocations.
-            We assume that there are no data sharing among regions so that we just clone
-            all the input tensors of the region (which might be inaccurate in estimating
-            memory usage).
-
-            TODO(jgong5): support data sharing among regions.
-            """
-            tensor_mapping = {
-                id(region.input_tensor): input_tensor,
-                id(region.output_tensor): output_tensor,
-            }
-
-            def copy(t):
-                if not isinstance(t, torch.Tensor):
-                    return t
-                if id(t) in tensor_mapping:
-                    return tensor_mapping[id(t)]
-                new_t = t.clone()
-                tensor_mapping[id(t)] = new_t
-                return new_t
-
-            new_op_invoke_infos = []
-            inouts = []
-            for op_invoke_info in region.op_invoke_infos:
-                inouts.append(
-                    (op_invoke_info.args, op_invoke_info.kwargs, op_invoke_info.out)
-                )
-            with no_dispatch():
-                new_inouts = tree_map(copy, inouts)
-            for op_invoke_info, (new_args, new_kwargs, new_out) in zip(
-                region.op_invoke_infos, new_inouts
-            ):
-                new_op_invoke_info = OpInvokeInfo(
-                    op_invoke_info.func,
-                    new_args,
-                    new_kwargs,
-                    new_out,
-                    op_invoke_info.cache_key,
-                )
-                new_op_invoke_infos.append(new_op_invoke_info)
-            return new_op_invoke_infos
-
-        new_op_invoke_infos = []
         region_id_to_op_invoke_infos = {}
         current_id = None
         for op_invoke_info in self.op_invoke_infos:
@@ -208,9 +117,7 @@ class Runtime(TorchDispatchMode):
                     f"Region end with id {current_id} not paired with a region begin"
                 )
                 region_id_to_op_invoke_infos[current_id].finalize(op_invoke_info)
-                new_op_invoke_infos.extend(
-                    region_id_to_op_invoke_infos[current_id].op_invoke_infos
-                )
+                self.op_info_group.append(region_id_to_op_invoke_infos[current_id])
                 current_id = None
             elif (
                 op_invoke_info.func
@@ -223,11 +130,9 @@ class Runtime(TorchDispatchMode):
                 assert copy_id in region_id_to_op_invoke_infos, (
                     f"Regioin {copy_id} not marked before copy"
                 )
-                new_op_invoke_infos.extend(
-                    copy_region(
-                        op_invoke_info.args[0],
-                        op_invoke_info.out,
-                        region_id_to_op_invoke_infos[copy_id],
+                self.op_info_group.append(
+                    region_id_to_op_invoke_infos[copy_id].shallow_copy(
+                        op_invoke_info.args[0], op_invoke_info.out
                     )
                 )
             else:
@@ -236,20 +141,26 @@ class Runtime(TorchDispatchMode):
                         op_invoke_info
                     )
                 else:
-                    new_op_invoke_infos.append(op_invoke_info)
-        self.op_invoke_infos = new_op_invoke_infos
+                    self.op_info_group.append(op_invoke_info)
+
+    def _replay_single_op(self, op_invoke_info):
+        perf_results = {}
+        for perf_model in self.perf_models:
+            result = perf_model.process_op(op_invoke_info)
+            perf_results[perf_model.name] = result
+        self.event_list.append(
+            RuntimeEvent(op_invoke_info=op_invoke_info, perf_results=perf_results)
+        )
 
     def replay_op_invoke_infos(self):
-        for op_invoke_info in self.op_invoke_infos:
+        for op_info in self.op_info_group:
             if self.memory_tracker:
-                self.memory_tracker.record_op_invocation(op_invoke_info)
-            perf_results = {}
-            for perf_model in self.perf_models:
-                result = perf_model.process_op(op_invoke_info)
-                perf_results[perf_model.name] = result
-            self.event_list.append(
-                RuntimeEvent(op_invoke_info=op_invoke_info, perf_results=perf_results)
-            )
+                self.memory_tracker.record_op_invocation(op_info)
+            if isinstance(op_info, Region):
+                for op_invoke_info in op_info.op_invoke_infos:
+                    self._replay_single_op(op_invoke_info)
+            else:
+                self._replay_single_op(op_info)
 
     def __enter__(self):
         super().__enter__()

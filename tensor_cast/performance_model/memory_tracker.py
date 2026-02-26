@@ -5,6 +5,7 @@ import torch
 
 from ..device import DeviceProfile
 from ..performance_model import OpInvokeInfo
+from ..performance_model.op_invoke_info import Region
 from .utils import bytes_of_tensor
 
 
@@ -53,12 +54,12 @@ class MemoryTracker:
     def __init__(self, device_profile: DeviceProfile):
         self.device_profile = device_profile
         # A list to store invocation details for each operation.
-        self.op_invoke_infos: List[OpInvokeInfo] = []
+        self.op_invoke_infos_with_repeat_id: List[tuple[OpInvokeInfo, int]] = []
         # A dictionary to store metadata for each tensor encountered.
-        # Key: tensor id
-        self.tensor_infos: Dict[int, _TensorInfo] = {}
-        # Key: tensor id, Value: id of tensor owning the buffer
-        self.alias_info: Dict[int, int] = {}
+        # Key: (tensor id, repeat_id)
+        self.tensor_infos: Dict[tuple[int, int], _TensorInfo] = {}
+        # Key: (tensor id, repeat_id), Value: id of tensor owning the buffer
+        self.alias_info: Dict[tuple[int, int], int] = {}
         # Sets to store the IDs of model input and output tensors.
         self.model_input_tensors: Set[int] = set()
         self.model_output_tensors: Set[int] = set()
@@ -81,7 +82,10 @@ class MemoryTracker:
                 tensors.extend(self._extract_tensors(value))
         return tensors
 
-    def _handle_aliasing(self, op_invoke_info: OpInvokeInfo):
+    def _get_real_tensor_id(self, tensor, repeat_id) -> tuple[int, int]:
+        return Region.get_tensor_id(tensor, repeat_id)
+
+    def _handle_aliasing(self, op_invoke_info: OpInvokeInfo, repeat_id: int):
         def get_input_id(index):
             input_schema = op_invoke_info.func._schema.arguments[index]
             if index < len(op_invoke_info.args):
@@ -92,7 +96,7 @@ class MemoryTracker:
                 )
                 input_tensor = op_invoke_info.kwargs[input_schema.name]
             assert isinstance(input_tensor, torch.Tensor), input_tensor
-            return id(input_tensor)
+            return self._get_real_tensor_id(input_tensor, repeat_id)
 
         def set_alias(input_id, output_id):
             if input_id == output_id:
@@ -114,7 +118,7 @@ class MemoryTracker:
             output = outputs[i]
             output_alias_set = output_schema.alias_info.before_set
             if isinstance(output_schema.real_type, torch.TensorType):
-                output_id = id(output)
+                output_id = self._get_real_tensor_id(output, repeat_id)
                 for j, input_schema in enumerate(op_invoke_info.func._schema.arguments):
                     if input_schema.alias_info is None:
                         continue
@@ -141,24 +145,45 @@ class MemoryTracker:
                             assert isinstance(output_tensor, torch.Tensor), (
                                 output_tensor
                             )
-                            output_id = id(output_tensor)
+                            output_id = self._get_real_tensor_id(
+                                output_tensor, repeat_id
+                            )
                             set_alias(input_id, output_id)
                         break
 
-    def record_op_invocation(self, op_invoke_info: OpInvokeInfo):
+    def record_op_invocation(self, op_info_or_region):
         """
         Record the memory usage of an op invocation. Client code calls this method
         multiple times for ops executed by the PyTorch program.
         """
-        op_idx = len(self.op_invoke_infos)
-        self.op_invoke_infos.append(op_invoke_info)
+        if isinstance(op_info_or_region, Region):
+            region = op_info_or_region
+            for op_invoke_info in region.op_invoke_infos:
+                self.record_single_op_invocation(op_invoke_info, region.reference_id)
+        elif isinstance(op_info_or_region, OpInvokeInfo):
+            op_invoke_info = op_info_or_region
+            self.record_single_op_invocation(op_invoke_info, 0)
+        else:
+            raise ValueError(
+                f"record_op_invocation failed: Unsupported type: {type(op_info_or_region)}"
+            )
+
+    def record_single_op_invocation(
+        self, op_invoke_info: OpInvokeInfo, repeat_id: int = 0
+    ):
+        """
+        Record the memory usage of an op invocation. Client code calls this method
+        multiple times for ops executed by the PyTorch program.
+        """
+        op_idx = len(self.op_invoke_infos_with_repeat_id)
+        self.op_invoke_infos_with_repeat_id.append((op_invoke_info, repeat_id))
 
         # Identify all input tensors and record their usage.
         input_tensors = self._extract_tensors(
             op_invoke_info.args
         ) + self._extract_tensors(op_invoke_info.kwargs)
         for tensor in input_tensors:
-            tensor_id = id(tensor)
+            tensor_id = self._get_real_tensor_id(tensor, repeat_id)
             if tensor_id not in self.tensor_infos:
                 # If a tensor is used before it's defined, it's a model input.
                 # We initialize its info here.
@@ -175,7 +200,7 @@ class MemoryTracker:
         # Identify all output tensors and record their definition site.
         output_tensors = self._extract_tensors(op_invoke_info.out)
         for tensor in output_tensors:
-            tensor_id = id(tensor)
+            tensor_id = self._get_real_tensor_id(tensor, repeat_id)
             if tensor_id not in self.tensor_infos:
                 self.tensor_infos[tensor_id] = _TensorInfo(
                     size_bytes=bytes_of_tensor(tensor)
@@ -183,14 +208,14 @@ class MemoryTracker:
                 # This op is the one that defines (creates) the tensor.
                 self.tensor_infos[tensor_id].def_op_idx = op_idx
 
-        self._handle_aliasing(op_invoke_info)
+        self._handle_aliasing(op_invoke_info, repeat_id)
 
     def analyze(self):
         """
         Analyze the memory usage of the executed PyTorch program by simulating
         the allocation and deallocation of tensors based on their lifecycles.
         """
-        if not self.op_invoke_infos:
+        if not self.op_invoke_infos_with_repeat_id:
             self.is_analyzed = True
             return
 
@@ -216,11 +241,16 @@ class MemoryTracker:
             self.tensor_infos[t_id].size_bytes for t_id in self.model_input_tensors
         )
 
-        for op_idx, op_info in enumerate(self.op_invoke_infos):
+        for op_idx, (op_info, repeat_id) in enumerate(
+            self.op_invoke_infos_with_repeat_id
+        ):
             usage_before_call = current_memory_usage
 
             # Calculate memory allocated for new output tensors. We don't allocate for aliases.
-            output_tensor_ids = {id(t) for t in self._extract_tensors(op_info.out)}
+            output_tensor_ids = {
+                self._get_real_tensor_id(t, repeat_id)
+                for t in self._extract_tensors(op_info.out)
+            }
 
             mem_allocated = sum(
                 self.tensor_infos[t_id].size_bytes
@@ -242,7 +272,7 @@ class MemoryTracker:
 
             # Free tensors whose lifecycle ends after this operation.
             input_tensor_ids = {
-                id(t)
+                self._get_real_tensor_id(t, repeat_id)
                 for t in self._extract_tensors(op_info.args)
                 + self._extract_tensors(op_info.kwargs)
             }

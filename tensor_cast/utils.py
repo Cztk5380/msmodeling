@@ -108,3 +108,62 @@ def get_nested_attr(obj, attr: Union[str, List[str]]):
             return obj
         else:
             return get_nested_attr(getattr(obj, attr[0], None), attr[1:])
+
+
+class EquivalentKeyManager:
+    """
+    Implementation of a Union-Find (Disjoint Set Union, DSU)
+    data structure for managing equivalent keys,
+    which groups multiple keys into the same equivalence class.
+
+    Core functionalities:
+    - Add multiple keys to the same equivalence group
+    - Find the root key of the group to which a key belongs
+    - Determine the root key of a group based on creation order (oldest root strategy)
+    """
+
+    def __init__(self):
+        # Map each key to its parent
+        self.parent = {}
+        # Map each root key to its creation order (for determining oldest root)
+        self.root_order = {}
+
+    def _find(self, key):
+        """Find the root of the key with path compression."""
+        if key not in self.parent:
+            raise KeyError(f"Key '{key}' not found in EquivalentKeyManager")
+        if self.parent[key] != key:
+            self.parent[key] = self._find(self.parent[key])
+        return self.parent[key]
+
+    def add_equivalent_keys(self, keys):
+        """Add a list of equivalent keys to the same group."""
+        if not keys:
+            return
+
+        # Ensure all keys are in the parent map
+        for key in keys:
+            if key not in self.parent:
+                self.parent[key] = key
+                self.root_order[key] = len(self.root_order)
+
+        # Collect all unique roots of the keys
+        roots = set()
+        for key in keys:
+            roots.add(self._find(key))
+
+        # Find the oldest root (smallest order)
+        oldest_root = min(roots, key=lambda r: self.root_order[r])
+
+        # Union all roots to the oldest root
+        for root in roots:
+            if root != oldest_root:
+                self.parent[root] = oldest_root
+                # Remove old root from root_order as it's no longer a root
+                del self.root_order[root]
+
+    def get_group_root_key(self, key):
+        """Get the root key of the group containing the given key."""
+        if key not in self.parent:
+            return None
+        return self._find(key)

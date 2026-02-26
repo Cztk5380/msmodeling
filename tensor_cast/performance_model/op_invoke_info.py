@@ -3,11 +3,13 @@ import hashlib
 import itertools
 import logging
 
-from typing import Dict, Optional
+from typing import Dict, List, Optional
 
 import torch
+from torch.utils._cxx_pytree import tree_map
 
 from .. import ops  # noqa: F401
+from ..utils import EquivalentKeyManager
 from .utils import bytes_of_tensor, is_view_op, run_once
 
 logger = logging.getLogger(__name__)
@@ -167,3 +169,106 @@ class OpInvokeInfo:
 
     def __repr__(self):
         return f"OpInvokeInfo({self.func}, {self.args}, {self.kwargs}, {self.out})"
+
+
+class Region:
+    # if A region is a refernce of B region, then B is root region
+    root_region_id_to_reference_count = {}
+    region_id_to_root_region_id = {}
+    equivalent_tensor_id_manager = EquivalentKeyManager()
+
+    def __init__(self, mark_begin: Optional[OpInvokeInfo]):
+        # Region contains a sequence of op invocations excluding the region markers
+        self.mark_begin = mark_begin
+        self.mark_end: Optional[OpInvokeInfo] = None
+        self.op_invoke_infos: List[OpInvokeInfo] = []
+        self.reference_id = 0
+        self.real_input_tensor = None
+        self.real_output_tensor = None
+
+    def _add_equivalent_info(self):
+        Region.equivalent_tensor_id_manager.add_equivalent_keys(
+            [
+                (id(self.real_input_tensor), 0),
+                (id(self.input_tensor), self.reference_id),
+            ]
+        )
+        Region.equivalent_tensor_id_manager.add_equivalent_keys(
+            [
+                (id(self.real_output_tensor), 0),
+                (id(self.output_tensor), self.reference_id),
+            ]
+        )
+
+    @classmethod
+    def get_tensor_id(cls, tensor, region_reference_id=0):
+        raw_tensor_id = (id(tensor), region_reference_id)
+        equivalent_tensor_id = cls.equivalent_tensor_id_manager.get_group_root_key(
+            (id(tensor), region_reference_id)
+        )
+        return (
+            equivalent_tensor_id if equivalent_tensor_id is not None else raw_tensor_id
+        )
+
+    def shallow_copy(self, real_input_tensor, real_output_tensor) -> "Region":
+        copied_region = Region(None)
+        copied_region.mark_begin = self.mark_begin
+        copied_region.mark_end = self.mark_end
+        copied_region.op_invoke_infos = self.op_invoke_infos
+        copied_region.real_input_tensor = real_input_tensor
+        copied_region.real_output_tensor = real_output_tensor
+        root_id = Region.region_id_to_root_region_id.get(id(self), id(self))
+
+        if root_id not in Region.root_region_id_to_reference_count:
+            Region.root_region_id_to_reference_count[root_id] = 0
+        Region.root_region_id_to_reference_count[root_id] += 1
+        copied_region.reference_id = Region.root_region_id_to_reference_count[root_id]
+        Region.region_id_to_root_region_id[id(copied_region)] = root_id
+        copied_region._add_equivalent_info()
+        return copied_region
+
+    def finalize(self, mark_end: OpInvokeInfo):
+        # Patch op_invoke_infos' in/out tensors so that they use the input of mark_begin
+        # and output of mark_end so that the region is connected to the full model after
+        # removing the markers.
+        if self.reference_id != 0:
+            raise ValueError("this region is a copied region, cannot finalize")
+
+        def patch_inout(t):
+            if not isinstance(t, torch.Tensor):
+                return t
+            if id(t) == id(self.mark_begin.out):
+                return self.mark_begin.args[0]
+            if id(t) == id(mark_end.args[0]):
+                return mark_end.out
+            return t
+
+        self.mark_end = mark_end
+        inouts = []
+        for op_invoke_info in self.op_invoke_infos:
+            inouts.append(
+                (op_invoke_info.args, op_invoke_info.kwargs, op_invoke_info.out)
+            )
+        new_inouts = tree_map(patch_inout, inouts)
+        for op_invoke_info, (new_args, new_kwargs, new_out) in zip(
+            self.op_invoke_infos, new_inouts
+        ):
+            op_invoke_info.args = new_args
+            op_invoke_info.kwargs = new_kwargs
+            op_invoke_info.out = new_out
+
+        self.real_input_tensor = self.mark_begin.args[0]
+        self.real_output_tensor = self.mark_end.out
+
+        Region.region_id_to_root_region_id[id(self)] = id(self)
+        Region.root_region_id_to_reference_count[id(self)] = 0
+        self._add_equivalent_info()
+
+    @property
+    def input_tensor(self):
+        return self.mark_begin.args[0]
+
+    @property
+    def output_tensor(self):
+        assert self.mark_end is not None, "Region end not finalized"
+        return self.mark_end.out
