@@ -58,3 +58,62 @@ def _(
     M = sum(xi.shape[0] for xi in x)
     N = w[0].shape[1]
     return torch.empty((M, N), dtype=out_dtype, device="meta")
+
+
+@register_tensor_cast_op("grouped_matmul_swiglu")
+def _(
+    x: List[torch.Tensor],
+    w: List[torch.Tensor],
+    bias: List[Optional[torch.Tensor]],
+) -> torch.Tensor:
+    M = sum(xi.shape[0] for xi in x)
+    N = w[0].shape[1] if w else 0
+    gmm_out_shape = (M, N)
+    dtype = x[0].dtype if x else torch.float32
+
+    swiglu_out_shape = gmm_out_shape
+    return torch.empty(swiglu_out_shape, dtype=dtype, device="meta")
+
+
+@register_tensor_cast_op("grouped_matmul_quant_swiglu")
+@register_tensor_cast_op("grouped_matmul_quant_int4_swiglu")
+def _(
+    x: List[torch.Tensor],
+    w: List[torch.Tensor],
+    w_scale: List[torch.Tensor],
+    w_offset: List[Optional[torch.Tensor]],
+    x_scale: List[torch.Tensor],
+    x_offset: List[Optional[torch.Tensor]],
+    bias: List[Optional[torch.Tensor]],
+    out_dtype: Optional[torch.dtype],
+) -> torch.Tensor:
+    if out_dtype is None:
+        out_dtype = x[0].dtype if x else torch.float32
+
+    M = sum(xi.shape[0] for xi in x)
+    N = w[0].shape[1] if w else 0
+    gmm_out_shape = (M, N)
+
+    swiglu_out_shape = gmm_out_shape
+    return torch.empty(swiglu_out_shape, dtype=out_dtype, device="meta")
+
+
+@register_tensor_cast_op("grouped_matmul_fp8_swiglu")
+@register_tensor_cast_op("grouped_matmul_mxfp4_swiglu")
+def _(
+    x: List[torch.Tensor],
+    w: List[torch.Tensor],
+    w_scale: List[torch.Tensor],
+    x_scale: List[torch.Tensor],
+    bias: List[Optional[torch.Tensor]],
+    out_dtype: Optional[torch.dtype],
+) -> torch.Tensor:
+    if out_dtype is None:
+        out_dtype = x[0].dtype if x else torch.float32
+
+    M = sum(xi.shape[0] for xi in x)
+    N = w[0].shape[1] if w else 0
+    gmm_out_shape = (M, N)
+
+    swiglu_out_shape = gmm_out_shape
+    return torch.empty(swiglu_out_shape, dtype=out_dtype, device="meta")

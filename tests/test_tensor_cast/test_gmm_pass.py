@@ -56,7 +56,7 @@ class GmmPassTestCase(unittest.TestCase):
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertEqual(
-            count_events(runtime, torch.ops.tensor_cast.grouped_matmul.default), 2
+            count_events(runtime, torch.ops.tensor_cast.grouped_matmul.default), 1
         )
 
     def test_qwen3_static_int8(self):
@@ -92,7 +92,13 @@ class GmmPassTestCase(unittest.TestCase):
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         self.assertEqual(
-            count_events(runtime, torch.ops.tensor_cast.grouped_matmul_quant.default), 2
+            count_events(runtime, torch.ops.tensor_cast.grouped_matmul_quant.default), 1
+        )
+        self.assertEqual(
+            count_events(
+                runtime, torch.ops.tensor_cast.grouped_matmul_quant_swiglu.default
+            ),
+            1,
         )
 
     @parameterized.expand(
@@ -139,12 +145,24 @@ class GmmPassTestCase(unittest.TestCase):
             outputs = model.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         expected_op = None
+        expected_swiglu_op = None
         if quant_type == LinearQuantType.W8A8:
             expected_op = torch.ops.tensor_cast.grouped_matmul_quant.default
+            expected_swiglu_op = (
+                torch.ops.tensor_cast.grouped_matmul_quant_swiglu.default
+            )
         elif quant_type == LinearQuantType.W4A8:
             expected_op = torch.ops.tensor_cast.grouped_matmul_quant_int4.default
+            expected_swiglu_op = (
+                torch.ops.tensor_cast.grouped_matmul_quant_int4_swiglu.default
+            )
         elif quant_type == LinearQuantType.FP8:
             expected_op = torch.ops.tensor_cast.grouped_matmul_fp8.default
+            expected_swiglu_op = torch.ops.tensor_cast.grouped_matmul_fp8_swiglu.default
         elif quant_type == LinearQuantType.MXFP4:
             expected_op = torch.ops.tensor_cast.grouped_matmul_mxfp4.default
-        self.assertEqual(count_events(runtime, expected_op), 2)
+            expected_swiglu_op = (
+                torch.ops.tensor_cast.grouped_matmul_mxfp4_swiglu.default
+            )
+        self.assertEqual(count_events(runtime, expected_op), 1)
+        self.assertEqual(count_events(runtime, expected_swiglu_op), 1)

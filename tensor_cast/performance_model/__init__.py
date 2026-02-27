@@ -1,6 +1,6 @@
 import logging
 from pathlib import Path
-from typing import Tuple
+from typing import Callable, List, Optional, Tuple
 
 import torch
 
@@ -118,11 +118,25 @@ def _static_quant_linear_properties_helper(
     k = x.size(1)
 
     if is_int4:
-        if w.size(0) == k:
-            n = w.size(1) * 2
-        else:
-            assert w.size(0) == k // 2
-            n = w.size(1)
+        # The new Grouped MatMul + SwiGLU fusion pass uses
+        # optimized/tilled weight layouts that break
+        # the old hardcoded 'K/2' assumption. We must infer dimensions dynamically.
+
+        # 1. Dynamic packing: Adapt to any storage dtype (uint8=2x, int32=8x) instead of hardcoding '2'.
+        pack_factor = (w.element_size() * 8) // 4
+
+        # 2. Conservation law: Total logical values = Physical elements × Packing factor.
+        # This remains true regardless of how dimensions are shuffled or tiled.
+        logical_total_elements = w.numel() * pack_factor
+
+        if logical_total_elements % k != 0:
+            raise AssertionError(
+                f"Shape mismatch: Cannot infer logical N. "
+                f"Input K={k}, Weight shape={w.shape}, Dtype={w.dtype}. "
+                f"Logical elements ({logical_total_elements}) is not divisible by K."
+            )
+
+        n = logical_total_elements // k
     else:
         n = w.size(1)
 
@@ -964,6 +978,166 @@ def _(
         )
         properties.combine(properties_i, compute_only=True)
     return properties
+
+
+def _swiglu_fusion_properties_helper(
+    op_invoke_info: OpInvokeInfo,
+    x: List[torch.Tensor],
+    w: List[torch.Tensor],
+    bias: List[Optional[torch.Tensor]],
+    w_offset: Optional[List[Optional[torch.Tensor]]],
+    mm_helper: Callable,
+    is_int4_weight: bool,
+) -> OpInvokeInfo.PerformanceProperties:
+    """
+    Common performance modeling logic for all grouped_matmul_*_swiglu variants.
+
+    Args:
+        w_offset: If provided, uses quantized helper signature (info, x, w, offset, bias).
+                  If None, uses standard helper signature (info, x, w, bias).
+    """
+    if not x:
+        dtype = torch.float32
+        properties = op_invoke_info.get_memory_access_properties()
+        properties.compute_ops[dtype] = OpInvokeInfo.ComputeOps()
+        return properties
+
+    dtype = x[0].dtype if x else torch.float32
+    total_swiglu_ops = 0
+    properties = op_invoke_info.get_memory_access_properties()
+
+    count = len(x)
+
+    for i in range(count):
+        xi = x[i]
+        wi = w[i]
+        biasi = bias[i] if (bias and i < len(bias)) else None
+        w_offseti = w_offset[i] if (w_offset and i < len(w_offset)) else None
+
+        # 1. Calculate MatMul Costs
+        if mm_helper.__name__ == "_static_quant_linear_properties_helper":
+            props_i = mm_helper(
+                op_invoke_info, xi, wi, w_offseti, biasi, is_int4_weight
+            )
+        else:
+            props_i = mm_helper(op_invoke_info, xi, wi, biasi)
+
+        properties.combine(props_i, compute_only=True)
+
+        # 2. Calculate SwiGLU Activation Costs (Internal Logic)
+        M = xi.shape[0]
+        k = xi.size(1)
+
+        if k > 0 and wi.numel() > 0:
+            n_total = 0
+            if is_int4_weight:
+                # Quantized (Int4/MXFP4): Infer logical N from packed storage
+                pack_factor = (wi.element_size() * 8) // 4
+                logical_total = wi.numel() * pack_factor
+                if logical_total % k == 0:
+                    n_total = logical_total // k
+            else:
+                # Non-quantized: Use physical shape directly
+                if wi.dim() == 2:
+                    n_total = wi.shape[1]
+                else:
+                    n_total = wi.shape[-1]
+
+                # Safety fallback for shape mismatches
+                if wi.dim() == 2 and wi.shape[0] != k and wi.numel() % k == 0:
+                    n_total = wi.numel() // k
+
+            if n_total > 0:
+                n_gate = n_total // 2
+                # SiLU (~6 FLOPs) + Gate Mul (1 FLOP) = 7 FLOPs
+                total_swiglu_ops += M * n_gate * 7
+
+    # 3. Accumulate SwiGLU ops into gp_ops
+    if dtype not in properties.compute_ops:
+        properties.compute_ops[dtype] = OpInvokeInfo.ComputeOps()
+    properties.compute_ops[dtype].gp_ops += total_swiglu_ops
+
+    return properties
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.grouped_matmul_swiglu.default
+)
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+    # Args: (x, w, bias)
+    return _swiglu_fusion_properties_helper(
+        op_invoke_info,
+        x=op_invoke_info.args[0],
+        w=op_invoke_info.args[1],
+        bias=op_invoke_info.args[2],
+        w_offset=None,
+        mm_helper=_mm_properties_helper,
+        is_int4_weight=False,
+    )
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.grouped_matmul_quant_swiglu.default
+)
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+    # Args: (x, w, w_scale, w_offset, x_scale, x_offset, bias, ...) -> offset=3, bias=6
+    return _swiglu_fusion_properties_helper(
+        op_invoke_info,
+        x=op_invoke_info.args[0],
+        w=op_invoke_info.args[1],
+        bias=op_invoke_info.args[6],
+        w_offset=op_invoke_info.args[3],
+        mm_helper=_static_quant_linear_properties_helper,
+        is_int4_weight=False,
+    )
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.grouped_matmul_quant_int4_swiglu.default
+)
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+    # Args: offset=3, bias=6
+    return _swiglu_fusion_properties_helper(
+        op_invoke_info,
+        x=op_invoke_info.args[0],
+        w=op_invoke_info.args[1],
+        bias=op_invoke_info.args[6],
+        w_offset=op_invoke_info.args[3],
+        mm_helper=_static_quant_linear_properties_helper,
+        is_int4_weight=True,
+    )
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.grouped_matmul_fp8_swiglu.default
+)
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+    # Args: (x, w, w_scale, x_scale, bias, ...) -> bias=4, no offset
+    return _swiglu_fusion_properties_helper(
+        op_invoke_info,
+        x=op_invoke_info.args[0],
+        w=op_invoke_info.args[1],
+        bias=op_invoke_info.args[4],
+        w_offset=None,
+        mm_helper=_static_quant_linear_properties_helper,
+        is_int4_weight=False,
+    )
+
+
+@OpInvokeInfo.register_op_properties(
+    torch.ops.tensor_cast.grouped_matmul_mxfp4_swiglu.default
+)
+def _(op_invoke_info: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
+    # Args: bias=4, no offset
+    return _swiglu_fusion_properties_helper(
+        op_invoke_info,
+        x=op_invoke_info.args[0],
+        w=op_invoke_info.args[1],
+        bias=op_invoke_info.args[4],
+        w_offset=None,
+        mm_helper=_static_quant_linear_properties_helper,
+        is_int4_weight=True,
+    )
 
 
 @OpInvokeInfo.register_op_properties(torch.ops.aten.addmm.default)

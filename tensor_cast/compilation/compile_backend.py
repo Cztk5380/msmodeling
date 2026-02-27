@@ -15,6 +15,7 @@ from .. import config
 from . import patterns
 
 from .constant_folding import fold_meta_constants
+from .freezing_passes.grouped_matmul_swiglu_pass import GroupedMatmulSwigluPass
 from .freezing_passes.sink_split_pass import SinkSplitPass
 from .passes.lift_quant_pass import LiftCombineQuantPass
 from .passes.merge_linear_pass import MergeLinearPass
@@ -184,6 +185,11 @@ class CompilerBackend:
             GraphTransformObserver(gm, "sink_split_pass").apply_gm_pass(SinkSplitPass())
             # TODO(jgong): make sure the sink split pass is correct by shape propagation
             #              since explicitly adding shape info might be expensive
+            fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs=True)
+        if config.compilation.fusion_patterns.enable_grouped_matmul_swiglu:
+            GraphTransformObserver(
+                gm, "grouped_matmul_swiglu_fusion_pass"
+            ).apply_gm_pass(GroupedMatmulSwigluPass())
             fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs=True)
         logger.debug("Graph after freezing passes:")
         if logger.isEnabledFor(logging.DEBUG):

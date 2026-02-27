@@ -4,6 +4,7 @@ import torch
 from parameterized import parameterized
 
 from tensor_cast.compilation import get_backend
+from tensor_cast.core.config_resolver import ConfigResolver
 from tensor_cast.core.model_builder import build_model
 from tensor_cast.core.quantization.datatypes import QuantizeLinearAction
 from tensor_cast.core.user_config import UserInputConfig
@@ -66,6 +67,57 @@ class SwiGLUFusionPassTestCase(unittest.TestCase):
         self.assertEqual(
             count_events(runtime, torch.ops.tensor_cast.swiglu.default),
             64,
+        )
+
+    @parameterized.expand(
+        [
+            ("Qwen/Qwen3-235B-A22B", QuantizeLinearAction.DISABLED),
+            ("Qwen/Qwen3-235B-A22B", QuantizeLinearAction.W8A8_STATIC),
+            ("Qwen/Qwen3-235B-A22B", QuantizeLinearAction.W4A8_DYNAMIC),
+        ]
+    )
+    def test_gmm_swiglu_fused_op_present(
+        self, model_id: str, linear_act: QuantizeLinearAction
+    ):
+        user_input = UserInputConfig(
+            model_id=model_id,
+            do_compile=True,
+            num_hidden_layers_override=1,
+            quantize_linear_action=linear_act,
+        )
+        config_resolver = ConfigResolver(user_input=user_input)
+        model_config = config_resolver.resolve()
+        model = TransformerModel(model_id, model_config)
+        model = torch.compile(model, backend=get_backend(), fullgraph=True)
+
+        num_tokens = 100
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(
+                perf_model, device_profile, memory_tracker=MemoryTracker(device_profile)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            outputs = model.forward(inputs, position_ids)
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+        self.assertEqual(
+            count_events(runtime, torch.ops.tensor_cast.grouped_matmul_swiglu.default)
+            + count_events(
+                runtime, torch.ops.tensor_cast.grouped_matmul_quant_swiglu.default
+            )
+            + count_events(
+                runtime, torch.ops.tensor_cast.grouped_matmul_quant_int4_swiglu.default
+            )
+            + count_events(
+                runtime, torch.ops.tensor_cast.grouped_matmul_fp8_swiglu.default
+            )
+            + count_events(
+                runtime, torch.ops.tensor_cast.grouped_matmul_mxfp4_swiglu.default
+            ),
+            1,
         )
 
     @parameterized.expand(
