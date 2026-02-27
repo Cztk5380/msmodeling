@@ -18,7 +18,7 @@ import pandas as pd
 from prettytable import PrettyTable
 
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 TTFT_COLUMN = "TTFT (ms)"

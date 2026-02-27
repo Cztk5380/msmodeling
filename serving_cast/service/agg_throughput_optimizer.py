@@ -24,7 +24,7 @@ from .optimizer_summary import OptimizerSummary
 from .utils import AGG_COLUMNS, format_breakdowns, OptimizerData
 
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 class AggThroughputOptimizer(BaseThroughputOptimizer):

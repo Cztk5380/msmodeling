@@ -19,3 +19,5 @@ class SimpleArgs:
         self.num_devices = 1
         self.batch_range = None
         self.log_level = "INFO"
+        self.image_height = 520
+        self.image_width = 520

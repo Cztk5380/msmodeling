@@ -124,10 +124,19 @@ class BaseThroughputOptimizer(ABC):
         else:
             seq_len = query_len = optimizer_data.input_length
 
+        # avoid print duplicate image input log
+        _image_batch_size = (
+            optimizer_data.batch_size
+            if optimizer_data.image_height is not None
+            else None
+        )
         requests = [
             RequestInfo(
                 query_len=query_len,
                 seq_len=seq_len,
+                image_batch_size=_image_batch_size,
+                image_height=optimizer_data.image_height,
+                image_width=optimizer_data.image_width,
                 concurrency=concurrency,
                 is_decode=is_decode,
             )

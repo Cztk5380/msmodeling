@@ -45,6 +45,8 @@ class OptimizerData:
     input_length: int = None
     output_length: int = None
     batch_size: int = None
+    image_height: int = None
+    image_width: int = None
     ttft_limits: float = None
     tpot_limits: float = None
     max_prefill_tokens: int = None

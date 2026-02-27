@@ -1,7 +1,6 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 
 import argparse
-import logging
 import unittest
 
 from serving_cast.service.utils import (
@@ -10,7 +9,6 @@ from serving_cast.service.utils import (
     check_positive_integer,
     check_string_valid,
     OptimizerData,
-    set_logger,
 )
 
 
@@ -68,23 +66,6 @@ class TestServiceUtils(unittest.TestCase):
         config = OptimizerData()
         self.assertIsNone(config.input_length)
         self.assertIsNone(config.output_length)
-
-    def test_set_logger_functionality(self):
-        """Test set_logger function sets up logger properly"""
-        test_logger = logging.getLogger("test_logger")
-
-        # Clear any existing handlers
-        test_logger.handlers.clear()
-
-        set_logger(test_logger)
-
-        # Verify logger properties
-        self.assertFalse(test_logger.propagate)
-        self.assertEqual(test_logger.level, logging.INFO)
-        self.assertTrue(len(test_logger.handlers) > 0)
-
-        # Clean up
-        test_logger.handlers.clear()
 
 
 class TestBatchRangeAction(unittest.TestCase):

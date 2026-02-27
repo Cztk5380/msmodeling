@@ -10,7 +10,7 @@ from .optimizer_summary import OptimizerSummary
 from .utils import DISAGG_COLUMNS, format_breakdowns, OptimizerData
 
 
-logger = logging.getLogger()
+logger = logging.getLogger(__name__)
 
 
 class DisaggThroughputOptimizer(BaseThroughputOptimizer):
@@ -66,7 +66,7 @@ class DisaggThroughputOptimizer(BaseThroughputOptimizer):
         parallel = f"tp{self.tp}pp{self.pp}dp{self.dp}"
 
         logger.debug(
-            "TTFT: %.4f ms, TPOT: %.4f ms, "
+            "TTFT: %r ms, TPOT: %r ms, "
             "Output Throughput: %.2f token/s, "
             "Concurrency: %d, "
             "parallel: %s, "

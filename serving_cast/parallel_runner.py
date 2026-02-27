@@ -66,6 +66,8 @@ class ParallelRunner:
         self.optimizer_data = OptimizerData(
             input_length=self.args.input_length,
             output_length=self.args.output_length,
+            image_height=self.args.image_height,
+            image_width=self.args.image_width,
             ttft_limits=self.args.ttft_limits,
             max_prefill_tokens=self.args.max_prefill_tokens,
             num_devices=self.args.num_devices,

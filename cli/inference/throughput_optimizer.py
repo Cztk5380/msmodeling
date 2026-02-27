@@ -150,6 +150,19 @@ def arg_parse():
         action="store_true",
         help="If set, dump the original results for analysis.",
     )
+    multimodal_group = parser.add_argument_group("MultiModal Options")
+    multimodal_group.add_argument(
+        "--image-height",
+        type=check_positive_integer,
+        default=None,
+        help="Height of the input images",
+    )
+    multimodal_group.add_argument(
+        "--image-width",
+        type=check_positive_integer,
+        default=None,
+        help="Width of the input images",
+    )
     args = parser.parse_args()
     return args
 
