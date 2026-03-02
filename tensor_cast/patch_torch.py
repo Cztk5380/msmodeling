@@ -1,7 +1,12 @@
 import contextlib
+import logging
 import threading
 
 import torch
+
+from .performance_model.utils import run_once
+
+logger = logging.getLogger(__name__)
 
 _meta_autocast_enabled = threading.local()
 
@@ -170,6 +175,33 @@ def patch_dtype_to_type():
 
 
 @contextlib.contextmanager
+def patch_masked_scatter():
+    """Patch Tensor.masked_scatter to work with meta device tensors."""
+    try:
+        original_masked_scatter = torch.Tensor.masked_scatter
+
+        def masked_scatter_meta_safe(self, mask, source):
+            if isinstance(self, torch.Tensor) and self.device.type == "meta":
+                run_once(
+                    "tensor_cast.patch_torch.masked_scatter.meta",
+                    logger.warning,
+                    "TensorCast: masked_scatter on meta is bypassed (returns empty_like); "
+                    "shape/dtype preserved and op time is ~0.",
+                )
+                return torch.empty_like(self)
+            return original_masked_scatter(self, mask, source)
+
+        torch.Tensor.masked_scatter = masked_scatter_meta_safe
+        try:
+            yield
+        finally:
+            torch.Tensor.masked_scatter = original_masked_scatter
+    except Exception:
+        # Fallback to plain context if patching fails
+        yield
+
+
+@contextlib.contextmanager
 def patch_torch():
     """
     Apply all patches to PyTorch.
@@ -181,5 +213,6 @@ def patch_torch():
         patch_dtype_abbrs(),
         patch_dtype_to_type(),
         prepare_freezing(),
+        patch_masked_scatter(),
     ):
         yield
