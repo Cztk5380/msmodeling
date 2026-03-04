@@ -15,10 +15,12 @@ from .. import config
 from . import patterns
 
 from .constant_folding import fold_meta_constants
+from .freezing_passes import patterns as freezing_patterns
 from .freezing_passes.grouped_matmul_swiglu_pass import GroupedMatmulSwigluPass
 from .freezing_passes.sink_split_pass import SinkSplitPass
 from .passes.lift_quant_pass import LiftCombineQuantPass
 from .passes.merge_linear_pass import MergeLinearPass
+from .passes.peep_hole_pass import PeepHolePass
 from .passes.redundant_node_elimination_pass import ReduandantNodeEliminationPass
 
 logger = logging.getLogger(__name__)
@@ -71,6 +73,7 @@ class CompilerBackend:
             logger.debug("Graph before compiling:")
             if logger.isEnabledFor(logging.DEBUG):
                 logger.debug(fx_graph.print_readable(print_output=False))
+            self.apply_peep_hole_pass(fx_graph, inputs)
             self.apply_redundant_node_elimination_pass(fx_graph, inputs)
             self.apply_quantization_passes(fx_graph, inputs)
             self.apply_pattern_match_passes(fx_graph, inputs)
@@ -186,11 +189,37 @@ class CompilerBackend:
             # TODO(jgong): make sure the sink split pass is correct by shape propagation
             #              since explicitly adding shape info might be expensive
             fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs=True)
+        if config.compilation.fusion_patterns.enable_matmul_allreduce:
+            self.apply_freezing_pattern_passes(gm, inputs)
         if config.compilation.fusion_patterns.enable_grouped_matmul_swiglu:
             GraphTransformObserver(
                 gm, "grouped_matmul_swiglu_fusion_pass"
             ).apply_gm_pass(GroupedMatmulSwigluPass())
             fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs=True)
         logger.debug("Graph after freezing passes:")
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(gm.print_readable(print_output=False))
+
+    def apply_freezing_pattern_passes(self, gm: fx.GraphModule, inputs):
+        freezing_patterns.lazy_init()
+        GraphTransformObserver = functools.partial(
+            torch.fx.passes.graph_transform_observer.GraphTransformObserver,
+            subsystem="freezing_pattern_passes",
+            log_url=config.compilation.debug.graph_log_url,
+        )
+        for i, freezing_pattern_pass in enumerate(freezing_patterns.all_passes):
+            GraphTransformObserver(gm, f"freezing_pattern_pass_{i}").apply_gm_pass(
+                freezing_pattern_pass
+            )
+            fake_tensor_prop(gm, inputs, force_allow_non_fake_inputs=True)
+
+    def apply_peep_hole_pass(self, gm: fx.GraphModule, inputs):
+        GraphTransformObserver = functools.partial(
+            torch.fx.passes.graph_transform_observer.GraphTransformObserver,
+            subsystem="peep_hole_pass",
+            log_url=config.compilation.debug.graph_log_url,
+        )
+        GraphTransformObserver(gm, "peep_hole_pass").apply_gm_pass(PeepHolePass())
+        logger.debug("Graph after peep hole pass:")
         if logger.isEnabledFor(logging.DEBUG):
             logger.debug(gm.print_readable(print_output=False))

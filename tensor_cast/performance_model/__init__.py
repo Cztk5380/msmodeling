@@ -1368,4 +1368,248 @@ def _estimate_collective_comm(
     return result
 
 
+def _tag_statistics(stats: dict[str, object], prefix: str) -> dict[str, object]:
+    tagged: dict[str, object] = {}
+    for key, value in stats.items():
+        key_name = key.value if hasattr(key, "value") else key
+        tagged[f"{prefix}.{key_name}"] = value
+    return tagged
+
+
+def _combine_linear_all_reduce_results(
+    linear_result: PerformanceModel.Result,
+    comm_result: PerformanceModel.Result,
+    overlap_label: str,
+    stats_prefix: str,
+    time_key: str,
+) -> PerformanceModel.Result:
+    result = PerformanceModel.Result(
+        linear_result.execution_time_s, dict(linear_result.statistics)
+    )
+    result.combine(
+        PerformanceModel.Result(
+            comm_result.execution_time_s, dict(comm_result.statistics)
+        )
+    )
+    result.statistics = {
+        "overlap_model": overlap_label,
+        time_key: linear_result.execution_time_s,
+        "all_reduce_time_s": comm_result.execution_time_s,
+    }
+    result.statistics.update(_tag_statistics(linear_result.statistics, stats_prefix))
+    result.statistics.update(_tag_statistics(comm_result.statistics, "all_reduce"))
+    return result
+
+
+@register_op_estimator(torch.ops.tensor_cast.matmul_all_reduce.default, None)
+def _estimate_matmul_all_reduce(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    mat1 = op_invoke_info.args[0]
+    mat2 = op_invoke_info.args[1]
+    rank = op_invoke_info.args[3]
+    rank_group = op_invoke_info.args[4]
+
+    mm_info = OpInvokeInfo(
+        torch.ops.aten.mm.default,
+        (mat1, mat2),
+        None,
+        op_invoke_info.out,
+    )
+    mm_result = _estimate_default(mm_info, device_profile)
+
+    comm_info = OpInvokeInfo(
+        torch.ops.tensor_cast.all_reduce.default,
+        (op_invoke_info.out, rank, rank_group),
+        None,
+        op_invoke_info.out,
+    )
+    comm_result = _estimate_collective_comm(comm_info, device_profile)
+
+    result = PerformanceModel.Result(
+        mm_result.execution_time_s, dict(mm_result.statistics)
+    )
+    result.combine(
+        PerformanceModel.Result(
+            comm_result.execution_time_s, dict(comm_result.statistics)
+        )
+    )
+    result.statistics = {
+        "overlap_model": "max(matmul, all_reduce)",
+        "matmul_time_s": mm_result.execution_time_s,
+        "all_reduce_time_s": comm_result.execution_time_s,
+    }
+    result.statistics.update(_tag_statistics(mm_result.statistics, "matmul"))
+    result.statistics.update(_tag_statistics(comm_result.statistics, "all_reduce"))
+    return result
+
+
+@register_op_estimator(
+    torch.ops.tensor_cast.static_quant_linear_all_reduce.default, None
+)
+def _estimate_static_quant_linear_all_reduce(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    (
+        x,
+        w,
+        w_scale,
+        w_offset,
+        x_scale,
+        x_offset,
+        bias,
+        out_dtype,
+        rank,
+        rank_group,
+    ) = op_invoke_info.args
+
+    linear_info = OpInvokeInfo(
+        torch.ops.tensor_cast.static_quant_linear.default,
+        (x, w, w_scale, w_offset, x_scale, x_offset, bias, out_dtype),
+        None,
+        op_invoke_info.out,
+    )
+    linear_result = _estimate_default(linear_info, device_profile)
+
+    comm_info = OpInvokeInfo(
+        torch.ops.tensor_cast.all_reduce.default,
+        (op_invoke_info.out, rank, rank_group),
+        None,
+        op_invoke_info.out,
+    )
+    comm_result = _estimate_collective_comm(comm_info, device_profile)
+
+    return _combine_linear_all_reduce_results(
+        linear_result,
+        comm_result,
+        "max(static_quant_linear, all_reduce)",
+        "static_quant_linear",
+        "static_quant_linear_time_s",
+    )
+
+
+@register_op_estimator(
+    torch.ops.tensor_cast.static_quant_linear_int4_all_reduce.default, None
+)
+def _estimate_static_quant_linear_int4_all_reduce(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    (
+        x,
+        w,
+        w_scale,
+        w_offset,
+        x_scale,
+        x_offset,
+        bias,
+        out_dtype,
+        rank,
+        rank_group,
+    ) = op_invoke_info.args
+
+    linear_info = OpInvokeInfo(
+        torch.ops.tensor_cast.static_quant_linear_int4.default,
+        (x, w, w_scale, w_offset, x_scale, x_offset, bias, out_dtype),
+        None,
+        op_invoke_info.out,
+    )
+    linear_result = _estimate_default(linear_info, device_profile)
+
+    comm_info = OpInvokeInfo(
+        torch.ops.tensor_cast.all_reduce.default,
+        (op_invoke_info.out, rank, rank_group),
+        None,
+        op_invoke_info.out,
+    )
+    comm_result = _estimate_collective_comm(comm_info, device_profile)
+
+    return _combine_linear_all_reduce_results(
+        linear_result,
+        comm_result,
+        "max(static_quant_linear_int4, all_reduce)",
+        "static_quant_linear_int4",
+        "static_quant_linear_int4_time_s",
+    )
+
+
+@register_op_estimator(torch.ops.tensor_cast.fp8_linear_all_reduce.default, None)
+def _estimate_fp8_linear_all_reduce(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    (
+        x,
+        w,
+        x_scale,
+        w_scale,
+        bias,
+        out_dtype,
+        rank,
+        rank_group,
+    ) = op_invoke_info.args
+
+    linear_info = OpInvokeInfo(
+        torch.ops.tensor_cast.fp8_linear.default,
+        (x, w, x_scale, w_scale, bias, out_dtype),
+        None,
+        op_invoke_info.out,
+    )
+    linear_result = _estimate_default(linear_info, device_profile)
+
+    comm_info = OpInvokeInfo(
+        torch.ops.tensor_cast.all_reduce.default,
+        (op_invoke_info.out, rank, rank_group),
+        None,
+        op_invoke_info.out,
+    )
+    comm_result = _estimate_collective_comm(comm_info, device_profile)
+
+    return _combine_linear_all_reduce_results(
+        linear_result,
+        comm_result,
+        "max(fp8_linear, all_reduce)",
+        "fp8_linear",
+        "fp8_linear_time_s",
+    )
+
+
+@register_op_estimator(torch.ops.tensor_cast.mxfp4_linear_all_reduce.default, None)
+def _estimate_mxfp4_linear_all_reduce(
+    op_invoke_info: OpInvokeInfo, device_profile: DeviceProfile
+) -> PerformanceModel.Result:
+    (
+        x,
+        w,
+        x_scale,
+        w_scale,
+        bias,
+        out_dtype,
+        rank,
+        rank_group,
+    ) = op_invoke_info.args
+
+    linear_info = OpInvokeInfo(
+        torch.ops.tensor_cast.mxfp4_linear.default,
+        (x, w, x_scale, w_scale, bias, out_dtype),
+        None,
+        op_invoke_info.out,
+    )
+    linear_result = _estimate_default(linear_info, device_profile)
+
+    comm_info = OpInvokeInfo(
+        torch.ops.tensor_cast.all_reduce.default,
+        (op_invoke_info.out, rank, rank_group),
+        None,
+        op_invoke_info.out,
+    )
+    comm_result = _estimate_collective_comm(comm_info, device_profile)
+
+    return _combine_linear_all_reduce_results(
+        linear_result,
+        comm_result,
+        "max(mxfp4_linear, all_reduce)",
+        "mxfp4_linear",
+        "mxfp4_linear_time_s",
+    )
+
+
 _load_custom_op()

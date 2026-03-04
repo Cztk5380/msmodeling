@@ -25,6 +25,7 @@ class compilation:
         enable_add_rms_norm = enable_rms_norm
         enable_rope = True
         enable_swiglu = True
+        enable_matmul_allreduce = True
         enable_grouped_matmul_swiglu = True
 
     class debug:
