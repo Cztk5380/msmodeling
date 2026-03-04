@@ -29,8 +29,8 @@ You may also define your own device types in a Python file and drop it under `de
 ### Supported python versions
 3.10+
 
-> [!Warning] Warning
-> If your operating system is Windows, please ensure that your PyTorch version is 2.8 or earlier, otherwise the program may not function correctly.
+> [!Warning]
+> If you are using Windows, note that PyTorch 2.10 may not run properly on your system. For a solution, please refer to [this issue](https://github.com/pytorch/pytorch/issues/166628). If you have not yet installed PyTorch, for optimal compatibility, we strongly recommend using version 2.8 or earlier to ensure the program functions correctly.
 
 ### Install required packages
 ```bash
@@ -46,20 +46,40 @@ Its general usage is shown below:
 ```text
 usage: text_generate.py [-h]
                         [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}]
-                        --num-queries NUM_QUERIES --query-length QUERY_LENGTH [--context-length CONTEXT_LENGTH] [--compile] [--compile-allow-graph-break]
-                        [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
-                        [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}] [--quantize-lmhead]        
-                        [--mxfp4-group-size MXFP4_GROUP_SIZE] [--quantize-attention-action {DISABLED,INT8}] [--graph-log-url GRAPH_LOG_URL] [--log-level LOG_LEVEL] [--decode]  
-                        [--num-mtp-tokens NUM_MTP_TOKENS] [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--disable-repetition]
-                        [--reserved-memory-gb RESERVED_MEMORY_GB] [--world-size WORLD_SIZE] [--tp-size TP_SIZE] [--dp-size DP_SIZE] [--mlp-tp-size MLP_TP_SIZE]
-                        [--mlp-dp-size MLP_DP_SIZE] [--lmhead-tp-size LMHEAD_TP_SIZE] [--lmhead-dp-size LMHEAD_DP_SIZE] [--o-proj-tp-size O_PROJ_TP_SIZE]
-                        [--o-proj-dp-size O_PROJ_DP_SIZE] [--word-embedding-tp] [--ep] [--enable-redundant-experts] [--enable-external-shared-experts]
-                        [--host-external-shared-experts] [--remote-source {huggingface,modelscope}]
+                        [--num-devices NUM_DEVICES] [--reserved-memory-gb RESERVED_MEMORY_GB] [--log-level {debug,info,warning,error,critical}] --num-queries NUM_QUERIES --query-length QUERY_LENGTH
+                        [--context-length CONTEXT_LENGTH] [--decode] [--num-mtp-tokens NUM_MTP_TOKENS] [--disable-repetition] [--compile] [--compile-allow-graph-break]
+                        [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}] [--quantize-lmhead] [--mxfp4-group-size MXFP4_GROUP_SIZE]
+                        [--quantize-attention-action {DISABLED,INT8,FP8}] [--graph-log-url GRAPH_LOG_URL] [--dump-input-shapes] [--chrome-trace CHROME_TRACE]
+                        [--num-hidden-layers-override NUM_HIDDEN_LAYERS_OVERRIDE] [--tp-size TP_SIZE] [--dp-size DP_SIZE] [--ep-size EP_SIZE] [--o-proj-tp-size O_PROJ_TP_SIZE]
+                        [--o-proj-dp-size O_PROJ_DP_SIZE] [--mlp-tp-size MLP_TP_SIZE] [--mlp-dp-size MLP_DP_SIZE] [--lmhead-tp-size LMHEAD_TP_SIZE] [--lmhead-dp-size LMHEAD_DP_SIZE]
+                        [--moe-tp-size MOE_TP_SIZE] [--moe-dp-size MOE_DP_SIZE] [--word-embedding-tp] [--enable-redundant-experts] [--enable-external-shared-experts] [--host-external-shared-experts]
+                        [--image-batch-size IMAGE_BATCH_SIZE] [--image-height IMAGE_HEIGHT] [--image-width IMAGE_WIDTH] [--remote-source {huggingface,modelscope}]
                         model_id
 
 Run a simulated LLM inference pass and dump the perf result.
 ```
 Run `python -m cli.inference.text_generate --help` for details.
+
+
+### Run video generation inference for diffusion models
+We provide a `video_generate.py` command line interface to simulate the forward pass and performance of diffusion transformer models. The script supports simulating the inference process of video generation models (e.g., Stable Video Diffusion-like architectures) with configurable input dimensions, sampling steps, and parallelism settings. A detailed table summary of operator performance breakdown is provided by default. An option is also provided to dump the performance timeline as a Chrome Trace file.
+
+Its general usage is shown below:
+```text
+usage: video_generate.py [-h]
+                         [--device {TEST_DEVICE,ATLAS_800_A2_376T_64G,ATLAS_800_A2_313T_64G,ATLAS_800_A2_280T_64G,ATLAS_800_A2_280T_64G_PCIE,ATLAS_800_A2_280T_32G_PCIE,ATLAS_800_A3_752T_128G_DIE,ATLAS_800_A3_560T_128G_DIE}]
+                         --batch-size BATCH_SIZE --seq-len SEQ_LEN [--chrome-trace CHROME_TRACE] [--height HEIGHT] [--width WIDTH] [--frame-num FRAME_NUM] [--sample-step SAMPLE_STEP]
+                         [--log-level {debug,info,warning,error,critical}] [--dtype {float16,float32,bfloat16}]
+                         [--quantize-linear-action {DISABLED,W8A16_STATIC,W8A8_STATIC,W4A8_STATIC,W8A16_DYNAMIC,W8A8_DYNAMIC,W4A8_DYNAMIC,FP8,MXFP4}] [--use-cfg] [--world-size WORLD_SIZE]
+                         [--ulysses-size ULYSSES_SIZE] [--cfg-parallel] [--dit-cache] [--cache-step-range CACHE_STEP_RANGE] [--cache-step-interval CACHE_STEP_INTERVAL]
+                         [--cache-block-range CACHE_BLOCK_RANGE]
+                         model_id
+
+Run a simulated diffusion transformer forward and dump perf stats.
+```
+Run `python -m cli.inference.video_generate --help` for details.
+
+
 #### External Shared Experts & Redundant Experts Implementation
 The following outlines the implementation logic for External Shared Experts and Redundant Experts.
 

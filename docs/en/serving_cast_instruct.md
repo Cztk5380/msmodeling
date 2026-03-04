@@ -11,8 +11,8 @@ pip install -r requirements.txt
 ## Supported python versions
 3.10+
 
-> [!Warning] Warning
-> If your operating system is Windows, please ensure that your PyTorch version is 2.8 or earlier, otherwise the program may not function correctly.
+> [!Warning]
+> If you are using Windows, note that PyTorch 2.10 may not run properly on your system. For a solution, please refer to [this issue](https://github.com/pytorch/pytorch/issues/166628). If you have not yet installed PyTorch, for optimal compatibility, we strongly recommend using version 2.8 or earlier to ensure the program functions correctly.
 
 ## Run simulation
 
