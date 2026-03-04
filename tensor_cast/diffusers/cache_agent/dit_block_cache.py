@@ -1,134 +1,114 @@
-import logging
+import types
 from typing import List, Tuple
 
-from .cache import CacheBase
+import torch
 
-logger = logging.getLogger(__name__)
+from .cache import CacheState
 
 
-class DiTBlockCache(CacheBase):
-    """DiT block-cache strategy for simulation."""
+class DiTBlockCache(torch.nn.Module):
+    """Cache-aware block wrapper used only on the configured cache range."""
 
-    def __init__(self, config):
-        super().__init__(config)
-        self._cache = [None] * 2
-        self._time_cache = {}
-        self._output_count = 1
+    def __init__(
+        self,
+        block,
+        state: CacheState,
+        block_index,
+        block_start: int,
+        block_end: int,
+        make_wrapped_forward,
+    ):
+        super().__init__()
+        self._inner = block
+        self._state = state
+        self._block_index = block_index
+        self._block_start = block_start
+        self._block_end = block_end
+        self.forward = types.MethodType(
+            make_wrapped_forward(self)(block.forward),
+            self,
+        )
 
-    def apply_imp(self, func: callable, *args, **kwargs):
-        if "hidden_states" not in kwargs:
-            raise ValueError("[DiTBlockCache]: Cannot find 'hidden_states' in kwargs.")
+    def __getattr__(self, item):
+        try:
+            return super().__getattr__(item)
+        except AttributeError:
+            if hasattr(self._inner, item):
+                return getattr(self._inner, item)
+            raise
 
-        hidden_states = kwargs.pop("hidden_states")
+    def apply(self, func: callable, *args, **kwargs):
+        hidden_states = kwargs.pop("hidden_states", None)
         if hidden_states is None:
-            raise ValueError("[DiTBlockCache]: Input 'hidden_states' is None.")
+            raise ValueError("[DiTBlockCache] Input 'hidden_states' is None.")
 
-        if not self._use_cache():
-            if "encoder_hidden_states" not in kwargs:
-                encoder_hidden_states = None
-                res = func(hidden_states, *args, **kwargs)
-            else:
-                encoder_hidden_states = kwargs.pop("encoder_hidden_states")
-                res = func(hidden_states, encoder_hidden_states, *args, **kwargs)
-            self._update_cache(res, hidden_states, encoder_hidden_states)
-            return res
+        encoder_hidden_states = kwargs.pop("encoder_hidden_states", None)
+        if self._state.reuse:
+            return self._reuse(hidden_states, encoder_hidden_states)
 
-        delta = self._get_cache()
+        if encoder_hidden_states is None:
+            res = func(hidden_states, *args, **kwargs)
+        else:
+            res = func(hidden_states, encoder_hidden_states, *args, **kwargs)
+        self._update_cache(res, hidden_states, encoder_hidden_states)
+        return res
 
-        if self._output_count == 2:
-            if "encoder_hidden_states" not in kwargs:
+    def _reuse(self, hidden_states, encoder_hidden_states):
+        state = self._state
+        if state.delta_hidden is None:
+            raise RuntimeError("[DiTBlockCache] Cache delta is empty before reuse.")
+
+        is_range_start = self._block_index == self._block_start
+        if state.delta_encoder is not None:
+            if encoder_hidden_states is None:
                 raise ValueError(
-                    "[DiTBlockCache] 'encoder_hidden_states' is required when cache output count is 2."
+                    "[DiTBlockCache] 'encoder_hidden_states' is required for two-output cache reuse."
                 )
-            encoder_hidden_states = kwargs.pop("encoder_hidden_states")
-            if self._cur_block == self._config.block_start:
-                return hidden_states + delta[0], encoder_hidden_states + delta[1]
+            if is_range_start:
+                return (
+                    hidden_states + state.delta_hidden,
+                    encoder_hidden_states + state.delta_encoder,
+                )
             return hidden_states, encoder_hidden_states
 
-        if self._cur_block == self._config.block_start:
-            return hidden_states + delta[0]
-        return hidden_states
-
-    def _use_cache(self) -> bool:
-        if self._cur_step < self._config.step_start:
-            return False
-        if self._cur_step > self._config.step_end:
-            return False
-
-        diftime = self._cur_step - self._config.step_start
-        if diftime not in self._time_cache:
-            self._time_cache[diftime] = diftime % self._config.step_interval == 0
-
-        if self._time_cache[diftime]:
-            return False
-        if (
-            self._cur_block < self._config.block_start
-            or self._cur_block >= self._config.block_end
-        ):
-            return False
-        return True
-
-    def _get_cache(self):
-        logger.debug(
-            "[DiTBlockCache] step: %d block: %d reuse cache.",
-            self._cur_step,
-            self._cur_block,
-        )
-        if self._cur_block == self._config.block_start:
-            return self._cache
-        return [0, 0]
+        return hidden_states + state.delta_hidden if is_range_start else hidden_states
 
     def _update_cache(self, res, ori_hidden_states, ori_encoder_hidden_states):
-        diftime = self._cur_step - self._config.step_start
-        if not (
-            self._cur_step >= self._config.step_start
-            and self._time_cache.get(diftime, False)
-        ):
-            return
-        if self._cur_step >= self._config.step_end:
-            return
-
-        self._output_count = len(res) if isinstance(res, (List, Tuple)) else 1
-        if self._output_count > 2 or self._output_count < 1:
+        state = self._state
+        output_count = len(res) if isinstance(res, (List, Tuple)) else 1
+        if output_count not in (1, 2):
             raise RuntimeError(
-                f"[DiTBlockCache] The output count must be 1 or 2, but got {self._output_count}."
+                f"[DiTBlockCache] The output count must be 1 or 2, but got {output_count}."
             )
 
-        if self._cur_block == self._config.block_start:
-            logger.debug(
-                "[DiTBlockCache] step: %d block: %d update cache begin.",
-                self._cur_step,
-                self._cur_block,
+        is_range_start = self._block_index == self._block_start
+        is_range_end = self._block_index == (self._block_end - 1)
+
+        if is_range_start:
+            state.range_hidden = ori_hidden_states
+            state.range_encoder = ori_encoder_hidden_states
+
+        if not is_range_end:
+            return
+
+        if state.range_hidden is None:
+            raise RuntimeError(
+                "[DiTBlockCache] Missing cache range input for hidden_states."
             )
-            # Temporarily store the "range input"; later we'll convert it into delta.
-            self._cache = [ori_hidden_states, ori_encoder_hidden_states]
-            return
 
-        if self._cur_block != (self._config.block_end - 1):
-            return
-
-        logger.debug(
-            "[DiTBlockCache] step: %d block: %d update cache end.",
-            self._cur_step,
-            self._cur_block,
-        )
-
-        if self._output_count == 2:
+        if output_count == 2:
             hidden_states, encoder_hidden_states = res
             if hidden_states is None or encoder_hidden_states is None:
                 raise RuntimeError("[DiTBlockCache] Cache function output is None.")
-            if ori_encoder_hidden_states is None:
+            if state.range_encoder is None:
                 raise ValueError(
                     "[DiTBlockCache] 'encoder_hidden_states' is required when output count is 2."
                 )
-            self._cache[0] = hidden_states - self._cache[0]
-            self._cache[1] = encoder_hidden_states - self._cache[1]
+            state.delta_hidden = hidden_states - state.range_hidden
+            state.delta_encoder = encoder_hidden_states - state.range_encoder
             return
 
         if res is None:
             raise RuntimeError("[DiTBlockCache] Cache function output is None.")
-        self._cache[0] = res - self._cache[0]
-
-    def _release(self):
-        self._cache = [None] * 2
-        self._time_cache = {}
+        state.delta_hidden = res - state.range_hidden
+        state.delta_encoder = None

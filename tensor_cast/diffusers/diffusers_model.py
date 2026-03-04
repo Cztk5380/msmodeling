@@ -23,10 +23,11 @@ from ..quantize_utils import quantize_linear_modules
 
 from ..transformers.model import ModelWrapper, ModelWrapperBase
 from ..transformers.utils import init_on_device_without_buffers
-from .cache_agent import CacheAgent, CacheConfig
+from .cache_agent import CacheConfig, CacheState
+from .cache_agent.dit_block_cache import DiTBlockCache
 
 from .diffusers_utils import get_diffusers_transformer_module
-from .dit_cache_registry import get_dit_block_cache_spec, wrap_blocks
+from .dit_cache_registry import get_dit_block_cache_spec, replace_blocks_in_range
 
 logger = logging.getLogger(__name__)
 
@@ -221,54 +222,53 @@ class DiffusersTransformerModel(ModelWrapperBase):
         )[0]
         return hidden_states
 
-    def enable_dit_block_cache(self, cache_config: CacheConfig) -> int:
+    def enable_dit_block_cache(self, cache_config: CacheConfig) -> Optional[CacheState]:
         """
         Enable DiT block cache (dit_block_cache).
 
-        Wrap each Transformer block.forward with cache_agent.apply. The agent uses
-        internal step/block counters to decide whether to compute or reuse a cached delta.
-
-        Returns: number of wrapped blocks.
+        Replace blocks in the configured cache range with cache-aware wrappers.
+        Step scheduling (update/reuse/bypass) is driven externally by the caller.
         """
-        class_name = (
-            self.model_config.model_config.get("_class_name")
-            if self.model_config.model_config is not None
-            else None
-        )
+        model_config = self.model_config.model_config or {}
+        class_name = model_config.get("_class_name")
         spec = get_dit_block_cache_spec(class_name)
         if spec is None:
             logger.warning(
                 "dit_block_cache is not implemented for model %r.", class_name
             )
-            return 0
+            return None
 
-        blocks = spec.get_blocks(self._inner)
-        blocks_count = len(blocks)
-        if blocks_count <= 0:
-            return 0
+        blocks_with_setters = list(spec.get_blocks_with_setters(self._inner))
+        if not blocks_with_setters:
+            return None
+        blocks_count = len(blocks_with_setters)
 
-        cache_config.blocks_count = blocks_count
-        if cache_config.block_end > blocks_count:
-            cache_config.block_end = blocks_count
+        bounded_block_end = min(cache_config.block_end, blocks_count)
 
-        agent = CacheAgent(cache_config)
-        wrapped = wrap_blocks(blocks, spec.make_wrapped_forward(agent))
+        cache_state = CacheState()
+        replaced = replace_blocks_in_range(
+            blocks_with_setters,
+            cache_config.block_start,
+            bounded_block_end,
+            lambda block, flat_idx: DiTBlockCache(
+                block=block,
+                state=cache_state,
+                block_index=flat_idx,
+                block_start=cache_config.block_start,
+                block_end=bounded_block_end,
+                make_wrapped_forward=spec.make_wrapped_forward,
+            ),
+        )
 
         logger.info(
-            "Enabled dit_block_cache for %s: wrapped %d/%d blocks, "
-            "steps_count=%d, step_start=%d, step_interval=%d, step_end=%d, "
-            "block_start=%d, block_end=%d.",
+            "Enabled dit_block_cache for %s: replaced %d blocks in range [%d, %d) out of %d.",
             spec.model_type,
-            wrapped,
-            blocks_count,
-            cache_config.steps_count,
-            cache_config.step_start,
-            cache_config.step_interval,
-            cache_config.step_end,
+            replaced,
             cache_config.block_start,
-            cache_config.block_end,
+            bounded_block_end,
+            blocks_count,
         )
-        return wrapped
+        return cache_state if replaced > 0 else None
 
 
 def get_sp_group(world_size: int, ulysses_size: int) -> ParallelGroup:

@@ -1,19 +1,19 @@
 import logging
-import types
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, Iterable, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence, Tuple
 
 logger = logging.getLogger(__name__)
 
 WrappedForwardFactory = Callable[[Callable[..., Any]], Callable[..., Any]]
 MakeWrappedForward = Callable[[Any], WrappedForwardFactory]
-GetBlocks = Callable[[Any], Sequence[Any]]
+BlockSetter = Callable[[Any], None]
+GetBlocksWithSetters = Callable[[Any], Sequence[Tuple[Any, BlockSetter]]]
 
 
 @dataclass(frozen=True)
 class DiTBlockCacheSpec:
     model_type: str
-    get_blocks: GetBlocks
+    get_blocks_with_setters: GetBlocksWithSetters
     make_wrapped_forward: MakeWrappedForward
 
 
@@ -32,33 +32,51 @@ def get_dit_block_cache_spec(class_name: Optional[str]) -> Optional[DiTBlockCach
     return _DIT_BLOCK_CACHE_SPECS.get(class_name)
 
 
-def wrap_blocks(
-    blocks: Iterable[Any], make_wrapped_forward: WrappedForwardFactory
+def _make_block_setter(container, index: int) -> BlockSetter:
+    def _set_block(new_block: Any) -> None:
+        container[index] = new_block
+
+    return _set_block
+
+
+def _module_list_blocks_with_setters(blocks) -> list[tuple[Any, BlockSetter]]:
+    return [
+        (block, _make_block_setter(blocks, idx)) for idx, block in enumerate(blocks)
+    ]
+
+
+def replace_blocks_in_range(
+    blocks_with_setters: Sequence[Tuple[Any, BlockSetter]],
+    start: int,
+    end: int,
+    make_cache_block: Callable[[Any, int], Any],
 ) -> int:
-    wrapped = 0
-    for block in blocks:
-        if hasattr(block, "_tensor_cast_orig_forward"):
+    from .cache_agent.dit_block_cache import DiTBlockCache
+
+    replaced = 0
+    bounded_end = min(end, len(blocks_with_setters))
+    for flat_idx in range(start, bounded_end):
+        block, setter = blocks_with_setters[flat_idx]
+        if isinstance(block, DiTBlockCache):
             continue
-        orig_forward_bound = block.forward
-        block._tensor_cast_orig_forward = orig_forward_bound
-        block.forward = types.MethodType(
-            make_wrapped_forward(orig_forward_bound), block
-        )
-        wrapped += 1
-    return wrapped
+        setter(make_cache_block(block, flat_idx))
+        replaced += 1
+    return replaced
 
 
-def _get_wan_blocks(inner: Any) -> Sequence[Any]:
+def _get_wan_blocks_with_setters(inner: Any) -> Sequence[Tuple[Any, BlockSetter]]:
     if not hasattr(inner, "blocks"):
         logger.warning("WanTransformer3DModel has no attribute 'blocks'.")
         return []
-    blocks = list(inner.blocks)
-    if not blocks:
+    pairs = _module_list_blocks_with_setters(inner.blocks)
+    if not pairs:
         logger.warning("WanTransformer3DModel.blocks is empty.")
-    return blocks
+    return pairs
 
 
-def _get_hunyuanvideo_blocks(inner: Any) -> Sequence[Any]:
+def _get_hunyuanvideo_blocks_with_setters(
+    inner: Any,
+) -> Sequence[Tuple[Any, BlockSetter]]:
     if not hasattr(inner, "transformer_blocks"):
         logger.warning(
             "HunyuanVideoTransformer3DModel has no attribute 'transformer_blocks'."
@@ -69,22 +87,25 @@ def _get_hunyuanvideo_blocks(inner: Any) -> Sequence[Any]:
             "HunyuanVideoTransformer3DModel has no attribute 'single_transformer_blocks'."
         )
         return []
-    blocks = list(inner.transformer_blocks) + list(inner.single_transformer_blocks)
-    if not blocks:
+    pairs = _module_list_blocks_with_setters(inner.transformer_blocks)
+    pairs.extend(_module_list_blocks_with_setters(inner.single_transformer_blocks))
+    if not pairs:
         logger.warning("HunyuanVideoTransformer3DModel transformer blocks are empty.")
-    return blocks
+    return pairs
 
 
-def _get_hunyuanvideo15_blocks(inner: Any) -> Sequence[Any]:
+def _get_hunyuanvideo15_blocks_with_setters(
+    inner: Any,
+) -> Sequence[Tuple[Any, BlockSetter]]:
     if not hasattr(inner, "transformer_blocks"):
         logger.warning(
             "HunyuanVideo15Transformer3DModel has no attribute 'transformer_blocks'."
         )
         return []
-    blocks = list(inner.transformer_blocks)
-    if not blocks:
+    pairs = _module_list_blocks_with_setters(inner.transformer_blocks)
+    if not pairs:
         logger.warning("HunyuanVideo15Transformer3DModel.transformer_blocks is empty.")
-    return blocks
+    return pairs
 
 
 def _wan_make_wrapped_forward(agent: Any) -> WrappedForwardFactory:
@@ -92,7 +113,7 @@ def _wan_make_wrapped_forward(agent: Any) -> WrappedForwardFactory:
         orig_forward_bound: Callable[..., Any],
     ) -> Callable[..., Any]:
         def _wrapped_forward(
-            self_block: Any,
+            _self_block: Any,
             hidden_states: Any,
             encoder_hidden_states: Any,
             temb: Any,
@@ -116,7 +137,7 @@ def _hunyuanvideo_make_wrapped_forward(agent: Any) -> WrappedForwardFactory:
         orig_forward_bound: Callable[..., Any],
     ) -> Callable[..., Any]:
         def _wrapped_forward(
-            self_block: Any,
+            _self_block: Any,
             hidden_states: Any,
             encoder_hidden_states: Any,
             temb: Any,
@@ -146,7 +167,7 @@ def _hunyuanvideo15_make_wrapped_forward(agent: Any) -> WrappedForwardFactory:
         orig_forward_bound: Callable[..., Any],
     ) -> Callable[..., Any]:
         def _wrapped_forward(
-            self_block: Any,
+            _self_block: Any,
             hidden_states: Any,
             encoder_hidden_states: Any,
             temb: Any,
@@ -171,7 +192,7 @@ register_dit_block_cache_spec(
     "WanTransformer3DModel",
     DiTBlockCacheSpec(
         model_type="Wan",
-        get_blocks=_get_wan_blocks,
+        get_blocks_with_setters=_get_wan_blocks_with_setters,
         make_wrapped_forward=_wan_make_wrapped_forward,
     ),
 )
@@ -179,7 +200,7 @@ register_dit_block_cache_spec(
     "HunyuanVideoTransformer3DModel",
     DiTBlockCacheSpec(
         model_type="HunyuanVideo",
-        get_blocks=_get_hunyuanvideo_blocks,
+        get_blocks_with_setters=_get_hunyuanvideo_blocks_with_setters,
         make_wrapped_forward=_hunyuanvideo_make_wrapped_forward,
     ),
 )
@@ -187,7 +208,7 @@ register_dit_block_cache_spec(
     "HunyuanVideo15Transformer3DModel",
     DiTBlockCacheSpec(
         model_type="HunyuanVideo15",
-        get_blocks=_get_hunyuanvideo15_blocks,
+        get_blocks_with_setters=_get_hunyuanvideo15_blocks_with_setters,
         make_wrapped_forward=_hunyuanvideo15_make_wrapped_forward,
     ),
 )

@@ -27,6 +27,8 @@ from ..runtime import Runtime
 from ..utils import str_to_dtype
 from .utils import check_positive_integer, LOG_LEVELS, parse_int_range
 
+logger = logging.getLogger(__name__)
+
 
 def generate_diffusers_inputs(
     batch_size, height, width, frame_num, seq_lens, model_config
@@ -198,13 +200,7 @@ def run_inference(
     )
 
     def _duplicate_batch_tensors_for_cfg(inputs: dict, batch: int) -> dict:
-        """
-        Align with real CFG behavior (route-A): do ONE transformer forward per denoising step,
-        by concatenating cond/uncond on the batch dimension.
-
-        This keeps cache step counting correct ("one forward == one step"), while roughly doubling compute,
-        which is what CFG does in practice.
-        """
+        """Simulate CFG by concatenating cond/uncond on batch dim."""
 
         out = dict(inputs)
         for k, v in inputs.items():
@@ -214,30 +210,41 @@ def run_inference(
                 out[k] = torch.cat([v, v], dim=0)
         return out
 
+    cache_model, cache_state = None, None
+    cache_step_start, cache_step_end = 0, -1
     if dit_cache:
         if cache_step_range is None:
             raise ValueError("--cache-step-range is required when --dit-cache is set.")
-        step_start, step_end = parse_int_range(cache_step_range, "--cache-step-range")
+        cache_step_start, cache_step_end = parse_int_range(
+            cache_step_range, "--cache-step-range"
+        )
+        cache_step_end = min(cache_step_end, sample_step - 1)
         if cache_block_range is None:
             block_start, block_end = 0, 10000
         else:
             block_start, block_end = parse_int_range(
                 cache_block_range, "--cache-block-range"
             )
-        # blocks_count is auto-filled inside enable_dit_block_cache() to match the model.
-        cache_config = CacheConfig(
-            method="dit_block_cache",
-            blocks_count=1,
-            steps_count=sample_step,
-            step_start=step_start,
-            step_interval=cache_step_interval,
-            step_end=step_end,
-            block_start=block_start,
-            block_end=block_end,
-        )
-        model.enable_dit_block_cache(cache_config)
-    if ulysses_size > 1:
-        set_sp_group(model.sp_group)
+        if cache_step_interval <= 1:
+            logger.info(
+                "DiT cache is disabled because cache_step_interval=%d.",
+                cache_step_interval,
+            )
+        else:
+            cache_model, _ = build_diffusers_transformer_model(
+                model_id,
+                parallel_config,
+                quant_config,
+                dtype,
+            )
+            cache_state = cache_model.enable_dit_block_cache(
+                CacheConfig(block_start=block_start, block_end=block_end)
+            )
+            if cache_state is None:
+                logger.warning(
+                    "DiT cache is enabled but no blocks were replaced; fallback to baseline model path."
+                )
+                cache_model = None
     if use_cfg and cfg_parallel:
         cfg_parallel_group = ParallelGroup(
             0, [[0, 1]], world_size
@@ -253,14 +260,13 @@ def run_inference(
 
     cfg_input_kwargs = None
     if use_cfg and not cfg_parallel:
-        # TODO(dit-cache-refactor): remove this compatibility path when switching
-        # to the no-counter cache implementation (dual-model or static schedule).
-        # Current behavior keeps one forward per denoising step.
+        # Keep one transformer forward per denoising step in simulation.
         cfg_input_kwargs = _duplicate_batch_tensors_for_cfg(input_kwargs, batch_size)
         if "hidden_states" in cfg_input_kwargs:
             print(
                 f"CFG enabled (batch-concat): effective batch_size={cfg_input_kwargs['hidden_states'].shape[0]}"
             )
+    active_inputs = cfg_input_kwargs or input_kwargs
 
     print(input_kwargs)
     print("Running simulated inference...")
@@ -273,10 +279,21 @@ def run_inference(
         torch.no_grad(),
         use_custom_sdpa(),
     ):
-        for _ in range(sample_step):
-            out = model.forward(**(cfg_input_kwargs or input_kwargs))
+        for step_idx in range(sample_step):
+            in_cache_window = (
+                cache_state is not None
+                and cache_step_start <= step_idx <= cache_step_end
+            )
+            if cache_state is not None:
+                cache_state.reuse = in_cache_window and (
+                    (step_idx - cache_step_start) % cache_step_interval != 0
+                )
+            active_model = cache_model if in_cache_window else model
             if ulysses_size > 1:
-                out = model.sp_group.all_gather(out, dim=split_dim)
+                set_sp_group(active_model.sp_group)
+            out = active_model.forward(**active_inputs)
+            if ulysses_size > 1:
+                out = active_model.sp_group.all_gather(out, dim=split_dim)
             if (
                 use_cfg and cfg_parallel
             ):  # use cfg and use cfg parallel, do all-gather after each step of DiT forward

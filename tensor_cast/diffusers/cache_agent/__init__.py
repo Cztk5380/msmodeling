@@ -1,9 +1,8 @@
 """Cache entrypoints for diffusion-transformer simulation."""
 
-from .cache import CacheConfig
-from .cache_agent import CacheAgent
+from .cache import CacheConfig, CacheState
 
 __all__ = [
-    "CacheAgent",
     "CacheConfig",
+    "CacheState",
 ]
