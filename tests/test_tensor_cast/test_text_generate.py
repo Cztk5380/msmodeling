@@ -1304,6 +1304,36 @@ class TestTextGenerate(unittest.TestCase):
         else:
             self.assertNotIn("tensor_cast.all_to_all.default", result["table_result"])
 
+    def test_vl_moe_tp_ep_different_parallel(self):
+        """Test vl moe tp ep different parallel"""
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id="Qwen/Qwen3-VL-235B-A22B-Instruct",
+            num_queries=4,
+            query_len=20,
+            image_batch_size=4,
+            image_width=1920,
+            image_height=1080,
+            do_compile=True,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.W8A8_DYNAMIC,
+            world_size=8,
+            tp_size=2,
+            ep_size=8,
+            moe_dp_size=1,
+            moe_tp_size=1,
+        )
+        model_runner = ModelRunner(user_input)
+        self.assertTrue(model_runner.model.is_vl_model, msg="Model should be vl model")
+        input_kwargs = generate_inputs(
+            model_runner.model,
+            model_runner.request_info_default,
+            block_size=user_input.block_size,
+        )
+        self.assertIn("pixel_values", input_kwargs)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
+        self._validate_inference_result(result, "test_vl_moe_tp_ep_different_parallel")
+
     @parameterized.expand(
         [
             ["inclusionAI/Ling-1T"],

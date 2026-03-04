@@ -633,11 +633,6 @@ class TransformerModel(ModelWrapperBase):
                             ROWWISE_LINEAR,
                             params,
                         ),
-                        # Adaptation to gate_up
-                        f"{language_layers}.*.experts.*.gate_up_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
                     }
                 )
             else:

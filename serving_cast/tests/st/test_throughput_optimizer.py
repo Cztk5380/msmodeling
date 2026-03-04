@@ -258,3 +258,39 @@ class TestThroughputOptimizer(TestCase):
         local_columns.remove("TTFT (ms)")
         table_start_pattern = r"Top \d Disaggregation \(Decode\) Configurations:"
         self._validate_table_structure(full_output, local_columns, table_start_pattern)
+
+    def test_VL_MOE_model_aggregation_with_output_validation(self):
+        """Test VL MOE model aggregation functionality with comprehensive output validation"""
+        args = [
+            "--input-length=20",
+            "--output-length=128",
+            "Qwen/Qwen3-VL-235B-A22B-Instruct",
+            "--device=TEST_DEVICE",
+            "--num-devices=8",
+            "--tpot-limits=50",
+            "--image-height=1080",
+            "--image-width=1920",
+            "--compile",
+            "--quantize-linear-action=W8A8_DYNAMIC",
+            "--quantize-attention-action=INT8",
+            "--batch-range",
+            "1",
+            "4",
+            "--max-prefill-tokens=100",
+        ]
+
+        # Execute command
+        result = self._run_throughput_optimizer(args)
+
+        # Basic execution check
+        if result.returncode != 0:
+            self.fail(
+                f"Script execution failed with return code {result.returncode}: {result.stderr}"
+            )
+
+        # Combine stdout and stderr for analysis
+        full_output = result.stdout + result.stderr
+        # Validate table structure
+        local_columns = SHOW_COLUMNS.copy()
+        table_start_pattern = r"Top \d Aggregation Configurations:"
+        self._validate_table_structure(full_output, local_columns, table_start_pattern)
