@@ -530,7 +530,10 @@ class TransformerModel(ModelWrapperBase):
             tp_plan = {}
 
             if self.model_config.parallel_config.embedding_parallel:
-                params = {"tp_group": tp_group}
+                params = {
+                    "tp_group": tp_group,
+                    "shard_mode": self.model_config.parallel_config.embedding_parallel_mode,
+                }
                 tp_plan.update({"embed_tokens": (PARALLEL_EMBEDDING, params)})
 
             params = {

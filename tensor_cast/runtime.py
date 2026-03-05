@@ -352,7 +352,7 @@ class Runtime(TorchDispatchMode):
         # Keep track of the current time for each process/thread combination.
         # The key is the pid, and the value is the cumulative time in microseconds.
         # For now, we assume a single thread (tid=0) per process.
-        current_time_us = dict.fromkeys(perf_model_pids.values(), 0.0)
+        current_time_us = dict.fromkeys(perf_model_pids.values(), 0)
 
         # 1. Add Metadata Events to name the processes for readability in the trace viewer
         for model_name, pid in perf_model_pids.items():
@@ -384,7 +384,7 @@ class Runtime(TorchDispatchMode):
                 pid = perf_model_pids[model_name]
 
                 # result.runtime is in seconds, Chrome Trace wants microseconds
-                duration_us = result.execution_time_s * 1e6
+                duration_us = max(0, int(round(result.execution_time_s * 1e6)))
 
                 # The event starts at the current cumulative time for this process
                 start_time_us = current_time_us[pid]

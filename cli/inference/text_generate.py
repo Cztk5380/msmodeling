@@ -6,6 +6,7 @@ from tensor_cast.core.quantization.datatypes import (
     QuantizeAttentionAction,
     QuantizeLinearAction,
 )
+from tensor_cast.model_config import WordEmbeddingTPMode
 from ..utils import check_positive_integer, get_common_argparser, LOG_FORMAT, LOG_LEVELS
 
 
@@ -187,8 +188,11 @@ def main():
     )
     par_group.add_argument(
         "--word-embedding-tp",
-        action="store_true",
-        help="Whether or not to implement word embedding tensor parallel",
+        type=str,
+        choices=[mode.value for mode in WordEmbeddingTPMode],
+        default=None,
+        help="Enable word embedding tensor parallel with mode {'col','row'}. "
+        "If omitted, embedding TP is disabled.",
     )
     par_group.add_argument(
         "--enable-redundant-experts",
@@ -246,6 +250,12 @@ def main():
 
     if args.graph_log_url:
         config.compilation.debug.graph_log_url = args.graph_log_url
+
+    selected_embedding_tp_mode = args.word_embedding_tp
+    args.word_embedding_tp = selected_embedding_tp_mode is not None
+    args.word_embedding_tp_mode = (
+        selected_embedding_tp_mode or WordEmbeddingTPMode.col.value
+    )
 
     # import here to make sure the logger level is set
     logger.info("Importing core modules...")

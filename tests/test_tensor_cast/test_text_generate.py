@@ -16,6 +16,8 @@ from tensor_cast.core.quantization.datatypes import (
     QuantizeLinearAction,
 )
 from tensor_cast.core.user_config import UserInputConfig
+from tensor_cast.layers.parallel_embedding import ParallelEmbedding
+from tensor_cast.model_config import WordEmbeddingTPMode
 
 
 class TestTextGenerate(unittest.TestCase):
@@ -1017,7 +1019,8 @@ class TestTextGenerate(unittest.TestCase):
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_o_proj_specific_parallelism")
 
-    def test_word_embedding_parallel(self):
+    @parameterized.expand([["col"], ["row"]])
+    def test_word_embedding_parallel(self, embedding_tp_mode):
         """Test with word embedding parallel."""
         user_input = UserInputConfig(
             device=self.device,
@@ -1031,10 +1034,44 @@ class TestTextGenerate(unittest.TestCase):
             world_size=4,
             tp_size=2,
             word_embedding_tp=True,
+            word_embedding_tp_mode=embedding_tp_mode,
         )
         model_runner = ModelRunner(user_input)
+        embedding_layers = [
+            module
+            for module in model_runner.model.modules()
+            if isinstance(module, ParallelEmbedding)
+        ]
+        self.assertGreaterEqual(
+            len(embedding_layers),
+            1,
+            "Expected at least one ParallelEmbedding when word_embedding_tp is enabled.",
+        )
+        embedding_layer = max(
+            embedding_layers, key=lambda module: module.num_embeddings
+        )
+        self.assertEqual(
+            embedding_layer.shard_mode, WordEmbeddingTPMode(embedding_tp_mode)
+        )
+        sharded_vocab, sharded_hidden = embedding_layer._inner.weight.shape
+        if embedding_tp_mode == WordEmbeddingTPMode.col.value:
+            self.assertEqual(sharded_vocab, embedding_layer.num_embeddings)
+            self.assertLess(sharded_hidden, embedding_layer.embedding_dim)
+            self.assertGreaterEqual(
+                sharded_hidden * embedding_layer.tp_size, embedding_layer.embedding_dim
+            )
+        else:
+            self.assertEqual(sharded_hidden, embedding_layer.embedding_dim)
+            self.assertLess(sharded_vocab, embedding_layer.num_embeddings)
+            self.assertGreaterEqual(
+                sharded_vocab * embedding_layer.tp_size, embedding_layer.num_embeddings
+            )
+            self.assertLess(embedding_layer._row_start, embedding_layer._row_end)
+            self.assertLessEqual(embedding_layer._row_end, embedding_layer._vocab_size)
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
-        self._validate_inference_result(result, "test_word_embedding_parallel")
+        self._validate_inference_result(
+            result, f"test_word_embedding_parallel_{embedding_tp_mode}"
+        )
 
     def test_qwen3_32b_tp16(self):
         """Make sure tp_size can be greater than num_key_value_heads."""

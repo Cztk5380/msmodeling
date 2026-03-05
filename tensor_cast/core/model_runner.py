@@ -163,6 +163,16 @@ class ModelRunner:
         model_activation_size_gb = (
             peak_memory_usage_gb - kv_cache_size_gb - self.model_weight_size_gb
         )
+        if model_activation_size_gb < 0:
+            logger.warning(
+                "Negative activation memory estimate (peak=%.6f GB, weight=%.6f GB, kv=%.6f GB); "
+                "clamping activation to 0 and adjusting peak for consistency.",
+                peak_memory_usage_gb,
+                self.model_weight_size_gb,
+                kv_cache_size_gb,
+            )
+            model_activation_size_gb = 0.0
+            peak_memory_usage_gb = self.model_weight_size_gb + kv_cache_size_gb
         device_memory_available_gb = (
             self.total_device_memory_gb
             - peak_memory_usage_gb

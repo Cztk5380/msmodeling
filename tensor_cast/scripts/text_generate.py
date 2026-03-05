@@ -7,6 +7,7 @@ from ..core.model_runner import ModelRunner
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..core.user_config import UserInputConfig
 from ..device import DeviceProfile
+from ..model_config import WordEmbeddingTPMode
 from .utils import check_positive_integer, LOG_LEVELS
 
 
@@ -212,8 +213,11 @@ def main():
     )
     parser.add_argument(
         "--word-embedding-tp",
-        action="store_true",
-        help="Whether or not to implement word embedding tensor parallel",
+        type=str,
+        choices=[mode.value for mode in WordEmbeddingTPMode],
+        default=None,
+        help="Enable word embedding tensor parallel with mode {'col','row'}. "
+        "If omitted, embedding TP is disabled.",
     )
     parser.add_argument(
         "--enable-redundant-experts",
@@ -267,6 +271,12 @@ def main():
 
     if args.graph_log_url:
         config.compilation.debug.graph_log_url = args.graph_log_url
+
+    selected_embedding_tp_mode = args.word_embedding_tp
+    args.word_embedding_tp = selected_embedding_tp_mode is not None
+    args.word_embedding_tp_mode = (
+        selected_embedding_tp_mode or WordEmbeddingTPMode.col.value
+    )
 
     user_input = UserInputConfig.from_args(args)
     model_runner = ModelRunner(user_input)

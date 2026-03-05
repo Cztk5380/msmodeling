@@ -11,7 +11,12 @@ from ..core.input_generator import RequestInfo
 from ..core.quantization.config import create_quant_config
 from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinearAction
 from ..device import DeviceProfile
-from ..model_config import ParallelConfig, QuantConfig, RemoteSource
+from ..model_config import (
+    ParallelConfig,
+    QuantConfig,
+    RemoteSource,
+    WordEmbeddingTPMode,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -58,6 +63,7 @@ class UserInputConfig:
     moe_dp_size: int = 1
     moe_tp_size: Optional[int] = None
     word_embedding_tp: bool = False
+    word_embedding_tp_mode: WordEmbeddingTPMode = WordEmbeddingTPMode.col
     enable_redundant_experts: bool = False
     enable_external_shared_experts: bool = False
     host_external_shared_experts: bool = False
@@ -69,10 +75,22 @@ class UserInputConfig:
 
     def __post_init__(self):
         self._validate_device()
+        self._normalize_embedding_tp_mode()
 
     def _validate_device(self):
         if self.device not in DeviceProfile.all_device_profiles:
             raise ValueError(f"Device '{self.device}' not recognized.")
+
+    def _normalize_embedding_tp_mode(self):
+        try:
+            self.word_embedding_tp_mode = WordEmbeddingTPMode(
+                self.word_embedding_tp_mode
+            )
+        except ValueError as err:
+            raise ValueError(
+                "word_embedding_tp_mode must be one of {'col', 'row'}, "
+                f"got {self.word_embedding_tp_mode!r}."
+            ) from err
 
     def _print_info(self):
         print("--- Configuration ---")
@@ -124,6 +142,7 @@ class UserInputConfig:
             moe_tensor_parallel_size=self.moe_tp_size,
             moe_data_parallel_size=self.moe_dp_size,
             embedding_parallel=self.word_embedding_tp,
+            embedding_parallel_mode=self.word_embedding_tp_mode,
             pipeline_parallel_size=self.pp_size,
         )
 
