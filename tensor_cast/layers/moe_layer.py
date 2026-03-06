@@ -3,7 +3,6 @@ from abc import ABC, abstractmethod
 from typing import Any, List, Optional
 
 import torch
-import torch.nn.functional as F
 
 from .. import ops  # noqa: F401
 from ..model_config import MoEConfig
@@ -89,8 +88,10 @@ class MoELayer(torch.nn.Module):
                     "top_k must be specified if gate_returns_raw_logits is True"
                 )
             router_logits = self.gate(hidden_states)
-            topk_weights = F.softmax(router_logits, dim=-1, dtype=torch.float)
-            topk_weights, topk_indices = torch.topk(topk_weights, self.top_k, dim=-1)
+            topk_weights, topk_indices = torch.ops.tensor_cast.moe_gating_top_k_softmax(
+                router_logits, self.top_k
+            )
+
             if self.norm_topk_prob:
                 topk_weights /= topk_weights.sum(dim=-1, keepdim=True)
             topk_weights = topk_weights.to(hidden_states.dtype)

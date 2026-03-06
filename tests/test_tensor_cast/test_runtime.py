@@ -270,6 +270,29 @@ class PerfAnalysisTestCase(unittest.TestCase):
 
         assert_close(self, actual_execution_time, 1.18e-3)
 
+    def test_moe_gating_top_k_softmax(
+        self,
+    ):
+        """
+        Tests the execution time of the `moe_gating_top_k_softmax` operation under AnalyticPerformanceModel.
+
+        Given input logits and a top-k value, executes the operation and verifies that
+        the analytic execution time is sufficiently close to the expected value (2.0e-6 seconds).
+        """
+        perf_model = AnalyticPerformanceModel(TEST_DEVICE)
+        test_logits = torch.randn(1, 4, 4, device="meta", dtype=torch.float16)
+        with (
+            Runtime(
+                perf_model, TEST_DEVICE, memory_tracker=MemoryTracker(TEST_DEVICE)
+            ) as runtime,
+            torch.no_grad(),
+        ):
+            torch.ops.tensor_cast.moe_gating_top_k_softmax(test_logits, 2)
+        self.assertEqual(len(runtime.event_list), 1)
+        analytic_result = runtime.event_list[0].perf_results.get("analytic")
+        actual_execution_time = analytic_result.execution_time_s
+        assert_close(self, actual_execution_time, 2.0e-6)
+
     def test_mla_eager_prefill_without_context(self):
         B, S, num_heads, q_head_dim = 2, 3500, 8, 192
         block_size, dtype = 128, torch.float16

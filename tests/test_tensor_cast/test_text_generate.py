@@ -558,6 +558,22 @@ class TestTextGenerate(unittest.TestCase):
             result = asdict(result)
         self.assertIn("tensor_cast.mlapo_quant.default", result["table_result"])
 
+    def test_moe_gating_top_k_softmax(self):
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id="Qwen/Qwen3-30B-A3B",
+            num_queries=1,
+            query_len=1,
+        )
+        model_runner = ModelRunner(user_input)
+        result = model_runner.run_inference(generate_inputs_func=generate_inputs)
+        self._validate_inference_result(result, "test_moe_gating_top_k_softmax")
+        if isinstance(result, ModelRunnerMetrics):
+            result = asdict(result)
+        self.assertIn(
+            "tensor_cast.moe_gating_top_k_softmax.default", result["table_result"]
+        )
+
     def test_with_quantized_lmhead(self):
         """Test with LM head quantization enabled."""
         user_input = UserInputConfig(

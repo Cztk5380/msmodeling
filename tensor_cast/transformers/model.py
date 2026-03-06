@@ -479,8 +479,8 @@ class TransformerModel(ModelWrapperBase):
 
         self.top_k = None
         self.num_routing_experts = None
-        named_modules = list(self._inner.named_modules())
-        for name, module in named_modules:
+
+        for name, module in self._inner.named_modules():
             if type(module).__name__ == moe_config.module_name:
                 if not self._all_required_fields_exist(module, moe_config.field_names):
                     continue
