@@ -631,7 +631,17 @@ class TestTextGenerate(unittest.TestCase):
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_mixed_parallelism")
 
-    def test_with_mtp_tokens(self):
+    @parameterized.expand(
+        [
+            [1, 16, 1, False],
+            [2, 16, 1, True],
+            [4, 4, 1, False],
+            [8, 4, 2, True],
+        ]
+    )
+    def test_with_different_parallel_mtp_tokens(
+        self, tp_size, ep_size, moe_tp_size, do_compile
+    ):
         """Test with MTP (Multi-Token Prediction) tokens."""
         user_input = UserInputConfig(
             device=self.device,
@@ -639,14 +649,22 @@ class TestTextGenerate(unittest.TestCase):
             num_queries=2,
             query_len=10,
             context_length=0,
-            do_compile=False,
+            do_compile=do_compile,
             allow_graph_break=False,
             quantize_linear_action=QuantizeLinearAction.DISABLED,
             num_mtp_tokens=2,
+            world_size=16,
+            tp_size=tp_size,
+            dp_size=16 // tp_size,
+            ep_size=ep_size,
+            moe_tp_size=moe_tp_size,
+            moe_dp_size=16 // moe_tp_size // ep_size,
         )
         model_runner = ModelRunner(user_input)
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
-        self._validate_inference_result(result, "test_with_mtp_tokens")
+        self._validate_inference_result(
+            result, "test_with_different_parallel_mtp_tokens"
+        )
 
     def test_with_auto_mtp(self):
         """Test with MTP (Multi-Token Prediction) tokens with auto mode."""

@@ -542,15 +542,19 @@ class TransformerModel(ModelWrapperBase):
             }
             config_info = self.hf_config if not self.is_vl_model else self.text_config
             language_layers = self.get_language_layers()
+            layer_prefixes = [f"{language_layers}"]
+            if self.model_config.mtp_config is not None:
+                layer_prefixes.append("mtp.layers.*.mtp_block")
             if self.model_config.mla_config:
                 params.update({"head_num": config_info.num_attention_heads})
-                tp_plan.update(
-                    {
-                        "layers.*.self_attn.q_proj": (COLWISE_LINEAR, params),
-                        "layers.*.self_attn.q_b_proj": (COLWISE_LINEAR, params),
-                        "layers.*.self_attn.kv_b_proj": (COLWISE_LINEAR, params),
-                    }
-                )
+                for prefix in layer_prefixes:
+                    tp_plan.update(
+                        {
+                            f"{prefix}.*.self_attn.q_proj": (COLWISE_LINEAR, params),
+                            f"{prefix}.*.self_attn.q_b_proj": (COLWISE_LINEAR, params),
+                            f"{prefix}.*.self_attn.kv_b_proj": (COLWISE_LINEAR, params),
+                        }
+                    )
             else:
                 params.update({"head_num": config_info.num_attention_heads})
                 tp_plan.update(
@@ -581,19 +585,21 @@ class TransformerModel(ModelWrapperBase):
                 "global_tp_group": tp_group,
                 "head_num": config_info.num_attention_heads,
             }
-            tp_plan.update({f"{language_layers}.*.o_proj": (ROWWISE_LINEAR, params)})
+            for prefix in layer_prefixes:
+                tp_plan.update({f"{prefix}.*.o_proj": (ROWWISE_LINEAR, params)})
 
             params = {
                 "tp_group": mlp_tp_group,
                 "global_tp_group": tp_group,
             }
-            tp_plan.update(
-                {
-                    f"{language_layers}.*.mlp.gate_proj": (COLWISE_LINEAR, params),
-                    f"{language_layers}.*.mlp.up_proj": (COLWISE_LINEAR, params),
-                    f"{language_layers}.*.mlp.down_proj": (ROWWISE_LINEAR, params),
-                }
-            )
+            for prefix in layer_prefixes:
+                tp_plan.update(
+                    {
+                        f"{prefix}.*.mlp.gate_proj": (COLWISE_LINEAR, params),
+                        f"{prefix}.*.mlp.up_proj": (COLWISE_LINEAR, params),
+                        f"{prefix}.*.mlp.down_proj": (ROWWISE_LINEAR, params),
+                    }
+                )
             visual_layers_path = self.get_visual_layers_path()
             if visual_layers_path is not None:
                 params = {
@@ -622,55 +628,39 @@ class TransformerModel(ModelWrapperBase):
                     "tp_group": all_rank_group,
                     "global_tp_group": all_rank_group,
                 }
-                tp_plan.update(
-                    {
-                        f"{language_layers}.*.experts.*.gate_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
-                        f"{language_layers}.*.experts.*.up_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
-                        f"{language_layers}.*.experts.*.down_proj": (
-                            ROWWISE_LINEAR,
-                            params,
-                        ),
-                    }
-                )
+                for prefix in layer_prefixes:
+                    tp_plan.update(
+                        {
+                            f"{prefix}.*.experts.*.gate_proj": (COLWISE_LINEAR, params),
+                            f"{prefix}.*.experts.*.up_proj": (COLWISE_LINEAR, params),
+                            f"{prefix}.*.experts.*.down_proj": (ROWWISE_LINEAR, params),
+                        }
+                    )
             else:
                 params = {
                     "tp_group": moe_tp_group,
                     "global_tp_group": tp_group,
                 }
-                tp_plan.update(
-                    {
-                        f"{language_layers}.*.experts.*.gate_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
-                        f"{language_layers}.*.experts.*.up_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
-                        f"{language_layers}.*.experts.*.down_proj": (
-                            ROWWISE_LINEAR,
-                            params,
-                        ),
-                        f"{language_layers}.*.shared_expert.*.gate_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
-                        f"{language_layers}.*.shared_expert.*.up_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
-                        f"{language_layers}.*.shared_expert.*.down_proj": (
-                            ROWWISE_LINEAR,
-                            params,
-                        ),
-                    }
-                )
+                for prefix in layer_prefixes:
+                    tp_plan.update(
+                        {
+                            f"{prefix}.*.experts.*.gate_proj": (COLWISE_LINEAR, params),
+                            f"{prefix}.*.experts.*.up_proj": (COLWISE_LINEAR, params),
+                            f"{prefix}.*.experts.*.down_proj": (ROWWISE_LINEAR, params),
+                            f"{prefix}.*.shared_expert.*.gate_proj": (
+                                COLWISE_LINEAR,
+                                params,
+                            ),
+                            f"{prefix}.*.shared_expert.*.up_proj": (
+                                COLWISE_LINEAR,
+                                params,
+                            ),
+                            f"{prefix}.*.shared_expert.*.down_proj": (
+                                ROWWISE_LINEAR,
+                                params,
+                            ),
+                        }
+                    )
 
             params = {
                 "tp_group": lmhead_tp_group,
