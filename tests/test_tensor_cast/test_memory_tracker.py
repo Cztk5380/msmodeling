@@ -171,3 +171,19 @@ class TestMemoryTracker(unittest.TestCase):
         # Op 0 (view): Before=400. No allocation. After=400.
         expected_profile = [(400, 400), (400, 400)]
         self._run_and_check(func, [x], expected_profile)
+
+    def test_alias_from_kwargs_input(self):
+        """Ensures alias tracking works when tensor inputs are passed by kwargs."""
+
+        def func(x):
+            # op 0: view (alias) with kwargs input
+            y = torch.ops.aten.view.default(self=x, size=[-1])
+            # op 1: add (allocates new tensor)
+            return torch.add(input=y, other=1.0)
+
+        x = torch.randn(100)  # 400 bytes
+        # Initial memory: 400 (x)
+        # Op 0 (view): Before=400. No allocation. After=400.
+        # Op 1 (add): Before=400. Allocates 400. After=800.
+        expected_profile = [(400, 400), (400, 800), (800, 800)]
+        self._run_and_check(func, [x], expected_profile)

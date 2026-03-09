@@ -1,5 +1,7 @@
 import dataclasses
-from typing import Any, Dict, List, Optional, Set
+import logging
+from enum import auto, Enum
+from typing import Any, cast, Dict, List, NamedTuple, Optional, Set
 
 import torch
 
@@ -7,6 +9,8 @@ from ..device import DeviceProfile
 from ..performance_model import OpInvokeInfo
 from ..performance_model.op_invoke_info import Region
 from .utils import bytes_of_tensor
+
+logger = logging.getLogger(__name__)
 
 
 @dataclasses.dataclass
@@ -24,6 +28,29 @@ class _TensorInfo:
     use_op_indices_by_alias: List[int] = dataclasses.field(default_factory=list)
     """Indirect op use via its alias"""
     last_use_op_idx: int = -1
+
+
+class TensorKey(NamedTuple):
+    tensor_id: int
+    repeat_id: int
+
+
+# Alias plan format:
+# - arg_names: schema argument names indexed by argument position.
+# - output_plans: per-output alias mapping instructions as
+#   (output_kind, output_index, candidate_input_indices), where:
+#   * output_kind: OutputKind.TENSOR or OutputKind.LIST
+#   * output_index: index in schema.returns / runtime outputs
+#   * candidate_input_indices: schema argument indices that may alias this output
+class OutputKind(Enum):
+    TENSOR = auto()
+    LIST = auto()
+
+
+AliasPlan = tuple[List[str], List[tuple[OutputKind, int, List[int]]]]
+
+
+_MISSING = object()
 
 
 class MemoryTracker:
@@ -56,17 +83,27 @@ class MemoryTracker:
         # A list to store invocation details for each operation.
         self.op_invoke_infos_with_repeat_id: List[tuple[OpInvokeInfo, int]] = []
         # A dictionary to store metadata for each tensor encountered.
-        # Key: (tensor id, repeat_id)
-        self.tensor_infos: Dict[tuple[int, int], _TensorInfo] = {}
-        # Key: (tensor id, repeat_id), Value: id of tensor owning the buffer
-        self.alias_info: Dict[tuple[int, int], int] = {}
+        # Key: TensorKey(tensor_id, repeat_id)
+        self.tensor_infos: Dict[TensorKey, _TensorInfo] = {}
+        # Key: TensorKey, Value: id of tensor owning the buffer
+        self.alias_info: Dict[TensorKey, TensorKey] = {}
         # Sets to store the IDs of model input and output tensors.
-        self.model_input_tensors: Set[int] = set()
-        self.model_output_tensors: Set[int] = set()
+        self.model_input_tensors: Set[TensorKey] = set()
+        self.model_output_tensors: Set[TensorKey] = set()
         # Internal list to store the calculated memory profiles after analysis.
         self.memory_profiles: List[OpMemoryProfile] = []
         # A flag to ensure analysis is done before retrieving the profile.
         self.is_analyzed: bool = False
+        # Cached input/output tensor ids per op index, used by analyze() to avoid
+        # re-extracting tensors from op arguments.
+        # Key: op index in self.op_invoke_infos_with_repeat_id
+        # Value: set of TensorKey seen in that op's inputs/outputs.
+        self.op_input_tensor_ids: List[Set[TensorKey]] = []
+        self.op_output_tensor_ids: List[Set[TensorKey]] = []
+        # Cached alias matching plan per op schema for faster alias processing.
+        # Key: torch op handle (op_invoke_info.func)
+        # Value: AliasPlan if op has alias-bearing outputs; otherwise None.
+        self._alias_plan_cache: Dict[Any, Optional[AliasPlan]] = {}
 
     def _extract_tensors(self, data: Any) -> List[torch.Tensor]:
         """A helper function to recursively find all torch.Tensor objects
@@ -82,20 +119,72 @@ class MemoryTracker:
                 tensors.extend(self._extract_tensors(value))
         return tensors
 
-    def _get_real_tensor_id(self, tensor, repeat_id) -> tuple[int, int]:
-        return Region.get_tensor_id(tensor, repeat_id)
+    def _get_real_tensor_id(self, tensor, repeat_id) -> TensorKey:
+        tensor_id, repeat_id = Region.get_tensor_id(tensor, repeat_id)
+        return TensorKey(tensor_id=tensor_id, repeat_id=repeat_id)
 
     def _handle_aliasing(self, op_invoke_info: OpInvokeInfo, repeat_id: int):
+        cached = self._alias_plan_cache.get(op_invoke_info.func, _MISSING)
+        if cached is _MISSING:
+            schema = op_invoke_info.func._schema
+            arg_names = [arg.name for arg in schema.arguments]
+            output_plans: List[tuple[OutputKind, int, List[int]]] = []
+            for output_idx, output_schema in enumerate(schema.returns):
+                if output_schema.alias_info is None:
+                    continue
+
+                if isinstance(output_schema.real_type, torch.TensorType):
+                    output_alias_set = output_schema.alias_info.before_set
+                    input_indices = []
+                    for input_idx, input_schema in enumerate(schema.arguments):
+                        input_alias = input_schema.alias_info
+                        if (
+                            input_alias is not None
+                            and output_alias_set & input_alias.before_set
+                        ):
+                            input_indices.append(input_idx)
+                    if input_indices:
+                        output_plans.append(
+                            (OutputKind.TENSOR, output_idx, input_indices)
+                        )
+                elif isinstance(output_schema.real_type, torch.ListType):
+                    list_alias_input_idx = None
+                    for input_idx, input_schema in enumerate(schema.arguments):
+                        input_alias = input_schema.alias_info
+                        if input_alias is not None and input_alias.after_set == {"*"}:
+                            list_alias_input_idx = input_idx
+                            break
+                    if list_alias_input_idx is not None:
+                        output_plans.append(
+                            (OutputKind.LIST, output_idx, [list_alias_input_idx])
+                        )
+                else:
+                    logger.warning(
+                        "MemoryTracker: unsupported alias output type %s for op %s "
+                        "(output index %d); alias tracking is skipped for this output",
+                        type(output_schema.real_type).__name__,
+                        op_invoke_info.func,
+                        output_idx,
+                    )
+
+            plan = (arg_names, output_plans) if output_plans else None
+            self._alias_plan_cache[op_invoke_info.func] = plan
+        else:
+            plan = cast(Optional[AliasPlan], cached)
+
+        if not plan:
+            return
+
+        arg_names, output_plans = plan
+
         def get_input_id(index):
-            input_schema = op_invoke_info.func._schema.arguments[index]
             if index < len(op_invoke_info.args):
                 input_tensor = op_invoke_info.args[index]
             else:
-                assert input_schema.name in op_invoke_info.kwargs, (
-                    f"{input_schema.name} not found in {op_invoke_info.kwargs}"
-                )
-                input_tensor = op_invoke_info.kwargs[input_schema.name]
-            assert isinstance(input_tensor, torch.Tensor), input_tensor
+                input_name = arg_names[index]
+                input_tensor = op_invoke_info.kwargs.get(input_name)
+            if not isinstance(input_tensor, torch.Tensor):
+                return None
             return self._get_real_tensor_id(input_tensor, repeat_id)
 
         def set_alias(input_id, output_id):
@@ -112,44 +201,36 @@ class MemoryTracker:
             if isinstance(op_invoke_info.out, tuple)
             else [op_invoke_info.out]
         )
-        for i, output_schema in enumerate(op_invoke_info.func._schema.returns):
-            if output_schema.alias_info is None:
-                continue
-            output = outputs[i]
-            output_alias_set = output_schema.alias_info.before_set
-            if isinstance(output_schema.real_type, torch.TensorType):
+        for output_kind, output_idx, input_indices in output_plans:
+            output = outputs[output_idx]
+            if output_kind is OutputKind.TENSOR:
+                if not isinstance(output, torch.Tensor):
+                    continue
                 output_id = self._get_real_tensor_id(output, repeat_id)
-                for j, input_schema in enumerate(op_invoke_info.func._schema.arguments):
-                    if input_schema.alias_info is None:
+                for input_idx in input_indices:
+                    input_id = get_input_id(input_idx)
+                    if input_id is None:
                         continue
-                    if output_alias_set & input_schema.alias_info.before_set:
-                        # found the arg the output aliases
-                        input_id = get_input_id(j)
-                        set_alias(input_id, output_id)
-                        aliased_tensor_id = self.alias_info.get(input_id)
-                        if aliased_tensor_id is not None:
-                            self.alias_info[output_id] = aliased_tensor_id
-                        else:
-                            self.alias_info[output_id] = input_id
-                        break
-            elif isinstance(output_schema.real_type, torch.ListType):
-                # for ops like torch.chunk, the input alias_info.after_set is a special `{"*"}` meaning
-                # all the tensors in the output alias the input tensor
-                assert isinstance(outputs[i], list)
-                for j, input_schema in enumerate(op_invoke_info.func._schema.arguments):
-                    if input_schema.alias_info is None:
+                    set_alias(input_id, output_id)
+                    aliased_tensor_id = self.alias_info.get(input_id)
+                    if aliased_tensor_id is not None:
+                        self.alias_info[output_id] = aliased_tensor_id
+                    else:
+                        self.alias_info[output_id] = input_id
+                    break
+            elif output_kind is OutputKind.LIST:
+                if not isinstance(output, list):
+                    continue
+                input_id = get_input_id(input_indices[0])
+                if input_id is None:
+                    continue
+                for output_tensor in output:
+                    if not isinstance(output_tensor, torch.Tensor):
                         continue
-                    if input_schema.alias_info.after_set == {"*"}:
-                        input_id = get_input_id(j)
-                        for output_tensor in outputs[i]:
-                            assert isinstance(output_tensor, torch.Tensor), (
-                                output_tensor
-                            )
-                            output_id = self._get_real_tensor_id(
-                                output_tensor, repeat_id
-                            )
-                            set_alias(input_id, output_id)
-                        break
+                    output_id = self._get_real_tensor_id(output_tensor, repeat_id)
+                    set_alias(input_id, output_id)
+            else:
+                raise RuntimeError(f"Unsupported output kind: {output_kind!r}")
 
     def record_op_invocation(self, op_info_or_region):
         """
@@ -179,16 +260,18 @@ class MemoryTracker:
         self.op_invoke_infos_with_repeat_id.append((op_invoke_info, repeat_id))
 
         # Identify all input tensors and record their usage.
-        input_tensors = self._extract_tensors(
-            op_invoke_info.args
-        ) + self._extract_tensors(op_invoke_info.kwargs)
+        input_tensors = self._extract_tensors(op_invoke_info.args)
+        if op_invoke_info.kwargs:
+            input_tensors.extend(self._extract_tensors(op_invoke_info.kwargs))
+        input_tensor_ids: Set[TensorKey] = set()
         for tensor in input_tensors:
             tensor_id = self._get_real_tensor_id(tensor, repeat_id)
+            input_tensor_ids.add(tensor_id)
             if tensor_id not in self.tensor_infos:
                 # If a tensor is used before it's defined, it's a model input.
                 # We initialize its info here.
                 self.tensor_infos[tensor_id] = _TensorInfo(
-                    size_bytes=bytes_of_tensor(tensor)
+                    size_bytes=int(bytes_of_tensor(tensor))
                 )
             self.tensor_infos[tensor_id].use_op_indices.append(op_idx)
             aliased_tensor_id = self.alias_info.get(tensor_id)
@@ -199,16 +282,20 @@ class MemoryTracker:
 
         # Identify all output tensors and record their definition site.
         output_tensors = self._extract_tensors(op_invoke_info.out)
+        output_tensor_ids: Set[TensorKey] = set()
         for tensor in output_tensors:
             tensor_id = self._get_real_tensor_id(tensor, repeat_id)
+            output_tensor_ids.add(tensor_id)
             if tensor_id not in self.tensor_infos:
                 self.tensor_infos[tensor_id] = _TensorInfo(
-                    size_bytes=bytes_of_tensor(tensor)
+                    size_bytes=int(bytes_of_tensor(tensor))
                 )
                 # This op is the one that defines (creates) the tensor.
                 self.tensor_infos[tensor_id].def_op_idx = op_idx
 
         self._handle_aliasing(op_invoke_info, repeat_id)
+        self.op_input_tensor_ids.append(input_tensor_ids)
+        self.op_output_tensor_ids.append(output_tensor_ids)
 
     def analyze(self):
         """
@@ -241,16 +328,11 @@ class MemoryTracker:
             self.tensor_infos[t_id].size_bytes for t_id in self.model_input_tensors
         )
 
-        for op_idx, (op_info, repeat_id) in enumerate(
-            self.op_invoke_infos_with_repeat_id
-        ):
+        for op_idx, (op_info, _) in enumerate(self.op_invoke_infos_with_repeat_id):
             usage_before_call = current_memory_usage
 
             # Calculate memory allocated for new output tensors. We don't allocate for aliases.
-            output_tensor_ids = {
-                self._get_real_tensor_id(t, repeat_id)
-                for t in self._extract_tensors(op_info.out)
-            }
+            output_tensor_ids = self.op_output_tensor_ids[op_idx]
 
             mem_allocated = sum(
                 self.tensor_infos[t_id].size_bytes
@@ -271,11 +353,7 @@ class MemoryTracker:
             current_memory_usage = usage_after_call
 
             # Free tensors whose lifecycle ends after this operation.
-            input_tensor_ids = {
-                self._get_real_tensor_id(t, repeat_id)
-                for t in self._extract_tensors(op_info.args)
-                + self._extract_tensors(op_info.kwargs)
-            }
+            input_tensor_ids = self.op_input_tensor_ids[op_idx]
             mem_freed = 0
             for t_id in input_tensor_ids:
                 info = self.tensor_infos[t_id]
