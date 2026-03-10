@@ -2,7 +2,6 @@
 from collections import Counter
 
 import serving_cast.stime as stime
-
 from serving_cast.profiler.profiler_stime import Level, SimProfiler as Profiler
 
 

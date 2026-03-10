@@ -9,7 +9,6 @@ from torch.fx import Node
 
 from ..pass_base import TensorCastGraphModulePass
 from ..topo_sort import stable_topo_sort
-
 from ..utils import get_node_shape
 
 logger = logging.getLogger(__name__)

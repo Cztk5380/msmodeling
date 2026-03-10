@@ -1,6 +1,5 @@
 # _*_coding:utf-8_*_
 import fnmatch
-
 from enum import auto, Enum
 from typing import Callable, Optional
 

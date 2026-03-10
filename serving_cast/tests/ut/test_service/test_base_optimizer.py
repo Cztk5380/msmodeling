@@ -3,7 +3,6 @@ import unittest
 from unittest.mock import Mock, patch
 
 import pandas as pd
-
 from serving_cast.service.base_throughput_optimizer import BaseThroughputOptimizer
 from serving_cast.service.optimizer_summary import OptimizerSummary
 from serving_cast.service.utils import AGG_COLUMNS

@@ -103,8 +103,11 @@ class TestTextGenerate(unittest.TestCase):
         )
 
         # Validate execution time is positive
+        exec_time = result["execution_time_s"]
+        if isinstance(exec_time, dict):
+            exec_time = next(iter(exec_time.values()))
         self.assertGreater(
-            result["execution_time_s"],
+            exec_time,
             0,
             f"{test_name}: Execution time should be positive",
         )
@@ -889,7 +892,10 @@ class TestTextGenerate(unittest.TestCase):
         self._validate_inference_result(result, "qwen3_32b_4_a3die_decode")
         if isinstance(result, ModelRunnerMetrics):
             result = asdict(result)
-        self.assertLess(result["execution_time_s"], 0.0328)
+        exec_time = result["execution_time_s"]
+        if isinstance(exec_time, dict):
+            exec_time = next(iter(exec_time.values()))
+        self.assertLess(exec_time, 0.0328)
 
     def test_deepseek_v3_1_a3_ep64_decode_result(self):
         """Make sure the result of deepseek v3.1 model on 64 A3 dies with EP 64 is as expected in some range"""
@@ -913,7 +919,10 @@ class TestTextGenerate(unittest.TestCase):
         self._validate_inference_result(result, "test_deepseek_v3_1_a3_ep64_decode")
         if isinstance(result, ModelRunnerMetrics):
             result = asdict(result)
-        self.assertLess(result["execution_time_s"], 0.063)
+        exec_time = result["execution_time_s"]
+        if isinstance(exec_time, dict):
+            exec_time = next(iter(exec_time.values()))
+        self.assertLess(exec_time, 0.063)
 
     def test_padding(self):
         """Test with padding tokens."""
@@ -972,7 +981,13 @@ class TestTextGenerate(unittest.TestCase):
             result_a3 = asdict(result_a3)
         if isinstance(result_a2, ModelRunnerMetrics):
             result_a2 = asdict(result_a2)
-        self.assertLess(result_a3["execution_time_s"], result_a2["execution_time_s"])
+        exec_time_a3 = result_a3["execution_time_s"]
+        exec_time_a2 = result_a2["execution_time_s"]
+        if isinstance(exec_time_a3, dict):
+            exec_time_a3 = next(iter(exec_time_a3.values()))
+        if isinstance(exec_time_a2, dict):
+            exec_time_a2 = next(iter(exec_time_a2.values()))
+        self.assertLess(exec_time_a3, exec_time_a2)
 
     def test_fullmesh_fullgroup_bandwidth_result(self):
         """Full Mesh with full group bandwidth is smaller than CLOS"""
@@ -1010,7 +1025,13 @@ class TestTextGenerate(unittest.TestCase):
             result_a3 = asdict(result_a3)
         if isinstance(result_a2, ModelRunnerMetrics):
             result_a2 = asdict(result_a2)
-        self.assertEqual(result_a3["execution_time_s"], result_a2["execution_time_s"])
+        exec_time_a3 = result_a3["execution_time_s"]
+        exec_time_a2 = result_a2["execution_time_s"]
+        if isinstance(exec_time_a3, dict):
+            exec_time_a3 = next(iter(exec_time_a3.values()))
+        if isinstance(exec_time_a2, dict):
+            exec_time_a2 = next(iter(exec_time_a2.values()))
+        self.assertEqual(exec_time_a3, exec_time_a2)
 
     @parameterized.expand(
         [
@@ -1462,9 +1483,10 @@ class TestTextGenerate(unittest.TestCase):
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         if isinstance(result, ModelRunnerMetrics):
             result = asdict(result)
-        expected_tps = (num_queries * query_len) / (
-            result.get("execution_time_s", 1e-9) * user_input.world_size
-        )
+        exec_time = result.get("execution_time_s", 1e-9)
+        if isinstance(exec_time, dict):
+            exec_time = next(iter(exec_time.values()), 1e-9)
+        expected_tps = (num_queries * query_len) / (exec_time * user_input.world_size)
         actual_tps = float(result.get("single_card_tps", 0))
         tolerance = expected_tps * 0.05
         if tolerance < 1e-10:  # avoid too small tolerance
@@ -1521,7 +1543,7 @@ class TestModelRunnerMetricsPrintInfo(unittest.TestCase):
             reserved_memory_gb=1.0,
             device_memory_available_gb=6.0,
             single_card_tps=200.0,
-            execution_time_s=0.05,
+            execution_time_s={"analytic": 0.05},
             run_time_s=0.06,
             batch_size=4,
             table_result="performance_data",

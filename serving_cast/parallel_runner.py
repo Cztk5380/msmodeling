@@ -14,7 +14,6 @@ from tensor_cast.core.user_config import UserInputConfig
 from tensor_cast.device import DeviceProfile
 from .service.optimizer_factory import OptimizerFactory
 from .service.optimizer_summary import OptimizerSummary
-
 from .service.utils import LIMIT_COUNT, OptimizerData
 
 
@@ -56,10 +55,8 @@ class ParallelRunner:
                 f"No communication grid found for {self.args.num_devices} devices."
             )
 
-        self._executor_class = executor_class if executor_class else ProcessPoolExecutor
-        self._worker_initializer = (
-            worker_initializer if worker_initializer else self._init_worker
-        )
+        self._executor_class = executor_class or ProcessPoolExecutor
+        self._worker_initializer = worker_initializer or self._init_worker
 
         self.user_input = UserInputConfig.from_args(args)
         self.summary_result = []

@@ -3,7 +3,6 @@ import unittest
 from unittest.mock import MagicMock, patch
 
 import pandas as pd
-
 from serving_cast.service.optimizer_summary import _get_agg_table_buf, OptimizerSummary
 from serving_cast.service.utils import OptimizerData
 

@@ -18,7 +18,6 @@ import pandas as pd
 
 from tensor_cast.core.input_generator import generate_inputs, RequestInfo
 from tensor_cast.core.model_runner import ModelRunner, ModelRunnerMetrics
-
 from .optimizer_summary import OptimizerSummary
 from .utils import AGG_COLUMNS, MAX_ITER_NUMS, OptimizerData
 

@@ -6,7 +6,6 @@ from typing import Optional
 import torch
 
 from .. import device_profiles  # noqa: F401
-
 from ..core.quantization.config import create_quant_config
 from ..core.quantization.datatypes import QuantizeLinearAction
 from ..device import DeviceProfile

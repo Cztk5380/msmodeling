@@ -7,7 +7,6 @@ except ImportError:
 from typing import List
 
 import numpy as np
-
 import torch
 
 from .model_config import ParallelConfig

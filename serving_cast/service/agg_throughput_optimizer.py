@@ -18,7 +18,6 @@ from collections import defaultdict
 import pandas as pd
 
 from tensor_cast.core.model_runner import ModelRunner
-
 from .base_throughput_optimizer import BaseThroughputOptimizer
 from .optimizer_summary import OptimizerSummary
 from .utils import AGG_COLUMNS, format_breakdowns, OptimizerData

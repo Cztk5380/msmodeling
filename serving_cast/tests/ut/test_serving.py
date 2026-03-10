@@ -9,7 +9,6 @@ from serving_cast.config import (
     InstanceConfig,
     ParallelConfig,
 )
-
 from serving_cast.instance import Instance
 from serving_cast.load_gen import FixedLengthLoadGen
 from serving_cast.serving import PdAggregationServing, PdDisaggregationServing

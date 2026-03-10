@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import Mock
 
 import torch
 from parameterized import parameterized
@@ -9,8 +10,14 @@ from tensor_cast.core.model_builder import build_model
 from tensor_cast.core.user_config import UserInputConfig
 from tensor_cast.device import TEST_DEVICE
 from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
+from tensor_cast.performance_model.base import PerformanceModel
 from tensor_cast.performance_model.empirical import EmpiricalPerformanceModel
 from tensor_cast.performance_model.memory_tracker import MemoryTracker
+from tensor_cast.performance_model.profiling_database.data_source import (
+    DataSourcePerformanceModel,
+    QueryResult,
+    QuerySource,
+)
 from tensor_cast.runtime import Runtime
 from .test_common import (
     assert_close,
@@ -22,6 +29,8 @@ from .test_common import (
 
 class PerfAnalysisTestCase(unittest.TestCase):
     def setUp(self):
+        self.data_source = Mock(spec=DataSourcePerformanceModel)
+        self.fallback_model = Mock(spec=PerformanceModel)
         torch.compiler.reset()
 
     def _execute_attention_and_get_base_data(self, attention_args):
@@ -829,7 +838,17 @@ class PerfAnalysisTestCase(unittest.TestCase):
         x = torch.randn([100, 100], device="meta")
         y = torch.randn([100, 100], device="meta")
         device_profile = TEST_DEVICE
-        perf_model = EmpiricalPerformanceModel(device_profile)
+
+        # Configure mock data source to return a result
+        query_result = Mock(spec=QueryResult)
+        query_result.latency_us = 100.0
+        query_result.confidence = 0.95
+        query_result.source = QuerySource.MEASURED
+        self.data_source.lookup.return_value = query_result
+
+        perf_model = EmpiricalPerformanceModel(
+            device_profile, self.data_source, self.fallback_model
+        )
         with (
             Runtime(perf_model, device_profile) as runtime,
             torch.no_grad(),
@@ -846,7 +865,18 @@ class PerfAnalysisTestCase(unittest.TestCase):
 
         x = torch.randn([100], device="meta")
         device_profile = TEST_DEVICE
-        perf_model = EmpiricalPerformanceModel(device_profile)
+
+        # Configure mock data source to return None (cache miss) to use fallback
+        self.data_source.lookup.return_value = None
+
+        # Configure fallback model to return a result with execution_time_s = 0
+        fallback_result = Mock()
+        fallback_result.execution_time_s = 0
+        self.fallback_model.process_op.return_value = fallback_result
+
+        perf_model = EmpiricalPerformanceModel(
+            device_profile, self.data_source, self.fallback_model
+        )
         with (
             Runtime(perf_model, device_profile) as runtime,
             torch.no_grad(),
@@ -865,7 +895,17 @@ class PerfAnalysisTestCase(unittest.TestCase):
         x = torch.randn([100, 100], device="meta")
         scale = torch.tensor(0.1, device="meta")
         device_profile = TEST_DEVICE
-        perf_model = EmpiricalPerformanceModel(device_profile)
+
+        # Configure mock data source to return a result
+        query_result = Mock(spec=QueryResult)
+        query_result.latency_us = 50.0
+        query_result.confidence = 0.95
+        query_result.source = QuerySource.MEASURED
+        self.data_source.lookup.return_value = query_result
+
+        perf_model = EmpiricalPerformanceModel(
+            device_profile, self.data_source, self.fallback_model
+        )
         with (
             Runtime(perf_model, device_profile) as runtime,
             torch.no_grad(),

@@ -7,7 +7,6 @@ ModelRuner
 from __future__ import annotations
 
 import logging
-
 import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Optional, TYPE_CHECKING
@@ -17,7 +16,9 @@ import torch
 from ..device import DeviceProfile
 from ..layers.sampler import Sampler
 from ..performance_model.analytic import AnalyticPerformanceModel
+from ..performance_model.empirical import EmpiricalPerformanceModel
 from ..performance_model.memory_tracker import MemoryTracker
+from ..performance_model.profiling_database import ProfilingDataSource
 from ..performance_model.utils import bytes_of_tensor
 from ..runtime import Runtime
 from .input_generator import (
@@ -29,6 +30,7 @@ from .input_generator import (
 from .model_builder import build_model
 
 if TYPE_CHECKING:
+    from ..performance_model import PerformanceModel
     from .user_config import UserInputConfig
 
 
@@ -57,8 +59,34 @@ class ModelRunner:
         logger.debug("Device profile loaded: %s", self.device_profile)
 
         logger.info("Initializing performance model")
-        self.perf_model = AnalyticPerformanceModel(self.device_profile)
-        logger.debug("Performance model initialized: %s", self.perf_model)
+        perf_model_types: List[str] = getattr(
+            user_input, "performance_model", ["analytic"]
+        )
+        profiling_database = getattr(user_input, "profiling_database", None)
+
+        self.perf_models: List[PerformanceModel] = []
+        for perf_model_type in perf_model_types:
+            if perf_model_type == "profiling":
+                # Exact match against pre-collected Profiling CSV database
+                if not profiling_database:
+                    raise ValueError(
+                        "--profiling-database must be specified when using --performance-model profiling"
+                    )
+                data_source = ProfilingDataSource(
+                    profiling_database,
+                    self.device_profile,
+                )
+                self.perf_models.append(
+                    EmpiricalPerformanceModel(
+                        self.device_profile,
+                        data_source=data_source,
+                        fallback_model=AnalyticPerformanceModel(self.device_profile),
+                    )
+                )
+            elif perf_model_type == "analytic":
+                # Default: analytic (Roofline)
+                self.perf_models.append(AnalyticPerformanceModel(self.device_profile))
+        logger.debug("Performance models initialized: %s", self.perf_models)
 
         #  ---------- 2. generate default request from user config----------
         logger.info("Generating request information")
@@ -121,7 +149,7 @@ class ModelRunner:
 
         with (
             Runtime(
-                self.perf_model,
+                self.perf_models,
                 self.device_profile,
                 memory_tracker=MemoryTracker(self.device_profile),
             ) as runtime,
@@ -131,14 +159,18 @@ class ModelRunner:
             if with_sampler:
                 _ = self.sampler(logits, input_kwargs["sampling_metadata"])
         run_end = time.perf_counter()
-        execution_time_s = runtime.total_execution_time_s()[self.perf_model.name]
+        all_execution_time_s = runtime.total_execution_time_s()
         run_time_s = run_end - run_start
 
         table_result = runtime.table_averages(
             group_by_input_shapes=self.user_input.dump_input_shapes
         )
 
-        tps_value = calculate_single_card_tps(self, execution_time_s=execution_time_s)
+        # Use the first model's execution time for TPS calculation
+        first_model_name = self.perf_models[0].name
+        tps_value = calculate_single_card_tps(
+            self, execution_time_s=all_execution_time_s[first_model_name]
+        )
 
         peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
 
@@ -192,7 +224,7 @@ class ModelRunner:
             reserved_memory_gb=self.user_input.reserved_memory_gb,
             device_memory_available_gb=device_memory_available_gb,
             single_card_tps=tps_value,
-            execution_time_s=execution_time_s,
+            execution_time_s=all_execution_time_s,
             run_time_s=run_time_s,
             batch_size=batch_size,
             table_result=table_result,
@@ -217,7 +249,8 @@ class ModelRunnerMetrics:
     reserved_memory_gb: float
     device_memory_available_gb: float
     single_card_tps: float
-    execution_time_s: float
+    execution_time_s: Dict[str, float]
+    """Execution time per performance model, keyed by model name."""
     run_time_s: float
     batch_size: int
     table_result: str = ""
@@ -227,7 +260,23 @@ class ModelRunnerMetrics:
         print(f"Number of Queries per DP rank: {self.batch_size}")
         print(f"Model compilation and execution time: {self.run_time_s:.3f} s")
         print(self.table_result)
-        print(f"TPS/Device: {self.single_card_tps:.4g} token/s")
+        for i, (model_name, exec_time) in enumerate(self.execution_time_s.items()):
+            print(f"[{model_name}] Execution time: {exec_time:.6f} s")
+            if exec_time and exec_time > 0:
+                # Recalculate TPS from execution_time_s; single_card_tps only tracks first model
+                if i == 0:
+                    tps = self.single_card_tps
+                else:
+                    # same formula as calculate_single_card_tps but we don't have world_size here;
+                    # fall back to ratio from first model
+                    first_exec = next(iter(self.execution_time_s.values()))
+                    tps = (
+                        self.single_card_tps * first_exec / exec_time
+                        if first_exec
+                        else None
+                    )
+                if tps is not None:
+                    print(f"[{model_name}] TPS/Device: {tps:.4g} token/s")
 
         print(f"Total device memory: {self.total_device_memory_gb:.3f} GB")
         print(f"  Model weight size: {self.model_weight_size_gb:.3f} GB")

@@ -239,6 +239,24 @@ def main():
         help="Whether to have the current device host the external shared experts",
     )
     parser.add_argument(
+        "--performance-model",
+        nargs="+",
+        default=["analytic"],
+        help="Performance model type(s). Can specify one or more models. "
+        "'analytic': Roofline model (default, no data required). "
+        "'profiling': EmpiricalPerformanceModel backed by Profiling CSV database "
+        "(exact match, requires --profiling-database). "
+        "Example: --performance-model analytic profiling",
+    )
+    parser.add_argument(
+        "--profiling-database",
+        type=str,
+        default=None,
+        help="Path to the performance database directory for 'profiling' mode. "
+        "The directory must contain op_mapping.yaml and per-kernel-type CSV files, "
+        "e.g. tensor_cast/performance_model/profiling_database/data/atlas_a3_752t_128g/vllm_ascend/v0.13.0/",
+    )
+    parser.add_argument(
         "--remote-source",
         type=str,
         choices=["huggingface", "modelscope"],

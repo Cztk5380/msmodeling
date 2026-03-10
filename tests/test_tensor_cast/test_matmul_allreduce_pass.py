@@ -6,7 +6,6 @@ from parameterized import parameterized
 
 from tensor_cast.core.input_generator import generate_inputs
 from tensor_cast.core.model_runner import ModelRunner, ModelRunnerMetrics
-
 from tensor_cast.core.quantization.datatypes import QuantizeLinearAction
 from tensor_cast.core.user_config import UserInputConfig
 

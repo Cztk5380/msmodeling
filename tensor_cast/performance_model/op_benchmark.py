@@ -5,12 +5,9 @@ import torch
 from torch.utils._cxx_pytree import tree_map
 
 from ..config import performance_model as perf_config
-
 from ..device import DeviceProfile
 from .base import PerformanceModel
-
 from .op_invoke_info import OpInvokeInfo
-
 from .utils import is_view_op
 
 
@@ -78,9 +75,11 @@ class OpBenchmark(OpBenchmarkBase):
     def do_bench(self, op_impl, args, kwargs) -> PerformanceModel.Result:
         # construct real inputs for all the meta tensors on the given device
         real_args, real_kwargs = tree_map(
-            lambda t: torch.empty_like(t, device=self.runtime_device)
-            if isinstance(t, torch.Tensor)
-            else t,
+            lambda t: (
+                torch.empty_like(t, device=self.runtime_device)
+                if isinstance(t, torch.Tensor)
+                else t
+            ),
             (args, kwargs),
         )
         # warm up

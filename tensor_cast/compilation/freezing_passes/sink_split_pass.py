@@ -10,7 +10,6 @@ from torch.fx.node import Argument, Node, Target
 from ... import ops  # noqa: F401
 from ..pass_base import TensorCastGraphModulePass
 from ..topo_sort import stable_topo_sort
-
 from ..utils import get_node_shape, is_non_scalar_tensor_node, maybe_copy_meta
 
 logger = logging.getLogger(__name__)

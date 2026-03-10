@@ -226,13 +226,9 @@ def generate_image_inputs(
     hf_config = model.model_config.hf_config
     vision_config = hf_config.vision_config
     patch_size = vision_config.patch_size
-    merge_size = (
-        vision_config.spatial_merge_size if vision_config.spatial_merge_size else 2
-    )
+    merge_size = vision_config.spatial_merge_size or 2
     # Rescales the image
-    temporal_patch_size = (
-        vision_config.temporal_patch_size if vision_config.temporal_patch_size else 2
-    )
+    temporal_patch_size = vision_config.temporal_patch_size or 2
     resized_height, resized_width = resize_image(
         hf_config.model_type,
         image_height,
@@ -248,7 +244,7 @@ def generate_image_inputs(
     image_grid_thw = torch.tensor([[grid_t, grid_h, grid_w]], dtype=torch.long).expand(
         image_batch_size, 3
     )
-    channel = vision_config.in_channels if vision_config.in_channels else 3
+    channel = vision_config.in_channels or 3
     hidden_dim = channel * temporal_patch_size * patch_size * patch_size
     tokens = grid_t * grid_h * grid_w
     pixel_values = torch.empty(

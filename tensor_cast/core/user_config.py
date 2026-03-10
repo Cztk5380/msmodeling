@@ -5,7 +5,7 @@ user_config
 
 import logging
 from dataclasses import dataclass, field, fields
-from typing import List, Optional
+from typing import List, Optional, Union
 
 from ..core.input_generator import RequestInfo
 from ..core.quantization.config import create_quant_config
@@ -72,10 +72,23 @@ class UserInputConfig:
     image_batch_size: Optional[int] = None
     image_height: Optional[int] = None
     image_width: Optional[int] = None
+    performance_model: Union[str, List[str]] = "analytic"
+    """Performance model type(s): 'analytic' | 'profiling'.
+    Can be a single string or a list of strings to run multiple models.
+    """
+    profiling_database: Optional[str] = None
+    """Path to the performance database directory (required for 'profiling' mode)."""
 
     def __post_init__(self):
         self._validate_device()
+        self._normalize_performance_model()
         self._normalize_embedding_tp_mode()
+
+    def _normalize_performance_model(self):
+        """Normalize performance_model to a list of model type strings."""
+        pm = self.performance_model
+        if isinstance(pm, str):
+            self.performance_model = [pm]
 
     def _validate_device(self):
         if self.device not in DeviceProfile.all_device_profiles:

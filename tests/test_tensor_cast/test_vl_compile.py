@@ -40,7 +40,10 @@ class TestVLCompilePrefill(unittest.TestCase):
         self.assertTrue(model_runner.model.is_vl_model)
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         if isinstance(result, ModelRunnerMetrics):
-            self.assertGreaterEqual(result.execution_time_s, 0.0)
+            exec_time = result.execution_time_s
+            if isinstance(exec_time, dict):
+                exec_time = next(iter(exec_time.values()))
+            self.assertGreaterEqual(exec_time, 0.0)
             self.assertIn("Total time for analytic", result.table_result)
 
 

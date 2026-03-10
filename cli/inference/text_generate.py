@@ -240,6 +240,24 @@ def main():
         default="huggingface",
         help="The remote source for the model",
     )
+    parser.add_argument(
+        "--performance-model",
+        action="append",
+        default=None,
+        help="Performance model type(s). Can specify one or more models. "
+        "'analytic': Roofline model (default, no data required). "
+        "'profiling': EmpiricalPerformanceModel backed by Profiling CSV database "
+        "(exact match, requires --profiling-database). "
+        "Example: --performance-model analytic --performance-model profiling",
+    )
+    parser.add_argument(
+        "--profiling-database",
+        type=str,
+        default=None,
+        help="Path to the performance database directory for 'profiling' mode. "
+        "The directory must contain op_mapping.yaml and per-kernel-type CSV files, "
+        "e.g. tensor_cast/performance_model/profiling_database/data/atlas_a3_752t_128g/vllm_ascend/v0.13.0/",
+    )
 
     args = parser.parse_args()
     logging.basicConfig(
@@ -256,6 +274,10 @@ def main():
     args.word_embedding_tp_mode = (
         selected_embedding_tp_mode or WordEmbeddingTPMode.col.value
     )
+
+    # Set default performance_model if not specified
+    if args.performance_model is None:
+        args.performance_model = ["analytic"]
 
     # import here to make sure the logger level is set
     logger.info("Importing core modules...")

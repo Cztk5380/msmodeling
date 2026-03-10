@@ -2,7 +2,6 @@
 import unittest
 
 import pandas as pd
-
 from serving_cast.service.disagg_throughput_optimizer import DisaggThroughputOptimizer
 from serving_cast.service.optimizer_summary import OptimizerSummary
 from serving_cast.service.utils import OptimizerData

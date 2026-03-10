@@ -26,7 +26,6 @@ from tensor_cast.core.quantization.datatypes import (
     QuantizeAttentionAction,
     QuantizeLinearAction,
 )
-
 from ..utils import get_common_argparser, LOG_FORMAT, LOG_LEVELS
 
 

@@ -6,7 +6,6 @@ import torch.fx as fx
 
 from ... import ops  # noqa: F401
 from ..pass_base import TensorCastGraphModulePass
-
 from ..utils import get_node_shape
 
 logger = logging.getLogger(__name__)

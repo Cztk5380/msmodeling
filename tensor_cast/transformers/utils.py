@@ -15,7 +15,6 @@ from transformers.utils.quantization_config import (
 
 from ..layers import COLWISE_LINEAR, ROWWISE_LINEAR
 from ..layers.attention_adapters import BailingMoeV2AttentionAdapter
-
 from ..layers.mla import MultiheadLatentAttentionBase
 from ..layers.moe_layer import TensorQwen3VLMoeTextMLP
 from ..model_config import (

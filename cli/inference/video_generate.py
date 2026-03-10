@@ -6,7 +6,6 @@ from typing import Optional
 import torch
 
 from tensor_cast import device_profiles  # noqa: F401
-
 from tensor_cast.core.quantization.config import create_quant_config
 from tensor_cast.core.quantization.datatypes import QuantizeLinearAction
 from tensor_cast.device import DeviceProfile

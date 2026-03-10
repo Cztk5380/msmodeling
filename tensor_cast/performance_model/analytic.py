@@ -11,7 +11,6 @@ from typing import Dict, List, Tuple
 from overrides import override
 
 from ..device import DeviceProfile
-
 from .base import PerformanceModel
 from .op_estimator_registry import get_op_estimator
 from .op_invoke_info import OpInvokeInfo

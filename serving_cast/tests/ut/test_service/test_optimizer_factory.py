@@ -7,7 +7,6 @@ from serving_cast.service.optimizer_factory import OptimizerFactory
 
 from tensor_cast.core.model_runner import ModelRunner
 from tensor_cast.core.user_config import UserInputConfig
-
 from .test_common import SimpleArgs
 
 

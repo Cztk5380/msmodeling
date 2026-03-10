@@ -70,9 +70,7 @@ class MoELayer(torch.nn.Module):
             module, "norm_topk_prob", self.get_attr(self.gate, "norm_topk_prob", None)
         )
 
-        fused_moe_cls = (
-            moe_config.fused_moe_cls if moe_config.fused_moe_cls else FusedMoETensorCast
-        )
+        fused_moe_cls = moe_config.fused_moe_cls or FusedMoETensorCast
         self.fused_moe = fused_moe_cls(
             self.moe_config,
             self.get_attr(module, "experts", None),
@@ -218,9 +216,7 @@ class FusedMoETensorCast(FusedMoEBase):
             moe_config, experts, shared_experts, shared_experts_gate, top_k
         )
         self.ep_group = ep_group
-        self.num_global_experts = (
-            num_global_experts if num_global_experts else len(self.experts)
-        )
+        self.num_global_experts = num_global_experts or len(self.experts)
         self.num_external_shared_experts = num_external_shared_experts
 
         if self.experts is not None:
