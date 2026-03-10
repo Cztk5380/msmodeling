@@ -1487,7 +1487,8 @@ class TestTextGenerate(unittest.TestCase):
         if isinstance(exec_time, dict):
             exec_time = next(iter(exec_time.values()), 1e-9)
         expected_tps = (num_queries * query_len) / (exec_time * user_input.world_size)
-        actual_tps = float(result.get("single_card_tps", 0))
+        tps_map = result.get("tps_per_model", {})
+        actual_tps = float(tps_map.get("analytic", 0))
         tolerance = expected_tps * 0.05
         if tolerance < 1e-10:  # avoid too small tolerance
             tolerance = max(abs(expected_tps * 0.01), 1e-6)
@@ -1542,8 +1543,8 @@ class TestModelRunnerMetricsPrintInfo(unittest.TestCase):
             model_activation_size_gb=4.0,
             reserved_memory_gb=1.0,
             device_memory_available_gb=6.0,
-            single_card_tps=200.0,
             execution_time_s={"analytic": 0.05},
+            tps_per_model={"analytic": 200.0},
             run_time_s=0.06,
             batch_size=4,
             table_result="performance_data",

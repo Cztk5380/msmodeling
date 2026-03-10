@@ -119,13 +119,12 @@ class ModelRunner:
         generate_inputs_func: Callable = generate_inputs_varlen,
         with_sampler: bool = False,
     ) -> ModelRunnerMetrics:
-        def calculate_single_card_tps(self, execution_time_s: float) -> Optional[float]:
+        def calculate_single_card_tps(execution_time_s: float) -> float:
             if not execution_time_s or execution_time_s <= 0:
                 raise ValueError("execution_time_s must be positive")
-            tps = (self.user_input.num_queries * self.user_input.query_len) / (
+            return (self.user_input.num_queries * self.user_input.query_len) / (
                 execution_time_s * self.user_input.world_size
             )
-            return tps
 
         data_parallel_size = self.model.model_config.parallel_config.data_parallel_size
         logger.debug("data_parallel_size: %s", data_parallel_size)
@@ -166,11 +165,11 @@ class ModelRunner:
             group_by_input_shapes=self.user_input.dump_input_shapes
         )
 
-        # Use the first model's execution time for TPS calculation
-        first_model_name = self.perf_models[0].name
-        tps_value = calculate_single_card_tps(
-            self, execution_time_s=all_execution_time_s[first_model_name]
-        )
+        # Calculate TPS for each model
+        tps_per_model: Dict[str, float] = {}
+        for model_name, exec_time in all_execution_time_s.items():
+            if exec_time and exec_time > 0:
+                tps_per_model[model_name] = calculate_single_card_tps(exec_time)
 
         peak_memory_usage_gb = runtime.memory_tracker.peak_mem_usage() / 1024**3
 
@@ -223,8 +222,8 @@ class ModelRunner:
             model_activation_size_gb=model_activation_size_gb,
             reserved_memory_gb=self.user_input.reserved_memory_gb,
             device_memory_available_gb=device_memory_available_gb,
-            single_card_tps=tps_value,
             execution_time_s=all_execution_time_s,
+            tps_per_model=tps_per_model,
             run_time_s=run_time_s,
             batch_size=batch_size,
             table_result=table_result,
@@ -248,9 +247,10 @@ class ModelRunnerMetrics:
     model_activation_size_gb: float
     reserved_memory_gb: float
     device_memory_available_gb: float
-    single_card_tps: float
     execution_time_s: Dict[str, float]
     """Execution time per performance model, keyed by model name."""
+    tps_per_model: Dict[str, float]
+    """TPS per performance model, keyed by model name."""
     run_time_s: float
     batch_size: int
     table_result: str = ""
@@ -260,23 +260,11 @@ class ModelRunnerMetrics:
         print(f"Number of Queries per DP rank: {self.batch_size}")
         print(f"Model compilation and execution time: {self.run_time_s:.3f} s")
         print(self.table_result)
-        for i, (model_name, exec_time) in enumerate(self.execution_time_s.items()):
+        for model_name, exec_time in self.execution_time_s.items():
             print(f"[{model_name}] Execution time: {exec_time:.6f} s")
-            if exec_time and exec_time > 0:
-                # Recalculate TPS from execution_time_s; single_card_tps only tracks first model
-                if i == 0:
-                    tps = self.single_card_tps
-                else:
-                    # same formula as calculate_single_card_tps but we don't have world_size here;
-                    # fall back to ratio from first model
-                    first_exec = next(iter(self.execution_time_s.values()))
-                    tps = (
-                        self.single_card_tps * first_exec / exec_time
-                        if first_exec
-                        else None
-                    )
-                if tps is not None:
-                    print(f"[{model_name}] TPS/Device: {tps:.4g} token/s")
+            tps = self.tps_per_model.get(model_name)
+            if tps is not None:
+                print(f"[{model_name}] TPS/Device: {tps:.4g} token/s")
 
         print(f"Total device memory: {self.total_device_memory_gb:.3f} GB")
         print(f"  Model weight size: {self.model_weight_size_gb:.3f} GB")
