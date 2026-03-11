@@ -1,10 +1,6 @@
 import contextlib
-import copy
 import dataclasses
-import fnmatch
 import logging
-import math
-import re
 import typing
 from typing import Dict, Optional, Union
 
@@ -12,33 +8,28 @@ import torch
 from transformers import PreTrainedModel
 from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
 
-from ..layers import (
-    COLWISE_LINEAR,
-    PARALLEL_EMBEDDING,
-    PARALLEL_MODULE_CLS,
-    ROWWISE_LINEAR,
+from tensor_cast.transformers.transformations import (
+    maybe_enable_mtp,
+    maybe_reuse_layers,
+    patch_attention,
+    patch_mla,
+    patch_moe,
+    patch_rotary_emb,
+    quantize_model,
+    shard_model,
+    wrap_model,
 )
 from ..layers.attention import flash_attention_forward
-from ..layers.internal import CopyLayerWrapper, RegionMarkerWrapper
-from ..layers.mla import MultiheadLatentAttentionBase
-from ..layers.moe_layer import MoELayer, ParallelMoELayer
-from ..layers.mtp import MtpWrapper
-from ..layers.quant_linear import QuantLinearBase
-from ..layers.rotary_embedding import CachingRotaryEmb
 from ..layers.utils import ModelWrapperBase
-from ..model_config import ModelConfig, MoEConfig
+from ..model_config import ModelConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
-from ..quantize_utils import quantize_linear_modules
+from .custom_model_registry import get_custom_model
 from .utils import (
     _MODEL_TYPE_TO_FAMILY,
     _VISUAL_FAMILY,
     AutoModelConfigLoader,
     init_on_device_without_buffers,
-    model_type_to_custom_attention_module_mapping,
-    model_type_to_custom_expert_module_mapping,
-    patch_method_for_vl,
-    strip_module_name,
 )
 
 if typing.TYPE_CHECKING:
@@ -155,7 +146,10 @@ class ModelWrapper(ModelWrapperBase):
 
 class TransformerModel(ModelWrapperBase):
     def __init__(
-        self, model_id: str, model_config: ModelConfig, hf_model: PreTrainedModel = None
+        self,
+        model_id: str,
+        model_config: ModelConfig,
+        hf_model: PreTrainedModel = None,
     ):
         """
         Construct a transformer model wrapper that auto-loads a transformer model and converts
@@ -168,6 +162,7 @@ class TransformerModel(ModelWrapperBase):
             #TODO: native model + running config(model_config) = running model,do not need model_id
         """
         super().__init__(None)
+
         self.model_id = model_id
         self.model_config = model_config
 
@@ -219,15 +214,22 @@ class TransformerModel(ModelWrapperBase):
                 self.model_config.parallel_config
             )
             # the order of these functions matters!
-
             logger.info("Applying model transformations")
+            model_type = self.hf_config.model_type
             with self.set_default_dtype():
-                self.wrap_model()
-                self.maybe_enable_mtp()
-                self.maybe_repeat_layers()
-                self.patch_model()
-                self.quantize_model()
-                self.shard_model()
+                custom_fn = get_custom_model(model_type)
+                if custom_fn:
+                    custom_fn(self)
+                else:
+                    wrap_model(self)
+                    maybe_enable_mtp(self)
+                    maybe_reuse_layers(self)
+                    patch_rotary_emb(self)
+                    patch_attention(self)
+                    patch_mla(self)
+                    patch_moe(self)
+                    quantize_model(self)
+                    shard_model(self)
 
         logger.info("Loading model weights")
         self.load_weights()
@@ -240,164 +242,6 @@ class TransformerModel(ModelWrapperBase):
             yield
         finally:
             torch.set_default_dtype(orig_dtype)
-
-    def wrap_model(self):
-        """
-        Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
-        1. We already return torch.Tensor or a tuple of tensors when intermediates are needed
-        2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
-        This makes other wrappers' life simpler.
-        """
-        if not self._inner.get_output_embeddings():
-            if self.is_vl_model:
-                self._inner = VLModelWrapper(
-                    hf_config=self.hf_config,
-                    model=self._inner,
-                )
-            else:
-                self._inner = CausalLmWrapper(
-                    hf_config=self.hf_config,
-                    model=self._inner,
-                )
-        else:
-            self._inner = ModelWrapper(self._inner)
-
-    def maybe_enable_mtp(self):
-        if not self.model_config.mtp_config:
-            return
-
-        mtp_config = copy.deepcopy(self.model_config.mtp_config)
-        unwrapped = self.unwrap()
-        if mtp_config.mtp_block_module_name is None and hasattr(unwrapped, "layers"):
-            # auto mode: use the last decoder layer's class
-            decoder_cls_name = type(unwrapped.layers[-1]).__name__
-            mtp_config.mtp_block_module_name = decoder_cls_name
-            # expand the layer_types used by Qwen model
-            if hasattr(self.hf_config, "layer_types") and isinstance(
-                self.hf_config.layer_types, list
-            ):
-                self.hf_config.layer_types.extend(
-                    [self.hf_config.layer_types] * mtp_config.num_mtp_layers
-                )
-            logger.info("Automatic MTP mode using decoder class: %s", decoder_cls_name)
-
-        orig_dtype = torch.get_default_dtype()
-        torch.set_default_dtype(self.model_config.dtype)
-        self._inner = MtpWrapper(mtp_config, self.hf_config, self._inner)
-        torch.set_default_dtype(orig_dtype)
-
-    def maybe_repeat_layers(self):
-        if not self.model_config.enable_repetition:
-            return
-
-        def get_submodule_structure_key(module: torch.nn.Module) -> str:
-            submodule_types = []
-            for name, sub_module in module.named_modules():
-                submodule_types.append(name)
-                submodule_types.append(
-                    ".".join([type(sub_module).__module__, type(sub_module).__name__])
-                )
-            return ",".join(submodule_types)
-
-        def repeat_layers(layers):
-            # We analyze the structure of sub-modules of each layer to detect repetition patterns.
-            # For the first layer of the repetition, we wrap it with RegionMarkerWrapper and then
-            # wrap the rest layers of the same pattern with CopyLayerWrapper. This tells the runtime
-            # that we can copy the execution of the first layer to the rest layers.
-            seen_keys = {}
-            for i, layer in enumerate(layers):
-                key = get_submodule_structure_key(layer)
-                if key not in seen_keys:
-                    seen_keys[key] = id(layer)
-                    layers[i] = RegionMarkerWrapper(
-                        region_id=seen_keys[key],
-                        layer=layer,
-                    )
-                else:
-                    layers[i] = CopyLayerWrapper(
-                        region_id=seen_keys[key],
-                        layer=layer,
-                    )
-
-        unwrapped = self.unwrap()
-        if hasattr(unwrapped, "layers"):
-            repeat_layers(unwrapped.layers)
-        visual_layers = self.get_visual_layers()
-        if visual_layers is not None:
-            repeat_layers(visual_layers)
-            language_model = self.get_vl_language_model()
-            if hasattr(language_model, "layers"):
-                repeat_layers(language_model.layers)
-
-        if isinstance(self._inner, MtpWrapper):
-            repeat_layers(self._inner.mtp.layers)
-
-    def patch_model(self):
-        """
-        Patch the transformer model for
-        1. torch.compile compatible
-        2. Frontend PyTorch module-level fusion
-        """
-        # cache rotary embedding to avoid computing it each time per forward
-        unwrapped = self.unwrap()
-        vl_language_model = self.get_vl_language_model()
-        if vl_language_model is not None:
-            unwrapped = vl_language_model
-            patch_method_for_vl(self.hf_config.model_type)
-        if self.model_config.cache_rotary_embedding and hasattr(
-            unwrapped, "rotary_emb"
-        ):
-            unwrapped.rotary_emb = CachingRotaryEmb(
-                unwrapped.rotary_emb,
-                act_dtype=self.model_config.dtype,
-                max_position_embeddings=self.text_config.max_position_embeddings,
-                expand_to_3d_position_ids=vl_language_model is not None,
-            )
-        # replace attention with custom implementation if defined
-        if self.model_config.attention_cls is not None:
-            self.attention_by_layers = {}
-            for i in range(self.num_hidden_layers):
-                self.attention_by_layers[i] = self.model_config.attention_cls()
-            # Patch attention modules to use flash_attention_forward
-            self.patch_attention_block()
-            visual_model = self.get_visual()
-            if visual_model is not None:
-                pattern = "blocks.*.attn"
-                # Assign a depth_layer_idx to each attention layer in the vision model
-                # and append them sequentially to attention_by_layers.
-                # This allows:
-                # 1) vision attention and text attention to use the same attention_by_layers registry
-                # 2) each vision attention layer to have a corresponding index
-                # 3) during the subsequent flash_attention_forward invocation,
-                #    the corresponding attention instance can be retrieved via depth_layer_idx
-                depth_layer_idx = len(self.attention_by_layers)
-                for name, module in visual_model.named_modules():
-                    if fnmatch.fnmatchcase(strip_module_name(name), pattern):
-                        module._tensor_cast_context = {
-                            "attention_by_layers": self.attention_by_layers,
-                            "depth_layer_idx": depth_layer_idx,
-                        }
-                        self.attention_by_layers[depth_layer_idx] = (
-                            self.model_config.attention_cls()
-                        )
-                        depth_layer_idx += 1
-
-        self.patch_mla()
-
-        # replace the vanilla mixture-of-expert (MOE) module with the fused one
-        # so that it can be "meta" and torch.compile traced and easily optimized
-        # by the backend.
-        #
-        # NOTE: Why we have to replace the vanilla moe module with the fused one:
-        # 1. MOE is data-dependent and the vanilla MOE module usually uses the
-        #    data-dependent ops like torch.nonzero or torch.where to route the
-        #    experts. This makes it impossible to trace with the "meta" device and
-        #    torch.compile based on which we conduct the analysis and graph optimizations.
-        # 2. The vanilla MOE usually uses a naive python-based for-loop to distribute
-        #    the tokens to the experts, which is slow.
-        # 3. The vanilla MOE is not written in a way that can be easily scaled up/out
-        #    with expert-parallelism (EP).
-        self.patch_moe(self.get_moe_config())
 
     def _all_required_fields_exist(self, module: torch.nn.Module, field_names):
         def is_optional(annotation):
@@ -416,398 +260,6 @@ class TransformerModel(ModelWrapperBase):
                 )
                 return False
         return True
-
-    def patch_mla(self):
-        mla_config = self.model_config.mla_config
-        if mla_config is None:
-            return
-        named_modules = list(self._inner.named_modules())
-        for name, module in named_modules:
-            if type(module).__name__ == mla_config.module_name:
-                # check if all the required fields exist
-                if not self._all_required_fields_exist(module, mla_config.field_names):
-                    continue
-                mla = mla_config.mla_cls(
-                    mla_config, module, self.parallel_group_manager.tp_group
-                )
-                self._replace_module(name, mla)
-
-    def patch_attention_block(self):
-        """
-        Patch attention modules to use tensorcast's attention ops.
-        This supports both standard attention interfaces (separate q,k,v) and
-        non-standard interfaces (hidden_states).
-        """
-        if not hasattr(self, "attention_by_layers"):
-            return
-        original_attention_name_pattern, custom_attention_adapter_cls = (
-            model_type_to_custom_attention_module_mapping(self.hf_config.model_type)
-        )
-        if original_attention_name_pattern is None:
-            return
-        named_modules = list(self._inner.named_modules())
-        for name, module in named_modules:
-            if re.match(original_attention_name_pattern, type(module).__name__):
-                adapter = custom_attention_adapter_cls(module, self.attention_by_layers)
-                self._replace_module(name, adapter)
-
-    def patch_moe_expert(self, module):
-        # patch moe experts just loop over the experts and compute the output for each expert
-        custom_experts_adapter_cls = model_type_to_custom_expert_module_mapping(
-            self.hf_config.model_type
-        )
-        if custom_experts_adapter_cls is None:
-            return
-        assert hasattr(module, "num_experts"), (
-            f"Module {type(module).__name__} must have 'num_experts' attribute."
-        )
-        expert_num = module.num_experts
-        assert isinstance(expert_num, int) and expert_num > 0, (
-            f"Expected 'num_experts' to be a positive integer, but got {expert_num}."
-        )
-        experts = torch.nn.ModuleList(
-            [custom_experts_adapter_cls(module.experts) for _ in range(expert_num)]
-        )
-        module.experts = experts
-
-    def get_moe_config(self):
-        return self.model_config.moe_config
-
-    def patch_moe(self, moe_config: Optional[MoEConfig]):
-        if not moe_config:
-            return
-
-        self.top_k = None
-        self.num_routing_experts = None
-
-        for name, module in self._inner.named_modules():
-            if type(module).__name__ == moe_config.module_name:
-                if not self._all_required_fields_exist(module, moe_config.field_names):
-                    continue
-                self.patch_moe_expert(module)
-                moe_layer = MoELayer(
-                    moe_config,
-                    module,
-                )
-                if self.top_k is None:
-                    self.top_k = moe_layer.top_k
-                    self.num_routing_experts = len(moe_layer.fused_moe.experts)
-                else:
-                    assert self.top_k == moe_layer.top_k
-                    assert self.num_routing_experts == len(moe_layer.fused_moe.experts)
-
-                self._replace_module(name, moe_layer)
-
-    def shard_model_visual_by_tp(self):
-        tp_size = self.parallel_group_manager.tp_group.world_size
-        visual_layers_path = self.get_visual_layers_path()
-        if tp_size <= 1 or visual_layers_path is None:
-            return
-        pattern = f"{visual_layers_path}.*.attn"
-        for name, module in self._inner.named_modules():
-            if fnmatch.fnmatchcase(strip_module_name(name), pattern) and hasattr(
-                module, "qkv"
-            ):
-                # This section is mainly used to modify the tp parallel of qkv in the vision part of qwen3-vl,
-                # Otherwise, dimension mapping may fail when apply_rotary_pos_emb_vision is calculated.
-                assert module.num_heads % tp_size == 0, (
-                    f"module.num_heads ({module.num_heads}) must be divisible by tp_size ({tp_size})"
-                )
-                module.num_heads = module.num_heads // tp_size
-
-    def get_shard_plan(self):
-        tp_group = self.parallel_group_manager.tp_group
-        o_proj_tp_group = self.parallel_group_manager.o_proj_tp_group
-        mlp_tp_group = self.parallel_group_manager.mlp_tp_group
-        lmhead_tp_group = self.parallel_group_manager.lmhead_tp_group
-        all_rank_group = self.parallel_group_manager.all_rank_group
-        moe_tp_group = self.parallel_group_manager.moe_tp_group
-
-        def get_tp_plan():
-            # TODO:
-            # 1. the name of modules should be configured;
-            # 2. we can define a class to represent the data with clearer semantics
-            tp_plan = {}
-
-            if self.model_config.parallel_config.embedding_parallel:
-                params = {
-                    "tp_group": tp_group,
-                    "shard_mode": self.model_config.parallel_config.embedding_parallel_mode,
-                }
-                tp_plan.update({"embed_tokens": (PARALLEL_EMBEDDING, params)})
-
-            params = {
-                "tp_group": tp_group,
-                "global_tp_group": tp_group,
-            }
-            config_info = self.hf_config if not self.is_vl_model else self.text_config
-            language_layers = self.get_language_layers()
-            layer_prefixes = [f"{language_layers}"]
-            if self.model_config.mtp_config is not None:
-                layer_prefixes.append("mtp.layers.*.mtp_block")
-            if self.model_config.mla_config:
-                params.update({"head_num": config_info.num_attention_heads})
-                for prefix in layer_prefixes:
-                    tp_plan.update(
-                        {
-                            f"{prefix}.*.self_attn.q_proj": (COLWISE_LINEAR, params),
-                            f"{prefix}.*.self_attn.q_b_proj": (COLWISE_LINEAR, params),
-                            f"{prefix}.*.self_attn.kv_b_proj": (COLWISE_LINEAR, params),
-                        }
-                    )
-            else:
-                params.update({"head_num": config_info.num_attention_heads})
-                tp_plan.update(
-                    {f"{language_layers}.*.q_proj": (COLWISE_LINEAR, params)}
-                )
-                params = params.copy()
-                params.update(
-                    {
-                        "head_num": config_info.num_key_value_heads,
-                        "is_replicable": True,
-                    }
-                )
-                tp_plan.update(
-                    {
-                        f"{language_layers}.*.k_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
-                        f"{language_layers}.*.v_proj": (
-                            COLWISE_LINEAR,
-                            params,
-                        ),
-                    }
-                )
-
-            params = {
-                "tp_group": o_proj_tp_group,
-                "global_tp_group": tp_group,
-                "head_num": config_info.num_attention_heads,
-            }
-            for prefix in layer_prefixes:
-                tp_plan.update({f"{prefix}.*.o_proj": (ROWWISE_LINEAR, params)})
-
-            params = {
-                "tp_group": mlp_tp_group,
-                "global_tp_group": tp_group,
-            }
-            for prefix in layer_prefixes:
-                tp_plan.update(
-                    {
-                        f"{prefix}.*.mlp.gate_proj": (COLWISE_LINEAR, params),
-                        f"{prefix}.*.mlp.up_proj": (COLWISE_LINEAR, params),
-                        f"{prefix}.*.mlp.down_proj": (ROWWISE_LINEAR, params),
-                    }
-                )
-            visual_layers_path = self.get_visual_layers_path()
-            if visual_layers_path is not None:
-                params = {
-                    "tp_group": tp_group,
-                    "global_tp_group": tp_group,
-                }
-                tp_plan.update(
-                    {
-                        f"{visual_layers_path}.*.attn.qkv": (COLWISE_LINEAR, params),
-                        f"{visual_layers_path}.*.attn.proj": (ROWWISE_LINEAR, params),
-                    }
-                )
-                visual_merger_linear = self.get_visual_merger_linear()
-                for key, parallel_type in visual_merger_linear.items():
-                    tp_plan[key] = (parallel_type, params)
-
-                params = {
-                    "tp_group": mlp_tp_group,
-                    "global_tp_group": tp_group,
-                }
-                visual_mlp_linear = self.get_visual_mlp_linear()
-                for key, parallel_type in visual_mlp_linear.items():
-                    tp_plan[key] = (parallel_type, params)
-            if not self.model_config.parallel_config.has_ep():
-                params = {
-                    "tp_group": all_rank_group,
-                    "global_tp_group": all_rank_group,
-                }
-                for prefix in layer_prefixes:
-                    tp_plan.update(
-                        {
-                            f"{prefix}.*.experts.*.gate_proj": (COLWISE_LINEAR, params),
-                            f"{prefix}.*.experts.*.up_proj": (COLWISE_LINEAR, params),
-                            f"{prefix}.*.experts.*.down_proj": (ROWWISE_LINEAR, params),
-                        }
-                    )
-            else:
-                params = {
-                    "tp_group": moe_tp_group,
-                    "global_tp_group": tp_group,
-                }
-                for prefix in layer_prefixes:
-                    tp_plan.update(
-                        {
-                            f"{prefix}.*.experts.*.gate_proj": (COLWISE_LINEAR, params),
-                            f"{prefix}.*.experts.*.up_proj": (COLWISE_LINEAR, params),
-                            f"{prefix}.*.experts.*.down_proj": (ROWWISE_LINEAR, params),
-                            f"{prefix}.*.shared_expert.*.gate_proj": (
-                                COLWISE_LINEAR,
-                                params,
-                            ),
-                            f"{prefix}.*.shared_expert.*.up_proj": (
-                                COLWISE_LINEAR,
-                                params,
-                            ),
-                            f"{prefix}.*.shared_expert.*.down_proj": (
-                                ROWWISE_LINEAR,
-                                params,
-                            ),
-                        }
-                    )
-
-            params = {
-                "tp_group": lmhead_tp_group,
-                "global_tp_group": tp_group,
-                "gather_output": True,
-            }
-            tp_plan.update({"lm_head": (COLWISE_LINEAR, params)})
-            return tp_plan
-
-        return {"tp_plan": get_tp_plan()}
-
-    def shard_model_by_tp(self):
-        """
-        Replaces all nn.Linear and nn.Embedding modules with Parallel modules based on the
-        parallel configuration stored in self.model_config.
-        """
-        shard_plan = self.get_shard_plan()
-        tp_plan = shard_plan["tp_plan"]
-
-        modules = {}
-        module_stripped_to_names = {}
-        for name, module in self._inner.named_modules():
-            if isinstance(
-                module, (torch.nn.Embedding, torch.nn.Linear, QuantLinearBase)
-            ):
-                modules[name] = module
-                module_stripped_to_names[strip_module_name(name)] = name
-        for pattern, tp_config in tp_plan.items():
-            matches = fnmatch.filter(module_stripped_to_names.keys(), pattern)
-            for stripped_name in matches:
-                name = module_stripped_to_names[stripped_name]
-                module = modules[name]
-                parallel_module = PARALLEL_MODULE_CLS[tp_config[0]](
-                    module, **tp_config[1]
-                )
-                self._replace_module(name, parallel_module)
-        self.shard_model_visual_by_tp()
-
-    def shard_model_by_ep(self):
-        moe_config = self.get_moe_config()
-        if not moe_config or not self.top_k or not self.num_routing_experts:
-            return
-
-        ep_group = self.parallel_group_manager.ep_group
-        self.num_external_shared_experts = 0
-        self.num_redundant_experts = 0
-        if not self.model_config.parallel_config.has_ep():
-            assert (
-                not moe_config.enable_redundant_experts
-                and not moe_config.enable_external_shared_experts
-            )
-        else:
-            if moe_config.enable_external_shared_experts:
-                assert ep_group.world_size >= 2
-                if self.top_k + 1 > ep_group.world_size:
-                    self.num_external_shared_experts = 1
-                else:
-                    self.num_external_shared_experts = math.ceil(
-                        ep_group.world_size / (self.top_k + 1)
-                    )
-
-                num_routing_experts_device = (
-                    ep_group.world_size - self.num_external_shared_experts
-                )
-                self.num_redundant_experts = (
-                    num_routing_experts_device
-                    - self.num_routing_experts % num_routing_experts_device
-                )
-                if (
-                    not moe_config.enable_redundant_experts
-                    and self.num_redundant_experts == num_routing_experts_device
-                ):
-                    self.num_redundant_experts = 0
-
-                if not moe_config.host_external_shared_experts:
-                    if self.model_config.parallel_config.rank == -1:
-                        self.parallel_group_manager.set_rank(
-                            self.num_external_shared_experts
-                        )
-                    else:
-                        raise ValueError(
-                            "If you want to check the performance of the device with external shared experts, "
-                            f"set the rank to -1 or {self.num_external_shared_experts}."
-                        )
-            else:
-                if moe_config.enable_redundant_experts:
-                    self.num_redundant_experts = ep_group.world_size
-
-        dp_group = self.parallel_group_manager.dp_group
-        tp_group = self.parallel_group_manager.tp_group
-        for name, module in self._inner.named_modules():
-            if isinstance(module, MoELayer):
-                self._replace_module(
-                    name,
-                    ParallelMoELayer(
-                        module,
-                        dp_group,
-                        tp_group,
-                        ep_group,
-                        self.num_external_shared_experts,
-                        self.num_redundant_experts,
-                    ),
-                )
-
-    def shard_model(self):
-        self.shard_model_by_ep()
-        self.shard_model_by_tp()
-
-    def quantize_linear(self):
-        """
-        Replaces all nn.Linear modules with QuantLinear modules based on the
-        quantization configuration stored in self.model_config.
-        """
-        if not self.model_config.quant_linear_cls:
-            return
-        quantize_linear_modules(
-            self._inner,
-            self.model_config.quant_linear_cls,
-            self.model_config.quant_config,
-            default_config_name=None,
-            strip_module_fn=lambda n: n.replace("_inner.", "") if "_inner." in n else n,
-        )
-
-    def quantize_attention(self):
-        attention_configs = self.model_config.quant_config.attention_configs
-        default_attention_config = attention_configs.get(-1)
-        if self.model_config.mla_config:
-            for _, module in self._inner.named_modules():
-                if isinstance(module, MultiheadLatentAttentionBase):
-                    if (
-                        hasattr(module, "layer_idx")
-                        and module.layer_idx in attention_configs
-                    ):
-                        module.quant_config = attention_configs[module.layer_idx]
-                    else:
-                        module.quant_config = default_attention_config
-                    if module.quant_config is not None:
-                        module.quantize_params()
-        if hasattr(self, "attention_by_layers"):
-            for i in range(self.num_hidden_layers):
-                self.attention_by_layers[i].quant_config = attention_configs.get(
-                    i, default_attention_config
-                )
-
-    def quantize_model(self):
-        self.quantize_linear()
-        self.quantize_attention()
 
     def load_weights(self):
         """TODO: load real weights"""

@@ -1,15 +1,46 @@
-"""
-Attention adapters for models that use non-standard attention interfaces.
-
-This module provides adapters to convert various attention interfaces to the
-standard tensorcast interface (query, key, value tensors).
-"""
+import re
 
 from typing import Optional, Tuple
 
 import torch
 
-from .attention import flash_attention_forward
+from tensor_cast.layers.attention import flash_attention_forward
+from tensor_cast.transformers.custom_model_registry import register_custom_model
+
+from tensor_cast.transformers.model import TransformerModel
+from tensor_cast.transformers.transformations import (
+    maybe_enable_mtp,
+    maybe_reuse_layers,
+    patch_mla,
+    patch_moe,
+    patch_rotary_emb,
+    quantize_model,
+    shard_model,
+    wrap_model,
+)
+from ..utils import replace_module
+
+
+@register_custom_model("bailing_moe")
+def _(model: TransformerModel):
+    model = wrap_model(model)
+    model = maybe_enable_mtp(model)
+    model = maybe_reuse_layers(model)
+    model = patch_rotary_emb(model)
+    if model.model_config.attention_cls is not None:
+        model.attention_by_layers = {}
+        for i in range(model.num_hidden_layers):
+            model.attention_by_layers[i] = model.model_config.attention_cls()
+    named_modules = list(model._inner.named_modules())
+    for name, module in named_modules:
+        if re.match("BailingMoe.*Attention", type(module).__name__):
+            adapter = BailingMoeV2AttentionAdapter(module, model.attention_by_layers)
+            replace_module(model, name, adapter)
+    model = patch_mla(model)
+    model = patch_moe(model)
+    model = quantize_model(model)
+    model = shard_model(model)
+    return model
 
 
 class BailingMoeV2AttentionAdapter(torch.nn.Module):

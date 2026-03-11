@@ -1,6 +1,7 @@
 import contextlib
 import logging
 import os
+
 from operator import attrgetter
 from typing import Dict, List, Optional, Tuple
 
@@ -14,7 +15,6 @@ from transformers.utils.quantization_config import (
 )
 
 from ..layers import COLWISE_LINEAR, ROWWISE_LINEAR
-from ..layers.attention_adapters import BailingMoeV2AttentionAdapter
 from ..layers.mla import MultiheadLatentAttentionBase
 from ..layers.moe_layer import TensorQwen3VLMoeTextMLP
 from ..model_config import (
@@ -110,13 +110,14 @@ def get_mtp_block_module_name(model_type: str = "") -> str:
     return _model_type_to_mtp_block_module_name.get(model_type)
 
 
-_model_type_to_custom_attention_module_mapping: Dict[str, tuple] = {
-    "bailing_moe": ("BailingMoe.*Attention", BailingMoeV2AttentionAdapter),
-}
-
-
-def model_type_to_custom_attention_module_mapping(model_type: str) -> tuple:
-    return _model_type_to_custom_attention_module_mapping.get(model_type, (None, None))
+def replace_module(model, name: str, new_module: torch.nn.Module):
+    path = name.split(".")
+    parent_name = ".".join(path[:-1])
+    child_name = path[-1]
+    parent_module = model
+    if parent_name:
+        parent_module = model.get_submodule(parent_name)
+    setattr(parent_module, child_name, new_module)
 
 
 def strip_module_name(name: str) -> str:
