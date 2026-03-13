@@ -267,7 +267,6 @@ class TestThroughputOptimizer(TestCase):
             "Qwen/Qwen3-VL-235B-A22B-Instruct",
             "--device=TEST_DEVICE",
             "--num-devices=8",
-            "--tpot-limits=50",
             "--image-height=1080",
             "--image-width=1920",
             "--compile",

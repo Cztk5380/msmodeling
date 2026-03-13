@@ -178,7 +178,7 @@ class AggThroughputOptimizer(BaseThroughputOptimizer):
             )
 
             # Convert execution time to milliseconds
-            latency = batch_result.execution_time_s * 1000
+            latency = batch_result.execution_time_s.get("analytic") * 1000
             memory_left_gb = batch_result.device_memory_available_gb
             breakdowns = format_breakdowns(batch_result.breakdowns)
 
