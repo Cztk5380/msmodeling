@@ -9,6 +9,9 @@ from tensor_cast.core.quantization.datatypes import (
 from tensor_cast.model_config import WordEmbeddingTPMode
 from ..utils import check_positive_integer, get_common_argparser, LOG_FORMAT, LOG_LEVELS
 
+# Supported performance model types
+SUPPORTED_PERFORMANCE_MODELS = ["analytic", "profiling"]
+
 
 def main():
     """
@@ -244,6 +247,7 @@ def main():
         "--performance-model",
         action="append",
         default=None,
+        choices=SUPPORTED_PERFORMANCE_MODELS,
         help="Performance model type(s). Can specify one or more models. "
         "'analytic': Roofline model (default, no data required). "
         "'profiling': EmpiricalPerformanceModel backed by Profiling CSV database "
