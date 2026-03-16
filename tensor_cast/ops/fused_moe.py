@@ -50,7 +50,7 @@ def _(x: torch.Tensor, top_k: int) -> Tuple[torch.Tensor, torch.Tensor]:
 
     This function is designed to handle both the softmax operation over the gating logits
     and the top-k selection of experts in one step. It returns the shape of the expected output
-    tensors (experts_indices, and experts_weights) without performing any computation.
+    tensors (experts_weights, and experts_indices) without performing any computation.
 
     Args:
         x (torch.Tensor): A tensor of containing the raw unnormalized logits for each experts.
@@ -61,8 +61,12 @@ def _(x: torch.Tensor, top_k: int) -> Tuple[torch.Tensor, torch.Tensor]:
     Returns:
         Tuple[torch.Tensor, torch.Tensor]:
             - topk_weights (torch.Tensor): Corresponding normalized weights (e.g., after softmax),
-              with the same shape, dtype and device as input `x`.
+              with shape `(*x.shape[:-1], top_k)`, dtype and device as input `x`.
             - topk_indices (torch.Tensor): Indices of the selected experts,
-              with the same shape and device as input `x`, dtype int64.
+              with shape `(*x.shape[:-1], top_k)` and device as input `x`, dtype int64.
     """
-    return torch.empty_like(x), torch.empty_like(x, dtype=torch.int64)
+    out_shape = (*x.shape[:-1], top_k)
+    return (
+        torch.empty(out_shape, dtype=x.dtype, device=x.device),
+        torch.empty(out_shape, dtype=torch.int64, device=x.device),
+    )

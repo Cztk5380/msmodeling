@@ -290,13 +290,19 @@ class PerfAnalysisTestCase(unittest.TestCase):
         """
         perf_model = AnalyticPerformanceModel(TEST_DEVICE)
         test_logits = torch.randn(1, 4, 4, device="meta", dtype=torch.float16)
+        top_k = 2
+        expected_shape = (*test_logits.shape[:-1], top_k)
         with (
             Runtime(
                 perf_model, TEST_DEVICE, memory_tracker=MemoryTracker(TEST_DEVICE)
             ) as runtime,
             torch.no_grad(),
         ):
-            torch.ops.tensor_cast.moe_gating_top_k_softmax(test_logits, 2)
+            topk_weights, topk_indices = torch.ops.tensor_cast.moe_gating_top_k_softmax(
+                test_logits, top_k
+            )
+            self.assertEqual(topk_weights.shape, expected_shape)
+            self.assertEqual(topk_indices.shape, expected_shape)
         self.assertEqual(len(runtime.event_list), 1)
         analytic_result = runtime.event_list[0].perf_results.get("analytic")
         actual_execution_time = analytic_result.execution_time_s
