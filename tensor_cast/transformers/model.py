@@ -24,6 +24,7 @@ from ..layers.utils import ModelWrapperBase
 from ..model_config import ModelConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
+from . import models  # noqa: F401
 from .custom_model_registry import get_custom_model
 from .utils import (
     _MODEL_TYPE_TO_FAMILY,

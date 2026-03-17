@@ -3,7 +3,7 @@ import logging
 import os
 
 from operator import attrgetter
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Type
 
 import torch
 from transformers import AutoModelForCausalLM, PretrainedConfig, PreTrainedModel
@@ -15,7 +15,11 @@ from transformers.utils.quantization_config import (
 )
 
 from ..layers import COLWISE_LINEAR, ROWWISE_LINEAR
-from ..layers.mla import MultiheadLatentAttentionBase
+from ..layers.mla import (
+    DeepseekSparseAttention,
+    MultiheadLatentAttentionBase,
+    MultiheadLatentAttentionTensorCast,
+)
 from ..layers.moe_layer import TensorQwen3VLMoeTextMLP
 from ..model_config import (
     AttentionQuantConfig,
@@ -34,6 +38,9 @@ _model_type_to_moe_config: Dict[str, MoEConfig] = {
     "deepseek_v3": MoEConfig(
         module_name="DeepseekV3MoE",
         num_experts_key="n_routed_experts",
+    ),
+    "deepseek_v32": MoEConfig(
+        module_name="DeepseekV32MoE",
     ),
     "glm4_moe": MoEConfig(
         module_name="Glm4MoeMoE",
@@ -92,11 +99,23 @@ def get_moe_config(model_type: str = "") -> Optional[MoEConfig]:
 
 _model_type_to_mla_module_name: Dict[str, str] = {
     "deepseek_v3": "DeepseekV3Attention",
+    "deepseek_v32": "DeepseekV32SparseAttention",
 }
 
 
 def get_mla_module_name(model_type: str = "") -> str:
     return _model_type_to_mla_module_name.get(model_type)
+
+
+_model_type_to_mla_module_class: Dict[str, Type[MultiheadLatentAttentionBase]] = {
+    "deepseek_v32": DeepseekSparseAttention,
+}
+
+
+def get_mla_module(model_type: str = "") -> Type[MultiheadLatentAttentionBase]:
+    return _model_type_to_mla_module_class.get(
+        model_type, MultiheadLatentAttentionTensorCast
+    )
 
 
 _model_type_to_mtp_block_module_name: Dict[str, str] = {

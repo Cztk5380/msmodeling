@@ -315,6 +315,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         query_len = 3500
         qk_nope_head_dim = q_head_dim - qk_rope_head_dim
         total_tokens = B * query_len
+        index_topk = 1
         v_head_dim = 128
 
         q = torch.randn(total_tokens, num_heads, q_head_dim, device="meta", dtype=dtype)
@@ -355,6 +356,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
                     W_UV,
                     kv_b_proj,
                     v_head_dim,
+                    index_topk,
                 )
             )
         )
@@ -368,6 +370,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         query_len = 3500
         qk_nope_head_dim = q_head_dim - qk_rope_head_dim
         total_tokens = B * query_len
+        index_topk = 1
         v_head_dim = 128
 
         q = torch.randn(total_tokens, num_heads, q_head_dim, device="meta", dtype=dtype)
@@ -408,6 +411,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
                     W_UV,
                     kv_b_proj,
                     v_head_dim,
+                    index_topk,
                 )
             )
         )
@@ -421,6 +425,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
         query_len = 1
         qk_nope_head_dim = q_head_dim - qk_rope_head_dim
         total_tokens = B * query_len
+        index_topk = 1
         v_head_dim = 128
 
         q = torch.randn(total_tokens, num_heads, q_head_dim, device="meta", dtype=dtype)
@@ -460,6 +465,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
                     W_UK_T,
                     W_UV,
                     kv_b_proj,
+                    index_topk,
                     v_head_dim,
                 )
             )

@@ -129,6 +129,7 @@ def _(
     W_UV: Optional[torch.Tensor],
     kv_b_proj: Optional[torch.Tensor],
     v_head_dim: int,
+    index_topk: Optional[int] = None,
 ) -> torch.Tensor:
     """
     This op computes multi-head latent attention (MLA). It is supposed to use different
@@ -196,6 +197,7 @@ def _(
     out_scale: Optional[torch.Tensor],
     out_offset: Optional[torch.Tensor],
     out_dtype: Optional[torch.dtype],
+    index_topk: Optional[int] = None,
 ) -> torch.Tensor:
     """
     Similar to `multihead_latent_attention` but with quantization support.
@@ -219,3 +221,58 @@ def _(
     return torch.empty(
         q.shape[0], q.shape[1], v_head_dim, dtype=out_dtype, device="meta"
     )
+
+
+@register_tensor_cast_op("dsa_index")
+def _(
+    q: torch.Tensor,
+    q_s: torch.Tensor,
+    k: torch.Tensor,
+    k_s: torch.Tensor,
+) -> torch.Tensor:
+    """
+    Perform index score using FP8 precision.
+    Args:
+        q (torch.Tensor): The Q tensor, must be contiguous.
+        q_s (torch.Tensor): The scaling factor for Q (float), must be contiguous.
+        k (torch.Tensor): The K tensor, must be contiguous.
+        k_s (torch.Tensor): The scaling factor for K (e8m0 here), must be contiguous.
+        fp8 q @ fp8 k -> fp32 logits
+        relu(fp32 logits) * q_s (weights) -> fp32 logits
+        fp32 logits -> fp32 logits_sum
+        fp32 logits_sum * k_s (e8m0) -> fp32 index_score
+    """
+    # out shape: (batch, num_heads, seq_len)
+    return torch.empty(
+        q.shape[0], q_s.shape[2], q_s.shape[1], dtype=q.dtype, device="meta"
+    )
+
+
+@register_tensor_cast_op("dsa_index_cache", mutates_args=("k_cache",))
+def _(
+    k: torch.Tensor,
+    k_cache: torch.Tensor,
+    slot_mapping: torch.Tensor,
+    block_tables: Optional[torch.Tensor] = None,
+) -> None:
+    """
+    In-place write of token Key vectors into KV cache.
+
+    1. Continuous Mode (block_tables is None):
+       - Logic: k_cache[slot_mapping[i]] = k[i]
+       - The 'slot_mapping' tensor directly provides the physical row index in k_cache
+         for each token in the input 'k'.
+
+    2. Paged Attention Mode (block_tables is provided):
+       - Logic: Derive (block_idx, offset) from slot_mapping.
+       - Lookup physical block ID: block_id = block_tables[batch_idx, block_idx_logical]
+       - Write: k_cache[block_id, offset] = k[i]
+       - This allows non-contiguous memory allocation, crucial for long-context inference.
+
+    Args:
+        k: Input Key tensor. Shape varies by backend: [num_tokens, head_dim] or [batch, num_tokens, head_dim].
+        k_cache: Global KV cache buffer.
+                 Shape: [max_seq_len, head_dim] (continuous) or [num_blocks, block_size, head_dim] (paged).
+        slot_mapping: Physical indices mapping each token to its location in k_cache. Shape: [num_tokens].
+        block_tables: Page table for paged attention. Shape: [batch_size, max_blocks_per_seq]. Optional.
+    """
