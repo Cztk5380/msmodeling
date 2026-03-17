@@ -14,8 +14,8 @@ from tensor_cast.model_config import ModelConfig, ParallelConfig, QuantConfig
 from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
 from tensor_cast.performance_model.memory_tracker import MemoryTracker
 from tensor_cast.runtime import Runtime
+from tensor_cast.transformers.custom_model_registry import get_mtp_block_module_name
 from tensor_cast.transformers.model import TransformerModel
-from tensor_cast.transformers.utils import get_mtp_block_module_name
 from .test_common import (
     assert_close,
     create_mla_metadata_and_kv_cache,

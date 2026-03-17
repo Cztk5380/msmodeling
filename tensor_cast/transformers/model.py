@@ -1,6 +1,7 @@
 import contextlib
 import dataclasses
 import logging
+import operator
 import typing
 from typing import Dict, Optional, Union
 
@@ -24,14 +25,12 @@ from ..layers.utils import ModelWrapperBase
 from ..model_config import ModelConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
-from . import models  # noqa: F401
-from .custom_model_registry import get_custom_model
-from .utils import (
-    _MODEL_TYPE_TO_FAMILY,
-    _VISUAL_FAMILY,
-    AutoModelConfigLoader,
-    init_on_device_without_buffers,
+from .custom_model_registry import (
+    COMMON_VISUAL_CONFIG,
+    get_custom_model,
+    get_model_profile,
 )
+from .utils import AutoModelConfigLoader, init_on_device_without_buffers
 
 if typing.TYPE_CHECKING:
     from ..layers.sampler import SamplingMetadata
@@ -276,33 +275,61 @@ class TransformerModel(ModelWrapperBase):
             parent_module = self._inner.get_submodule(parent_name)
         setattr(parent_module, child_name, new_module)
 
-    def _get_vl_model_spec(self):
+    def _get_vl_model_profile(self):
         model_type = self.hf_config.model_type
-        family = _MODEL_TYPE_TO_FAMILY.get(model_type)
-        if family is None:
-            return None
-        return _VISUAL_FAMILY[family]
-
-    def _get_spec_value_from_key(self, key: str):
-        spec = self._get_vl_model_spec()
-        if spec is None:
-            return None
-        return spec.get(key, lambda _: None)(self.unwrap())
+        return get_model_profile(model_type)
 
     def get_visual(self):
-        return self._get_spec_value_from_key("visual")
+        profile = self._get_vl_model_profile()
+        attr_path = None
+        if profile and profile.visual_module_path:
+            attr_path = profile.visual_module_path
+        elif profile and profile.model_family == "default":
+            attr_path = COMMON_VISUAL_CONFIG["visual_module_path"]
+
+        if attr_path:
+            return operator.attrgetter(attr_path)(self.unwrap())
+        return None
 
     def get_vl_language_model(self):
-        return self._get_spec_value_from_key("language_model")
+        profile = self._get_vl_model_profile()
+        attr_path = None
+        if profile and profile.language_module_path:
+            attr_path = profile.language_module_path
+        elif profile and profile.model_family == "default":
+            attr_path = COMMON_VISUAL_CONFIG["language_module_path"]
+
+        if attr_path:
+            return operator.attrgetter(attr_path)(self.unwrap())
+        return None
 
     def get_visual_layers(self):
-        return self._get_spec_value_from_key("visual.layers")
+        profile = self._get_vl_model_profile()
+        attr_path = None
+        if profile and profile.visual_layers_module_path:
+            attr_path = profile.visual_layers_module_path
+        elif profile and profile.model_family == "default":
+            attr_path = COMMON_VISUAL_CONFIG["visual_layers_module_path"]
+
+        if attr_path:
+            return operator.attrgetter(attr_path)(self.unwrap())
+        return None
 
     def get_visual_merger_linear(self):
-        return self._get_spec_value_from_key("visual_merger_linear")
+        profile = self._get_vl_model_profile()
+        if profile and profile.visual_merger_linear_mapping:
+            return profile.visual_merger_linear_mapping
+        if profile and profile.model_family == "default":
+            return COMMON_VISUAL_CONFIG["visual_merger_linear_mapping"]
+        return {}
 
     def get_visual_mlp_linear(self):
-        return self._get_spec_value_from_key("visual_mlp_linear")
+        profile = self._get_vl_model_profile()
+        if profile and profile.visual_mlp_linear_mapping:
+            return profile.visual_mlp_linear_mapping
+        if profile and profile.model_family == "default":
+            return COMMON_VISUAL_CONFIG["visual_mlp_linear_mapping"]
+        return {}
 
     def get_visual_layers_path(self) -> Optional[str]:
         """
@@ -310,7 +337,12 @@ class TransformerModel(ModelWrapperBase):
           - "visual.blocks"
           - "vision_tower.encoder.layer"
         """
-        return self._get_spec_value_from_key("path.visual.layers")
+        profile = self._get_vl_model_profile()
+        if profile and profile.visual_layers_path_str:
+            return profile.visual_layers_path_str
+        if profile and profile.model_family == "default":
+            return COMMON_VISUAL_CONFIG["visual_layers_path_str"]
+        return None
 
     def get_language_layers(self) -> str:
         """
@@ -318,10 +350,12 @@ class TransformerModel(ModelWrapperBase):
           - "language_model.layers"
           - "layers"
         """
-        spec = self._get_vl_model_spec()
-        if spec is None:
-            return "layers"
-        return spec["path.language_model.layers"](self.unwrap())
+        profile = self._get_vl_model_profile()
+        if profile and profile.language_layers_path_str:
+            return profile.language_layers_path_str
+        if profile and profile.model_family == "default":
+            return COMMON_VISUAL_CONFIG["language_layers_path_str"]
+        return "layers"
 
     @staticmethod
     def get_weight_size_nested(modules):

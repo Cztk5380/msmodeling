@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Union
 import torch
 
 if TYPE_CHECKING:
-    from .model import TransformerModel
+    from .model import ModelWrapperBase
 
 from ..layers import (
     COLWISE_LINEAR,
@@ -22,43 +22,45 @@ from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.quant_linear import QuantLinearBase
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..quantize_utils import quantize_linear_modules
-from .utils import (
-    model_type_to_custom_expert_module_mapping,
-    patch_method_for_vl,
-    strip_module_name,
-)
+from .custom_model_registry import get_model_profile
+from .utils import strip_module_name
 
 
-def wrap_model(model: "TransformerModel") -> "TransformerModel":
+def wrap_model(model: "ModelWrapperBase") -> "ModelWrapperBase":
     """
     Normalize the forward interface so that we don't have to adapt to transformers specifics outside:
     1. We already return torch.Tensor or a tuple of tensors when intermediates are needed
     2. We don't need to pass transformers specific args like `use_cache` or `return_dict` etc. outside.
     This makes other wrappers' life simpler.
     """
-    if not model._inner.get_output_embeddings():
-        if model.is_vl_model:
-            from .model import VLModelWrapper
+    from ..diffusers.diffusers_model import DiffusersTransformerModel
 
-            model._inner = VLModelWrapper(
-                hf_config=model.hf_config,
-                model=model._inner,
-            )
-        else:
-            from .model import CausalLmWrapper
-
-            model._inner = CausalLmWrapper(
-                hf_config=model.hf_config,
-                model=model._inner,
-            )
+    if isinstance(model, DiffusersTransformerModel):
+        model._inner.set_attention_backend("tensor_cast")
     else:
-        from .model import ModelWrapper
+        if not model._inner.get_output_embeddings():
+            if model.is_vl_model:
+                from .model import VLModelWrapper
 
-        model._inner = ModelWrapper(model._inner)
+                model._inner = VLModelWrapper(
+                    hf_config=model.hf_config,
+                    model=model._inner,
+                )
+            else:
+                from .model import CausalLmWrapper
+
+                model._inner = CausalLmWrapper(
+                    hf_config=model.hf_config,
+                    model=model._inner,
+                )
+        else:
+            from .model import ModelWrapper
+
+            model._inner = ModelWrapper(model._inner)
     return model
 
 
-def maybe_enable_mtp(model: "TransformerModel") -> "TransformerModel":
+def maybe_enable_mtp(model: "ModelWrapperBase") -> "ModelWrapperBase":
     if not model.model_config.mtp_config:
         return model
 
@@ -84,7 +86,7 @@ def maybe_enable_mtp(model: "TransformerModel") -> "TransformerModel":
     return model
 
 
-def maybe_reuse_layers(model: "TransformerModel") -> "TransformerModel":
+def maybe_reuse_layers(model: "ModelWrapperBase") -> "ModelWrapperBase":
     if not model.model_config.enable_repetition:
         return model
 
@@ -129,13 +131,15 @@ def maybe_reuse_layers(model: "TransformerModel") -> "TransformerModel":
     return model
 
 
-def patch_rotary_emb(model: "TransformerModel") -> "TransformerModel":
+def patch_rotary_emb(model: "ModelWrapperBase") -> "ModelWrapperBase":
     unwrapped = model.unwrap()
     vl_language_model = model.get_vl_language_model()
 
     if vl_language_model is not None:
         unwrapped = vl_language_model
-        patch_method_for_vl(model.hf_config.model_type)
+        profile = get_model_profile(model.hf_config.model_type)
+        if profile and profile.vl_patch_method:
+            profile.vl_patch_method()
 
     if model.model_config.cache_rotary_embedding and hasattr(unwrapped, "rotary_emb"):
         unwrapped.rotary_emb = CachingRotaryEmb(
@@ -147,7 +151,7 @@ def patch_rotary_emb(model: "TransformerModel") -> "TransformerModel":
     return model
 
 
-def patch_attention(model: "TransformerModel") -> "TransformerModel":
+def patch_attention(model: "ModelWrapperBase") -> "ModelWrapperBase":
     # Assign a depth_layer_idx to each attention layer in the vision model
     # and append them sequentially to attention_by_layers.
     # This allows:
@@ -201,12 +205,11 @@ def _all_required_fields_exist(module: torch.nn.Module, field_names) -> bool:
         if not is_optional(
             type(fields_obj).__annotations__.get(field_name)
         ) and not hasattr(module, target_attr):
-            # logger.warning("Field %s not found in module %s", target_attr, module)
             return False
     return True
 
 
-def patch_mla(model: "TransformerModel") -> "TransformerModel":
+def patch_mla(model: "ModelWrapperBase") -> "ModelWrapperBase":
     mla_config = model.model_config.mla_config
     if mla_config is None:
         return model
@@ -223,13 +226,12 @@ def patch_mla(model: "TransformerModel") -> "TransformerModel":
     return model
 
 
-def _patch_moe_expert_helper(model: "TransformerModel", module):
+def _patch_moe_expert_helper(model: "ModelWrapperBase", module):
     """Helper for MoE patching."""
-    custom_experts_adapter_cls = model_type_to_custom_expert_module_mapping(
-        model.hf_config.model_type
-    )
-    if custom_experts_adapter_cls is None:
+    profile = get_model_profile(model.hf_config.model_type)
+    if profile is None or profile.custom_expert_module_type is None:
         return
+    custom_experts_adapter_cls = profile.custom_expert_module_type
     assert hasattr(module, "num_experts")
     expert_num = module.num_experts
     assert isinstance(expert_num, int) and expert_num > 0
@@ -239,7 +241,7 @@ def _patch_moe_expert_helper(model: "TransformerModel", module):
     module.experts = experts
 
 
-def patch_moe(model: "TransformerModel") -> "TransformerModel":
+def patch_moe(model: "ModelWrapperBase") -> "ModelWrapperBase":
     # replace the vanilla mixture-of-expert (MOE) module with the fused one
     # so that it can be "meta" and torch.compile traced and easily optimized
     # by the backend.
@@ -277,7 +279,7 @@ def patch_moe(model: "TransformerModel") -> "TransformerModel":
     return model
 
 
-def _shard_model_visual_by_tp_helper(model: "TransformerModel"):
+def _shard_model_visual_by_tp_helper(model: "ModelWrapperBase"):
     """Helper for visual sharding."""
     tp_size = model.parallel_group_manager.tp_group.world_size
     visual_layers_path = model.get_visual_layers_path()
@@ -292,7 +294,7 @@ def _shard_model_visual_by_tp_helper(model: "TransformerModel"):
             module.num_heads = module.num_heads // tp_size
 
 
-def shard_model_by_tp(model: "TransformerModel") -> "TransformerModel":
+def shard_model_by_tp(model: "ModelWrapperBase") -> "ModelWrapperBase":
     """
     Replaces all nn.Linear and nn.Embedding modules with Parallel modules based on the
     parallel configuration stored in self.model_config.
@@ -477,7 +479,7 @@ def shard_model_by_tp(model: "TransformerModel") -> "TransformerModel":
     return model
 
 
-def shard_model_by_ep(model: "TransformerModel") -> "TransformerModel":
+def shard_model_by_ep(model: "ModelWrapperBase") -> "ModelWrapperBase":
     moe_config = model.model_config.moe_config
     if (
         not moe_config
@@ -549,30 +551,50 @@ def shard_model_by_ep(model: "TransformerModel") -> "TransformerModel":
     return model
 
 
-def shard_model(model: "TransformerModel") -> "TransformerModel":
+def shard_model(model: "ModelWrapperBase") -> "ModelWrapperBase":
     shard_model_by_ep(model)
     shard_model_by_tp(model)
     return model
 
 
-def quantize_linear(model: "TransformerModel") -> "TransformerModel":
+def quantize_linear(model: "ModelWrapperBase") -> "ModelWrapperBase":
     """
     Replaces all nn.Linear modules with QuantLinear modules based on the
     quantization configuration stored in self.model_config.
     """
-    if not model.model_config.quant_linear_cls:
-        return model
-    quantize_linear_modules(
-        model._inner,
-        model.model_config.quant_linear_cls,
-        model.model_config.quant_config,
-        default_config_name=None,
-        strip_module_fn=lambda n: n.replace("_inner.", "") if "_inner." in n else n,
-    )
+    from ..diffusers.diffusers_model import DiffusersTransformerModel
+
+    if isinstance(model, DiffusersTransformerModel):
+        if not model.model_config.quant_linear_cls:
+            return model
+        root = (
+            model._inner.transformer_blocks
+            if hasattr(model._inner, "transformer_blocks")
+            else model._inner.blocks
+            if hasattr(model._inner, "blocks")
+            else None
+        )
+        quantize_linear_modules(
+            root,
+            model.model_config.quant_linear_cls,
+            model.model_config.quant_config,
+            default_config_name="default_dit",
+            strip_module_fn=None,
+        )
+    else:
+        if not model.model_config.quant_linear_cls:
+            return model
+        quantize_linear_modules(
+            model._inner,
+            model.model_config.quant_linear_cls,
+            model.model_config.quant_config,
+            default_config_name=None,
+            strip_module_fn=lambda n: n.replace("_inner.", "") if "_inner." in n else n,
+        )
     return model
 
 
-def quantize_attention(model: "TransformerModel") -> "TransformerModel":
+def quantize_attention(model: "ModelWrapperBase") -> "ModelWrapperBase":
     if not hasattr(model.model_config, "quant_config"):
         return model
 
@@ -600,7 +622,14 @@ def quantize_attention(model: "TransformerModel") -> "TransformerModel":
     return model
 
 
-def quantize_model(model: "TransformerModel") -> "TransformerModel":
-    quantize_linear(model)
-    quantize_attention(model)
+def quantize_model(model: "ModelWrapperBase") -> "ModelWrapperBase":
+    from ..diffusers.diffusers_model import DiffusersTransformerModel
+
+    if isinstance(model, DiffusersTransformerModel):
+        # TODO quantization on cuda: github NVIDIA/Model-Optimizer/tree/main/examples/diffusers
+        # TODO whether linears outside blocks should be quant?
+        pass
+    else:
+        quantize_linear(model)
+        quantize_attention(model)
     return model

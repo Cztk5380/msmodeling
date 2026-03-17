@@ -10,8 +10,9 @@ from tensor_cast.device import TEST_DEVICE
 from tensor_cast.model_config import ModelConfig, ParallelConfig, QuantConfig
 from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
 from tensor_cast.runtime import Runtime
+from tensor_cast.transformers.custom_model_registry import get_moe_config
 from tensor_cast.transformers.model import TransformerModel
-from tensor_cast.transformers.utils import AutoModelConfigLoader, get_moe_config
+from tensor_cast.transformers.utils import AutoModelConfigLoader
 from .test_common import create_mla_metadata_and_kv_cache
 
 

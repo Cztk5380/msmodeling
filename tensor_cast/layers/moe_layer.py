@@ -443,27 +443,3 @@ class FusedMoETensorCast(FusedMoEBase):
             final_hidden_states = final_hidden_states + shared_expert_output
 
         return final_hidden_states.to(hidden_states.dtype)
-
-
-class TensorQwen3VLMoeTextMLP(torch.nn.Module):
-    def __init__(self, original_module: torch.nn.Module):
-        super().__init__()
-        self.hidden_size = original_module.hidden_size
-        self.intermediate_size = original_module.intermediate_size
-        self.act_fn = original_module.act_fn
-        # Split gate_up_proj into separate gate_proj and up_proj for proper TP sharding
-        self.gate_proj = torch.nn.Linear(
-            self.hidden_size, self.intermediate_size, bias=False
-        )
-        self.up_proj = torch.nn.Linear(
-            self.hidden_size, self.intermediate_size, bias=False
-        )
-        self.down_proj = torch.nn.Linear(
-            self.intermediate_size, self.hidden_size, bias=False
-        )
-
-    def forward(self, hidden_states):
-        gate = self.gate_proj(hidden_states)
-        up = self.up_proj(hidden_states)
-        hidden_states = self.down_proj(up * self.act_fn(gate))
-        return hidden_states

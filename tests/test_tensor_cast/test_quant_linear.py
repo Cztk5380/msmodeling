@@ -22,12 +22,12 @@ from tensor_cast.patch_torch import patch_torch
 from tensor_cast.performance_model.analytic import AnalyticPerformanceModel
 from tensor_cast.quantize_utils import LinearQuantType, QuantGranularity, QuantScheme
 from tensor_cast.runtime import Runtime
-from tensor_cast.transformers.model import TransformerModel
-from tensor_cast.transformers.utils import (
-    AutoModelConfigLoader,
+from tensor_cast.transformers.custom_model_registry import (
     get_moe_config,
     get_mtp_block_module_name,
 )
+from tensor_cast.transformers.model import TransformerModel
+from tensor_cast.transformers.utils import AutoModelConfigLoader
 from tensor_cast.utils import DTYPE_FP8
 from .test_common import (
     create_mla_metadata_and_kv_cache,

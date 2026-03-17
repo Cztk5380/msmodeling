@@ -5,7 +5,11 @@ from typing import Optional, Tuple
 import torch
 
 from tensor_cast.layers.attention import flash_attention_forward
-from tensor_cast.transformers.custom_model_registry import register_custom_model
+from tensor_cast.transformers.custom_model_registry import (
+    ModelProfile,
+    register_custom_model,
+    register_model_profile,
+)
 
 from tensor_cast.transformers.model import TransformerModel
 from tensor_cast.transformers.transformations import (
@@ -19,6 +23,15 @@ from tensor_cast.transformers.transformations import (
     wrap_model,
 )
 from ..utils import replace_module
+
+
+register_model_profile(
+    ModelProfile(
+        model_type="bailing_moe",
+        moe_module_name="BailingMoeV2SparseMoeBlock",
+        moe_gate_returns_raw_logits=False,
+    )
+)
 
 
 @register_custom_model("bailing_moe")

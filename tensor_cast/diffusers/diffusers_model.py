@@ -1,7 +1,7 @@
 import json
 import logging
 import os
-from typing import Dict, Optional, Union
+from typing import Dict, Optional
 
 import numpy as np
 import torch
@@ -13,11 +13,10 @@ from ..model_config import (
     DiffusersConfig,
     DiffusersTransformerConfig,
     DiffusersVaeConfig,
-    ModelConfig,
 )
 from ..parallel_group import ParallelGroup
-from ..quantize_utils import quantize_linear_modules
-from ..transformers.model import ModelWrapper, ModelWrapperBase
+from ..transformers.model import ModelWrapperBase
+from ..transformers.transformations import quantize_linear, quantize_model, wrap_model
 from ..transformers.utils import init_on_device_without_buffers
 from .cache_agent import CacheConfig, CacheState
 from .cache_agent.dit_block_cache import DiTBlockCache
@@ -121,28 +120,6 @@ def load_config_from_file(
     return model_config
 
 
-class DiffusersModel(ModelWrapperBase):
-    def __init__(
-        self,
-        model_id: str,
-        model_config: ModelConfig,
-    ):
-        super().__init__(None)
-        self.model_id = model_id
-        self.model_config = model_config
-
-        # TODO Diffusers pipline include: TextModel VaeModel TransformerModel.
-        # Only TransformerModel is supported by now.
-        # TransformerModel refers to DiffusersTransformerModel.
-
-    def wrap_model(self):
-        self._inner = ModelWrapper(self._inner)
-
-    def forward(self, *args, **kwargs) -> Union[torch.Tensor, Dict[str, torch.Tensor]]:
-        res = self.transformer(*args, **kwargs)
-        return res
-
-
 class DiffusersTransformerModel(ModelWrapperBase):
     def __init__(
         self,
@@ -169,35 +146,9 @@ class DiffusersTransformerModel(ModelWrapperBase):
         with init_on_device_without_buffers("meta"), no_init_weights():
             self._inner = model_class.from_config(hf_config).to(model_config.dtype)
         self._inner.eval()
-        self.wrap_model()
-        self.quantize_model()
-
-    def wrap_model(self):
-        # diffusers attention backend registered in diffuser_attention.py
-        self._inner.set_attention_backend("tensor_cast")
-
-    def quantize_model(self):
-        # TODO quantization on cuda: github NVIDIA/Model-Optimizer/tree/main/examples/diffusers
-        # TODO whether linears outside blocks should be quant?
-        self.quantize_linear()
-
-    def quantize_linear(self):
-        if not self.model_config.quant_linear_cls:
-            return
-        root = (
-            self._inner.transformer_blocks
-            if hasattr(self._inner, "transformer_blocks")
-            else self._inner.blocks
-            if hasattr(self._inner, "blocks")
-            else None
-        )
-        quantize_linear_modules(
-            root,
-            self.model_config.quant_linear_cls,
-            self.model_config.quant_config,
-            default_config_name="default_dit",
-            strip_module_fn=None,
-        )
+        wrap_model(self)
+        quantize_model(self)
+        quantize_linear(self)
 
     def forward(
         self,

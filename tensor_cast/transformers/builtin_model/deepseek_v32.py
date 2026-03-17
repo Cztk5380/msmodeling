@@ -12,10 +12,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 import math
-from typing import Tuple
+from typing import Optional, Tuple
 
 import torch
 from torch import nn
+from transformers import AutoConfig, AutoModel, DeepseekV3Config
 
 from transformers.cache_utils import Cache
 from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
@@ -28,7 +29,30 @@ from transformers.models.deepseek_v3.modeling_deepseek_v3 import (
 from transformers.processing_utils import Unpack
 from transformers.utils import TransformersKwargs
 
-from .configuration_deepseek_v32 import DeepseekV32Config
+from ...layers.mla import DeepseekSparseAttention
+from ..custom_model_registry import ModelProfile, register_model_profile
+
+register_model_profile(
+    ModelProfile(
+        model_type="deepseek_v32",
+        moe_module_name="DeepseekV32MoE",
+        moe_gate_returns_raw_logits=False,
+        mla_module_name="DeepseekV32SparseAttention",
+        mla_module_class_type=DeepseekSparseAttention,
+    )
+)
+
+
+class DeepseekV32Config(DeepseekV3Config):
+    model_type = "deepseek_v32"
+
+    def __init__(
+        self,
+        index_topk: Optional[int] = 2048,
+        **kwargs,
+    ):
+        super().__init__(**kwargs)
+        self.index_topk = index_topk
 
 
 class DeepseekV32RMSNorm(DeepseekV3RMSNorm):
@@ -225,3 +249,7 @@ class DeepseekV32Model(DeepseekV3Model):
         self.rotary_emb = DeepseekV32RotaryEmbedding(config=config)
         self.gradient_checkpointing = False
         self.post_init()
+
+
+AutoConfig.register("deepseek_v32", DeepseekV32Config)
+AutoModel.register(DeepseekV32Config, DeepseekV32Model)

@@ -13,13 +13,13 @@ from ..model_config import (
     ParallelConfig,
     QuantConfig,
 )
-from ..transformers.utils import (
-    AutoModelConfigLoader,
+from ..transformers.custom_model_registry import (
     get_mla_module,
     get_mla_module_name,
     get_moe_config,
     get_mtp_block_module_name,
 )
+from ..transformers.utils import AutoModelConfigLoader
 
 
 class ConfigResolver:
