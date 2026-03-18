@@ -9,7 +9,7 @@ from torch.utils._cxx_pytree import tree_map
 
 from .. import ops  # noqa: F401
 from ..utils import EquivalentKeyManager
-from .utils import bytes_of_tensor, is_view_op, run_once
+from .utils import bytes_of_tensor, is_noop_self_copy_op, is_view_op, run_once
 
 logger = logging.getLogger(__name__)
 
@@ -60,7 +60,7 @@ class OpInvokeInfo:
     def get_op_properties_functor(cls, op):
         def default_functor(self: OpInvokeInfo) -> OpInvokeInfo.PerformanceProperties:
             """Default functor only counts in the memory accesses"""
-            if is_view_op(self.func):
+            if is_view_op(self.func) or is_noop_self_copy_op(self.func, self.args):
                 return OpInvokeInfo.PerformanceProperties()
             run_once(
                 self.func,

@@ -619,6 +619,33 @@ class PerfAnalysisTestCase(unittest.TestCase):
             self.assertIn("aten.add", content)
             self.assertIn("aten.mul", content)
 
+    def test_model_cost_with_noop_self_copy(self):
+        x = torch.randn([16], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            torch.ops.aten.copy_.default(x, x)
+        self.assertEqual(len(runtime.event_list), 1)
+        self.assertEqual(runtime.total_execution_time_s()[perf_model.name], 0)
+        self.assertIn("aten.copy_.default", runtime.table_averages())
+
+    def test_model_cost_with_non_noop_copy(self):
+        dst = torch.randn([16], device="meta")
+        src = torch.randn([16], device="meta")
+        device_profile = TEST_DEVICE
+        perf_model = AnalyticPerformanceModel(device_profile)
+        with (
+            Runtime(perf_model, device_profile) as runtime,
+            torch.no_grad(),
+        ):
+            torch.ops.aten.copy_.default(dst, src)
+        self.assertEqual(len(runtime.event_list), 1)
+        self.assertGreater(runtime.total_execution_time_s()[perf_model.name], 0)
+        self.assertIn("aten.copy_.default", runtime.table_averages())
+
     def test_model_cost_with_view(self):
         def func(x):
             return x.reshape(10, 10)

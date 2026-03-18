@@ -16,6 +16,20 @@ def is_view_op(op):
     return op.is_view or op == torch.ops.aten._unsafe_view.default
 
 
+def is_noop_self_copy_op(op, args=()) -> bool:
+    # Similar to view ops, we keep this op visible in runtime/trace, but
+    # model it as zero-cost when it is a semantic no-op copy_(x, x).
+    if op != torch.ops.aten.copy_.default:
+        return False
+    # Defensive fallback: if call shape is unexpected, do not classify it as no-op.
+    if len(args) < 2:
+        return False
+    dst, src = args[0], args[1]
+    return (
+        isinstance(dst, torch.Tensor) and isinstance(src, torch.Tensor) and dst is src
+    )
+
+
 def bytes_of_tensor(tensor: torch.Tensor, dtype: Optional[torch.dtype] = None) -> float:
     """
     Calculates the size of a tensor in bytes.

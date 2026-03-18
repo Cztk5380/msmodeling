@@ -8,7 +8,7 @@ from ..config import performance_model as perf_config
 from ..device import DeviceProfile
 from .base import PerformanceModel
 from .op_invoke_info import OpInvokeInfo
-from .utils import is_view_op
+from .utils import is_noop_self_copy_op, is_view_op
 
 
 _op_impl_registry = {}
@@ -60,7 +60,9 @@ class OpBenchmark(OpBenchmarkBase):
         self.runtime_device = self.infer_runtime_device()
 
     def benchmark(self, op_invoke_info: OpInvokeInfo) -> PerformanceModel.Result:
-        if is_view_op(op_invoke_info.func):
+        if is_view_op(op_invoke_info.func) or is_noop_self_copy_op(
+            op_invoke_info.func, op_invoke_info.args
+        ):
             return PerformanceModel.Result(0.0)
         if op_invoke_info.func.namespace == "tensor_cast":
             op_impl = get_op_impl(op_invoke_info.func, self.runtime_device)
