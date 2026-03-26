@@ -547,7 +547,7 @@ class PerfAnalysisTestCase(unittest.TestCase):
             )
             self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
         result = runtime.table_averages()
-        self.assertIn("tensor_cast.permute_tokens", result)
+        self.assertIn("tensor_cast.init_routing_v2", result)
         self.assertIn("tensor_cast.concat_and_cache_mla", result)
         self.assertIn("tensor_cast.multihead_latent_attention", result)
 

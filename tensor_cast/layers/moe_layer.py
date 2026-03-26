@@ -338,7 +338,7 @@ class FusedMoETensorCast(FusedMoEBase):
         output_split_sizes_by_device: List[int],
         output_split_sizes_by_expert: Optional[List[List[int]]],
     ) -> List[torch.Tensor]:
-        x = torch.ops.tensor_cast.permute_tokens(x, expert_indices)
+        x = torch.ops.tensor_cast.init_routing_v2(x, expert_indices)
         dispatched_x = self.ep_group.all_to_all(
             x, output_split_sizes_by_device, input_split_sizes_by_device
         )

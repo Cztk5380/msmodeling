@@ -5,7 +5,7 @@ import torch
 from ..utils import register_tensor_cast_op
 
 
-@register_tensor_cast_op("permute_tokens")
+@register_tensor_cast_op("init_routing_v2")
 def _(
     x: torch.Tensor,
     topk_indices: torch.Tensor,

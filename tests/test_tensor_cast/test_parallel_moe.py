@@ -86,7 +86,7 @@ class ParallelMoETestCase(unittest.TestCase):
                 outputs.shape, (output_batch_size, num_tokens, model.vocab_size)
             )
         result = runtime.table_averages()
-        self.assertIn("tensor_cast.permute_tokens.default", result)
+        self.assertIn("tensor_cast.init_routing_v2.default", result)
         self.assertIn("tensor_cast.unpermute_tokens.default", result)
         if parallel_config.has_ep():
             self.assertIn("tensor_cast.all_to_all.default", result)
@@ -138,7 +138,7 @@ class ParallelMoETestCase(unittest.TestCase):
             self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
 
         result = runtime.table_averages()
-        self.assertIn("tensor_cast.permute_tokens.default", result)
+        self.assertIn("tensor_cast.init_routing_v2.default", result)
         self.assertIn("tensor_cast.unpermute_tokens.default", result)
         if model.model_config.parallel_config.has_ep():
             self.assertIn("tensor_cast.all_to_all.default", result)
