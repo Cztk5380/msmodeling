@@ -52,20 +52,23 @@ class AggThroughputOptimizer(BaseThroughputOptimizer):
         max_prefill_tokens = optimizer_data.max_prefill_tokens
         batch_size = optimizer_data.batch_size
         input_length = optimizer_data.input_length
+        effective_input_length = optimizer_data.get_effective_input_length()
         output_length = optimizer_data.output_length
         concurrency = batch_size * self.dp * self.pp
 
         # calculate TTFT, we get average ttft = sum_for_ttft / concurrency, for sum_for_ttft,
-        # we assume the prefill batch size is the max prefill tokens divided by input length.
-        # so prefill_batch_size = max_prefill_tokens // input_length. And request was processed in
-        # prefill_batch_size steps one by one.
-        # For example, if we have 12 requests, and max_prefill_tokens is 8192, input_length is 2048,
-        # then prefill_batch_size is 4. And 8 requests was processed in 3 steps.
+        # we assume one prefill wave can admit
+        # `max_prefill_tokens // effective_input_length` requests after prefix-cache reduction.
+        # This does not change the user-visible search batch_size. It only changes how many
+        # requests fit into one prefill scheduling wave under the prefill token budget.
+        # For example, if we have 12 requests, max_prefill_tokens is 8192, and
+        # effective_input_length is 2048, then prefill_batch_size is 4.
+        # And 12 requests are processed in 3 waves.
         # so sum_for_ttft = (prefill_latency * prefill_batch_size(4 in this case) )) *
         #                       (1 + (calc_nums_for_ttft(3 in this case) )) * (calc_nums_for_ttft) / 2
         # ttft = sum_for_ttft / concurrency (12 in this case)
         # LEFT: the number of tokens that cannot be calculated in one prefill batch
-        prefill_batch_size = max_prefill_tokens // input_length
+        prefill_batch_size = max_prefill_tokens // effective_input_length
         calc_nums_for_ttft = concurrency // prefill_batch_size
         left_calc_num = concurrency % prefill_batch_size
 

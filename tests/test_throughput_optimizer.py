@@ -1,7 +1,9 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import re
 import subprocess
+import sys
 from unittest import TestCase
+from unittest.mock import patch
 
 from serving_cast.service.optimizer_summary import SHOW_COLUMNS
 
@@ -11,7 +13,7 @@ class TestThroughputOptimizer(TestCase):
 
     def _run_throughput_optimizer(self, args, check=True):
         """Run throughput_optimizer script using module execution"""
-        cmd = ["python", "-m", "cli.inference.throughput_optimizer"] + args
+        cmd = [sys.executable, "-m", "cli.inference.throughput_optimizer"] + args
         result = subprocess.run(cmd, capture_output=True, text=True, check=check)
         return result
 
@@ -293,3 +295,119 @@ class TestThroughputOptimizer(TestCase):
         local_columns = SHOW_COLUMNS.copy()
         table_start_pattern = r"Top \d Aggregation Configurations:"
         self._validate_table_structure(full_output, local_columns, table_start_pattern)
+
+    def test_prefix_cache_hit_rate_rejects_invalid_value(self):
+        args = [
+            "--input-length=20",
+            "--output-length=128",
+            "Qwen/Qwen3-32B",
+            "--device=TEST_DEVICE",
+            "--num-devices=8",
+            "--prefix-cache-hit-rate=1.0",
+        ]
+
+        result = self._run_throughput_optimizer(args, check=False)
+
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("valid range [0, 1)", result.stderr)
+
+    def test_prefix_cache_hit_rate_aggregation_valid(self):
+        args = [
+            "--input-length=64",
+            "--output-length=16",
+            "Qwen/Qwen3-32B",
+            "--device=TEST_DEVICE",
+            "--num-devices=1",
+            "--jobs=1",
+            "--tpot-limits=1000",
+            "--batch-range",
+            "1",
+            "2",
+            "--prefix-cache-hit-rate=0.5",
+        ]
+
+        result = self._run_throughput_optimizer(args, check=False)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_prefix_cache_hit_rate_disaggregation_prefill_valid(self):
+        args = [
+            "--input-length=64",
+            "--output-length=16",
+            "Qwen/Qwen3-32B",
+            "--device=TEST_DEVICE",
+            "--num-devices=1",
+            "--jobs=1",
+            "--ttft-limits=1000",
+            "--batch-range",
+            "1",
+            "2",
+            "--prefix-cache-hit-rate=0.5",
+            "--disagg",
+        ]
+
+        result = self._run_throughput_optimizer(args, check=False)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_prefix_cache_hit_rate_disaggregation_decode_valid(self):
+        args = [
+            "--input-length=64",
+            "--output-length=16",
+            "Qwen/Qwen3-32B",
+            "--device=TEST_DEVICE",
+            "--num-devices=1",
+            "--jobs=1",
+            "--tpot-limits=1000",
+            "--batch-range",
+            "1",
+            "2",
+            "--prefix-cache-hit-rate=0.5",
+            "--disagg",
+        ]
+
+        result = self._run_throughput_optimizer(args, check=False)
+        self.assertEqual(result.returncode, 0, msg=result.stderr)
+
+    def test_prefix_cache_hit_rate_respects_effective_input_length_for_max_prefill_tokens(
+        self,
+    ):
+        args = [
+            "--input-length=200",
+            "--output-length=16",
+            "Qwen/Qwen3-32B",
+            "--device=TEST_DEVICE",
+            "--num-devices=1",
+            "--jobs=1",
+            "--tpot-limits=1000",
+            "--batch-range",
+            "1",
+            "2",
+            "--prefix-cache-hit-rate=0.5",
+            "--max-prefill-tokens=99",
+        ]
+
+        result = self._run_throughput_optimizer(args, check=False)
+        self.assertNotEqual(result.returncode, 0)
+
+    def test_main_uses_optimizer_data_effective_input_length_for_prefill_check(self):
+        from cli.inference import throughput_optimizer as throughput_optimizer_module
+
+        class DummyArgs:
+            log_level = "error"
+            input_length = 200
+            output_length = 16
+            prefix_cache_hit_rate = 0.5
+            max_prefill_tokens = 99
+            num_mtp_tokens = 0
+            mtp_acceptance_rate = [0.9, 0.6, 0.4, 0.2]
+
+        with (
+            patch.object(
+                throughput_optimizer_module, "arg_parse", return_value=DummyArgs()
+            ),
+            patch(
+                "cli.inference.throughput_optimizer.OptimizerData.get_effective_input_length",
+                return_value=100,
+            ) as mock_get_effective_input_length,
+        ):
+            self.assertEqual(throughput_optimizer_module.main(), 1)
+            mock_get_effective_input_length.assert_called_once_with()

@@ -4,6 +4,7 @@ user_config
 """
 
 import logging
+import math
 from dataclasses import dataclass, field, fields
 from typing import List, Optional, Union
 
@@ -29,6 +30,7 @@ class UserInputConfig:
     num_queries: int = 0
     query_len: int = 0
     context_length: int = 0
+    prefix_cache_hit_rate: float = 0.0
     do_compile: bool = False
     allow_graph_break: bool = False
     dump_input_shapes: bool = False
@@ -181,15 +183,35 @@ class UserInputConfig:
         )
 
     def get_request_info(self) -> RequestInfo:
+        effective_hit_rate = self.get_effective_prefix_cache_hit_rate()
+        cached_prefix_tokens = math.floor(self.query_len * effective_hit_rate)
+        effective_query_len = self.query_len - cached_prefix_tokens
+        if effective_query_len < 1:
+            raise ValueError(
+                "Effective query length must be at least 1 after applying prefix cache hit rate. "
+                f"Got query_len={self.query_len}, prefix_cache_hit_rate={self.prefix_cache_hit_rate}."
+            )
+        effective_context_len = self.context_length + cached_prefix_tokens
         return RequestInfo(
-            query_len=self.query_len,
-            seq_len=self.context_length + self.query_len,
+            query_len=effective_query_len,
+            seq_len=effective_context_len + effective_query_len,
             concurrency=self.num_queries,
             is_decode=self.decode,
             image_batch_size=self.image_batch_size,
             image_height=self.image_height,
             image_width=self.image_width,
         )
+
+    def get_effective_prefix_cache_hit_rate(self, is_decode: Optional[bool] = None):
+        if is_decode is None:
+            is_decode = self.decode
+        if is_decode and self.prefix_cache_hit_rate > 0:
+            logger.warning(
+                "Ignoring prefix_cache_hit_rate=%.4f in decode mode.",
+                self.prefix_cache_hit_rate,
+            )
+            return 0.0
+        return self.prefix_cache_hit_rate
 
     @classmethod
     def from_args(cls, args) -> "UserInputConfig":

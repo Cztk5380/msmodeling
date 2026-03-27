@@ -1,5 +1,6 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
+from unittest.mock import patch
 
 from serving_cast.service.agg_throughput_optimizer import AggThroughputOptimizer
 from serving_cast.service.utils import OptimizerData
@@ -71,6 +72,32 @@ class TestAggThroughputOptimizer(unittest.TestCase):
 
         self.assertEqual(latency, 10.0)
         self.assertEqual(memory_left, 2.0)
+
+    def test_get_inference_info_prefill_batch_size_uses_effective_input_length(self):
+        optimizer_data = OptimizerData(
+            input_length=200,
+            output_length=10,
+            batch_size=2,
+            max_prefill_tokens=200,
+            prefix_cache_hit_rate=0.5,
+            num_devices=1,
+            serving_cost=0,
+            num_mtp_tokens=0,
+            mtp_acceptance_rate=[],
+        )
+
+        captured_calls = []
+
+        def fake_latency(batch_size, optimizer_data, is_decode=False):
+            captured_calls.append((batch_size, is_decode))
+            return (1.0, 1.0, "")
+
+        with patch.object(
+            self.strategy, "_get_or_compute_latency", side_effect=fake_latency
+        ):
+            self.strategy.get_inference_info(optimizer_data)
+
+        self.assertEqual(captured_calls[0], (2, False))
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ pip install -r requirements.txt
 ```
 
 ## Supported python versions
+
 3.10+
 
 > [!Warning]
@@ -17,11 +18,13 @@ pip install -r requirements.txt
 ## Run simulation
 
 ### Set environment variable
+
 ```bash
 export PYTHONPATH=/path/to/msmodeling:$PYTHONPATH
 ```
 
 Its general usage is shown below:
+
 ```text
 usage: main.py [-h] --instance_config_path INSTANCE_CONFIG_PATH [INSTANCE_CONFIG_PATH ...] --common_config_path COMMON_CONFIG_PATH
 
@@ -46,16 +49,19 @@ optional arguments:
 example:
 
 - basic usage
+
 ```bash
 python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml 
 ```
 
 - enable profiling
+
 ```bash
 python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml --enable_profiling​ 
 ```
 
 - enable profiling with custom output path
+
 ```bash
 python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml --enable_profiling --profiling_output_path=/path/to/custom/profiling_dir
 ```
@@ -98,53 +104,69 @@ Profiling is supported in the simulation. You can get more specific information 
 Use the following command to enable profiling:
 
 - enable profiling
+
 ```bash
 python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml --enable_profiling​ 
 ```
 
 - enable profiling with custom output path
+
 ```bash
 python main.py --instance_config_path=./example/instances.yaml --common_config_path=./example/common.yaml --enable_profiling --profiling_output_path=/path/to/custom/profiling_dir
 ```
-
 
 The original collected profiling result is stored in the directory ```profiling_output_path/{$time_stamp}```.
 The parsed profiling result is stored in the directory ```profiling_output_path/{$time_stamp}_parsed_result```.
 
 A ```chrome_tracing.json``` and a ```profiler.db``` will be generated in parsed_result directory, you can view it by ```chrome://tracing``` or MindStudio Insight
 
-
 ## Throughput optimizer under SLO constraints
+
 We provide a script `cli/inference/throughput_optimizer.py` to optimize the throughput under SLO constraints.
 
 ### Quick Start
+
 ```bash
 cd /path/to/msmodeling
 pip install -r requirements.txt
 ```
 
 #### Run in aggregation mode
+
 If you want to run the script in aggregation mode, you need to set the `--num-devices` to the number of devices you want to use. And set the `--input-length` and `--output-length` to the maximum input and output tokens you want to support. For example, to run `Qwen3-32B` model on `8 TEST_DEVICE` devices with `3500` input tokens and `1500` output tokens, you can run the following command:
+
 ```bash
 python -m cli.inference.throughput_optimizer Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --tpot-limits 50
+```
+
+If you want to estimate aggregation throughput with prefix cache, add `--prefix-cache-hit-rate`:
+
+```bash
+python -m cli.inference.throughput_optimizer Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --tpot-limits 50 --prefix-cache-hit-rate 0.5
 ```
 
 #### Run in disaggregation mode
 
 **Prefill Mode**
+
 If you want to run the script in Prefill mode, you need to set the `--disagg` flag and `--ttft-limits` to the maximum TTFT you want to support. The other parameters are similar to aggregation mode.
+
 ```bash
 python -m cli.inference.throughput_optimizer Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --ttft-limits 2000
 ```
 
 **Decode Mode**
+
 If you want to run the script in Decode mode, you need to set the `--disagg` flag and `--tpot-limits` to the maximum TPOT you want to support. The other parameters are similar to aggregation mode.
+
 ```bash
 python -m cli.inference.throughput_optimizer Qwen/Qwen3-32B --device TEST_DEVICE --num-devices 8 --input-length 3500 --output-length 1500 --compile --quantize-linear-action W8A8_DYNAMIC --quantize-attention-action DISABLED --disagg --tpot-limits 50
 ```
 
 ### Result Information
+
 The script will output the performance metrics, including throughput, TTFT, TPOT, and concurrency. Like the example below:
+
 ```
 ********************************************************************************
   ----------------------------------------------------------------------------
@@ -174,6 +196,7 @@ Top 4 Aggregation Configurations:
 ```
 
 ### Parameters
+
 ```
 Options:
   --input-length INPUT_LENGTH
@@ -226,6 +249,8 @@ Service Options:
                         TPOT constraints under which to search for the best throughput. None means no constraint. (default: None)
   --max-prefill-tokens MAX_PREFILL_TOKENS
                         Max prefill tokens (default: 8192)
+  --prefix-cache-hit-rate PREFIX_CACHE_HIT_RATE
+                        Prefix cache hit rate for token-level prefill reuse approximation. Valid range: [0, 1). (default: 0.0)
   --batch-range BATCH_RANGE [BATCH_RANGE ...]
                         Batch size range: [min max] or [max] (default: 1 for min, no limit for max) (default: None)
   --serving-cost SERVING_COST
@@ -235,10 +260,11 @@ Service Options:
 ```
 
 ### How to calculate the performance metrics in aggregation mode
+
 - TTFT:
 
-  We get average `ttft = sum_for_ttft / concurrency`. For sum_for_ttft, we assume the prefill batch size is the max prefill tokens divided by input length.
-  So `prefill_batch_size = max_prefill_tokens // input_length`. And request was processed in
+  We get average `ttft = sum_for_ttft / concurrency`. For sum_for_ttft, we assume the prefill batch size is the max prefill tokens divided by effective input length.
+  So `prefill_batch_size = max_prefill_tokens // effective_input_length`. And request was processed in
   prefill_batch_size steps one by one. We can get the total ttft time as follows:
 
   `sum_for_ttft = (prefill_latency * prefill_batch_size) * (1 + calc_nums_for_ttft)) * (calc_nums_for_ttft) / 2`

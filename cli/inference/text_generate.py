@@ -7,7 +7,13 @@ from tensor_cast.core.quantization.datatypes import (
     QuantizeLinearAction,
 )
 from tensor_cast.model_config import WordEmbeddingTPMode
-from ..utils import check_positive_integer, get_common_argparser, LOG_FORMAT, LOG_LEVELS
+from ..utils import (
+    check_positive_integer,
+    check_prefix_cache_hit_rate,
+    get_common_argparser,
+    LOG_FORMAT,
+    LOG_LEVELS,
+)
 
 # Supported performance model types
 SUPPORTED_PERFORMANCE_MODELS = ["analytic", "profiling"]
@@ -47,6 +53,13 @@ def main():
         "--decode",
         action="store_true",
         help="Enable autoregressive decoding mode for text generation.",
+    )
+    llm_group.add_argument(
+        "--prefix-cache-hit-rate",
+        type=check_prefix_cache_hit_rate,
+        default=0.0,
+        help="Prefix cache hit rate for prefill token reuse. "
+        "This is a token-level approximation in [0, 1).",
     )
     llm_group.add_argument(
         "--num-mtp-tokens",

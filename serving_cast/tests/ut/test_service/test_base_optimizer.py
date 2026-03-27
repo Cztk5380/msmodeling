@@ -5,7 +5,7 @@ from unittest.mock import Mock, patch
 import pandas as pd
 from serving_cast.service.base_throughput_optimizer import BaseThroughputOptimizer
 from serving_cast.service.optimizer_summary import OptimizerSummary
-from serving_cast.service.utils import AGG_COLUMNS
+from serving_cast.service.utils import AGG_COLUMNS, OptimizerData
 
 
 class ConcreteThroughputOptimizer(BaseThroughputOptimizer):
@@ -134,6 +134,38 @@ class TestBaseBackend(unittest.TestCase):
         """Test that abstract methods exist"""
         self.assertTrue(hasattr(BaseThroughputOptimizer, "initialize"))
         self.assertTrue(hasattr(BaseThroughputOptimizer, "get_inference_info"))
+
+    def test_get_forward_info_uses_effective_input_length_for_prefill(self):
+        self.backend.model_runner = Mock()
+        self.backend.num_mtp_tokens = 0
+        optimizer_data = OptimizerData(
+            input_length=200,
+            output_length=64,
+            prefix_cache_hit_rate=0.5,
+            batch_size=1,
+        )
+
+        self.backend._get_forward_info(4, optimizer_data, is_decode=False)
+
+        requests = self.backend.model_runner.run_inference.call_args.args[0]
+        self.assertEqual(requests[0].query_len, 100)
+        self.assertEqual(requests[0].seq_len, 100)
+
+    def test_get_forward_info_keeps_original_input_length_for_decode(self):
+        self.backend.model_runner = Mock()
+        self.backend.num_mtp_tokens = 0
+        optimizer_data = OptimizerData(
+            input_length=200,
+            output_length=64,
+            prefix_cache_hit_rate=0.5,
+            batch_size=1,
+        )
+
+        self.backend._get_forward_info(4, optimizer_data, is_decode=True)
+
+        requests = self.backend.model_runner.run_inference.call_args.args[0]
+        self.assertEqual(requests[0].query_len, 1)
+        self.assertEqual(requests[0].seq_len, 233)
 
 
 if __name__ == "__main__":

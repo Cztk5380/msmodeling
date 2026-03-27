@@ -166,6 +166,83 @@ class TestTextGenerate(unittest.TestCase):
         result = model_runner.run_inference(generate_inputs_func=generate_inputs)
         self._validate_inference_result(result, "test_basic_prefill")
 
+    def test_prefix_cache_rewrites_request_info(self):
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=200,
+            context_length=1000,
+            prefix_cache_hit_rate=0.5,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+        )
+
+        request_info = user_input.get_request_info()
+
+        self.assertEqual(request_info.query_len, 100)
+        self.assertEqual(request_info.seq_len, 1200)
+
+    def test_prefix_cache_is_ignored_in_decode_mode(self):
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=1,
+            context_length=100,
+            prefix_cache_hit_rate=0.5,
+            decode=True,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+        )
+
+        with self.assertLogs("tensor_cast.core.user_config", "WARNING") as captured:
+            request_info = user_input.get_request_info()
+
+        self.assertEqual(request_info.query_len, 1)
+        self.assertEqual(request_info.seq_len, 101)
+        self.assertIn("Ignoring prefix_cache_hit_rate", captured.output[0])
+
+    def test_main_invalid_prefix_cache_hit_rate_exits_with_code_2(self):
+        original_argv = sys.argv
+
+        try:
+            sys.argv = [
+                self.model_id,
+                "--num-queries",
+                str(self.num_queries),
+                "--query-length",
+                str(self.query_len),
+                "--prefix-cache-hit-rate",
+                "1.0",
+            ]
+            with self.assertRaises(SystemExit) as cm:
+                main()
+
+            self.assertEqual(cm.exception.code, 2)
+        finally:
+            sys.argv = original_argv
+
+    def test_hit_rate_zero_keeps_original_request_info(self):
+        user_input = UserInputConfig(
+            device=self.device,
+            model_id=self.model_id,
+            num_queries=2,
+            query_len=200,
+            context_length=1000,
+            prefix_cache_hit_rate=0.0,
+            do_compile=False,
+            allow_graph_break=False,
+            quantize_linear_action=QuantizeLinearAction.DISABLED,
+        )
+
+        request_info = user_input.get_request_info()
+
+        self.assertEqual(request_info.query_len, 200)
+        self.assertEqual(request_info.seq_len, 1200)
+
     def test_prefill_with_context(self):
         """Test prefill with context length (similar to README example)."""
         user_input = UserInputConfig(

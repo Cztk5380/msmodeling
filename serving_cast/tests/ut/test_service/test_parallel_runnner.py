@@ -1,5 +1,6 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
+from concurrent.futures.process import BrokenProcessPool
 from unittest.mock import MagicMock, Mock
 
 from serving_cast.parallel_runner import ParallelRunner
@@ -9,6 +10,30 @@ from serving_cast.service.utils import OptimizerData
 from tensor_cast.core.user_config import UserInputConfig
 from tensor_cast.device import DeviceProfile
 from .test_common import SimpleArgs
+
+
+class RuntimeErrorExecutor:
+    def __init__(self, max_workers=None, initializer=None):
+        self.initializer = initializer
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        return None
+
+    def map(self, fn, *iterables, timeout=None, chunksize=1):
+        if self.initializer is not None:
+            self.initializer()
+
+        class BrokenResultIterator:
+            def __iter__(self_inner):
+                return self_inner
+
+            def __next__(self_inner):
+                raise BrokenProcessPool
+
+        return BrokenResultIterator()
 
 
 class TestTaskRunner(unittest.TestCase):
@@ -97,8 +122,12 @@ class TestTaskRunner(unittest.TestCase):
     def test_given_worker_initializer_raises_runtime_error_when_called_then_raises_and_logs_expected_errors(
         self,
     ):
-        initializer = MagicMock(side_effect=RuntimeError)
-        task_runner = ParallelRunner(self.args, worker_initializer=initializer)
+        initializer = Mock()
+        task_runner = ParallelRunner(
+            self.args,
+            executor_class=RuntimeErrorExecutor,
+            worker_initializer=initializer,
+        )
 
         with self.assertLogs("serving_cast.parallel_runner", "ERROR") as cm:
             self.assertRaises(
@@ -112,7 +141,7 @@ class TestTaskRunner(unittest.TestCase):
             )
             self.assertRegex(
                 cm.output[1],
-                "ERROR:serving_cast.parallel_runner:Executor: ProcessPoolExecutor, Workers: 4",
+                "ERROR:serving_cast.parallel_runner:Executor: RuntimeErrorExecutor, Workers: 4",
             )
 
     def test_run_disagg_with_ttft_and_tpot_limit(self):

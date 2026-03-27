@@ -14,19 +14,26 @@
 
 import argparse
 import logging
+import sys
 import time
 
 from serving_cast.service.utils import (
     BatchRangeAction,
     check_positive_float,
     check_positive_integer,
+    OptimizerData,
 )
 
 from tensor_cast.core.quantization.datatypes import (
     QuantizeAttentionAction,
     QuantizeLinearAction,
 )
-from ..utils import get_common_argparser, LOG_FORMAT, LOG_LEVELS
+from ..utils import (
+    check_prefix_cache_hit_rate,
+    get_common_argparser,
+    LOG_FORMAT,
+    LOG_LEVELS,
+)
 
 
 def arg_parse():
@@ -72,6 +79,13 @@ def arg_parse():
         default=[0.9, 0.6, 0.4, 0.2],
         nargs="+",
         help="Acceptance rate list for MTP",
+    )
+    parser.add_argument(
+        "--prefix-cache-hit-rate",
+        type=check_prefix_cache_hit_rate,
+        default=0.0,
+        help="Prefix cache hit rate for prefill token reuse. "
+        "This is a token-level approximation in [0, 1).",
     )
     model_group.add_argument(
         "--quantize-linear-action",
@@ -175,12 +189,16 @@ def main():
     )
     logger = logging.getLogger(__name__)
 
-    if args.max_prefill_tokens < args.input_length:
+    effective_input_length = OptimizerData(
+        input_length=args.input_length,
+        prefix_cache_hit_rate=args.prefix_cache_hit_rate,
+    ).get_effective_input_length()
+    if args.max_prefill_tokens < effective_input_length:
         logger.warning(
-            "max_prefill_tokens (%r) is smaller than input_length (%r). "
+            "max_prefill_tokens (%r) is smaller than effective_input_length (%r). "
             "We currently do not have support for this scenario.",
             args.max_prefill_tokens,
-            args.input_length,
+            effective_input_length,
         )
         return 1
 
@@ -210,4 +228,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main() or 0)

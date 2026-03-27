@@ -26,6 +26,18 @@ def check_positive_integer(value):
     return value
 
 
+def check_prefix_cache_hit_rate(value):
+    try:
+        value = float(value)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "Invalid float value for prefix cache hit rate: %r", value
+        ) from None
+    if not 0 <= value < 1:
+        raise argparse.ArgumentTypeError("%r is not in the valid range [0, 1)", value)
+    return value
+
+
 def parse_int_range(value: str, name: str) -> tuple[int, int]:
     """Parse a range string in the form 'start,end'.
 

@@ -71,6 +71,7 @@ class ParallelRunner:
             serving_cost=self.args.serving_cost,
             num_mtp_tokens=self.args.num_mtp_tokens,
             mtp_acceptance_rate=self.args.mtp_acceptance_rate,
+            prefix_cache_hit_rate=self.args.prefix_cache_hit_rate,
         )
 
     def run_agg(self) -> list[OptimizerSummary]:

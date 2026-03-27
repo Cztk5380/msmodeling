@@ -1,5 +1,6 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 from serving_cast.service.disagg_throughput_optimizer import DisaggThroughputOptimizer
@@ -95,6 +96,42 @@ class TestDisaggStrategy(unittest.TestCase):
         self.assertEqual(row["input_length"], 1024)
         self.assertEqual(row["output_length"], 50)
         self.assertIsNone(row["tpot"])
+
+    def test_prefix_cache_changes_prefill_shape_but_not_decode_shape(self):
+        optimizer_data = OptimizerData(
+            batch_size=2,
+            input_length=200,
+            output_length=32,
+            prefix_cache_hit_rate=0.5,
+            serving_cost=0,
+            num_mtp_tokens=0,
+            mtp_acceptance_rate=[],
+        )
+
+        captured = []
+
+        def fake_forward(concurrency, optimizer_data, is_decode):
+            captured.append(
+                (is_decode, optimizer_data.get_effective_input_length(is_decode))
+            )
+
+            class DummyMetrics:
+                execution_time_s = {"analytic": 0.001}
+                device_memory_available_gb = 1.0
+                breakdowns = {}
+
+            return DummyMetrics()
+
+        with patch.object(self.strategy, "_get_forward_info", side_effect=fake_forward):
+            optimizer_data.ttft_limits = 1000
+            optimizer_data.tpot_limits = None
+            self.strategy.get_inference_info(optimizer_data)
+            optimizer_data.ttft_limits = None
+            optimizer_data.tpot_limits = 1000
+            self.strategy.get_inference_info(optimizer_data)
+
+        self.assertEqual(captured[0], (False, 100))
+        self.assertEqual(captured[1], (True, 200))
 
 
 if __name__ == "__main__":

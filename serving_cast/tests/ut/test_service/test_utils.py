@@ -66,6 +66,15 @@ class TestServiceUtils(unittest.TestCase):
         config = OptimizerData()
         self.assertIsNone(config.input_length)
         self.assertIsNone(config.output_length)
+        self.assertEqual(config.prefix_cache_hit_rate, 0.0)
+
+    def test_optimizer_data_effective_input_length_with_prefix_cache(self):
+        config = OptimizerData(input_length=200, prefix_cache_hit_rate=0.5)
+        self.assertEqual(config.get_effective_input_length(), 100)
+
+    def test_optimizer_data_effective_input_length_ignores_prefix_cache_in_decode(self):
+        config = OptimizerData(input_length=200, prefix_cache_hit_rate=0.5)
+        self.assertEqual(config.get_effective_input_length(is_decode=True), 200)
 
 
 class TestBatchRangeAction(unittest.TestCase):

@@ -2,6 +2,7 @@
 
 import argparse
 import logging
+import math
 import re
 from dataclasses import dataclass
 from typing import Dict
@@ -54,6 +55,20 @@ class OptimizerData:
     serving_cost: float = None
     num_mtp_tokens: int = None
     mtp_acceptance_rate: list = None
+    prefix_cache_hit_rate: float = 0.0
+
+    def get_effective_input_length(self, is_decode: bool = False):
+        if self.input_length is None:
+            return None
+        effective_hit_rate = 0.0 if is_decode else self.prefix_cache_hit_rate
+        cached_prefix_tokens = math.floor(self.input_length * effective_hit_rate)
+        effective_input_length = self.input_length - cached_prefix_tokens
+        if effective_input_length < 1:
+            raise ValueError(
+                "Effective input length must be at least 1 after applying prefix cache hit rate. "
+                f"Got input_length={self.input_length}, prefix_cache_hit_rate={self.prefix_cache_hit_rate}."
+            )
+        return effective_input_length
 
 
 def check_string_valid(string: str, max_len=256):

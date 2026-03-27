@@ -121,7 +121,7 @@ class BaseThroughputOptimizer(ABC):
                 + query_len
             )
         else:
-            seq_len = query_len = optimizer_data.input_length
+            seq_len = query_len = optimizer_data.get_effective_input_length()
 
         # avoid print duplicate image input log
         _image_batch_size = (
