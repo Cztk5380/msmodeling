@@ -136,7 +136,10 @@ class CustomModelingOperatorTestCase(unittest.TestCase):
         )
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        with (
+            Runtime(perf_model, machine_config) as runtime,
+            torch.no_grad(),
+        ):
             model.forward(
                 inputs,
                 position_ids,

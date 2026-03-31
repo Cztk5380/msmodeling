@@ -21,6 +21,7 @@ from ..performance_model.memory_tracker import MemoryTracker
 from ..performance_model.profiling_database import ProfilingDataSource
 from ..performance_model.utils import bytes_of_tensor
 from ..runtime import Runtime
+from ..transformers.custom_model_registry import get_visual
 from .input_generator import (
     generate_inputs_varlen,
     get_inputs_num_bytes,
@@ -181,11 +182,11 @@ class ModelRunner:
             / 1024**3
         )
         kv_cache_per_token_gb = input_kwargs["kv_cache_per_token"] / 1024**3
-        if self.model.get_visual() and input_kwargs.get("pixel_values") is None:
+        if get_visual(self.model) and input_kwargs.get("pixel_values") is None:
             # If there is no image input, the visual part does not participate
             # in the calculation and needs to be removed
             visual_weight_size_gb = (
-                self.model.get_weight_size_nested([self.model.get_visual()]) / 1024**3
+                self.model.get_weight_size_nested([get_visual(self.model)]) / 1024**3
             )
             self.model_weight_size_gb = (
                 self.model_weight_size_gb - visual_weight_size_gb

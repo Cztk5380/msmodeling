@@ -80,7 +80,10 @@ class ParallelMoETestCase(unittest.TestCase):
         output_batch_size = self.input_batch_size
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        with (
+            Runtime(perf_model, machine_config) as runtime,
+            torch.no_grad(),
+        ):
             outputs = model.forward(self.inputs, self.position_ids)
             self.assertEqual(
                 outputs.shape, (output_batch_size, num_tokens, model.vocab_size)

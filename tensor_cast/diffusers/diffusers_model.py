@@ -5,7 +5,7 @@ from typing import Dict, Optional
 
 import numpy as np
 import torch
-from transformers.modeling_utils import no_init_weights
+from transformers.initialization import no_init_weights
 
 from ..layers.attention import AttentionTensorCast
 from ..layers.quant_linear import TensorCastQuantLinear

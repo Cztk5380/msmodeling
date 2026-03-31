@@ -139,6 +139,33 @@ def init_on_device_without_buffers(device: torch.device):
             setattr(torch, torch_function_name, old_torch_function)
 
 
+@contextlib.contextmanager
+def patch_find_packed_sequence_indices_for_meta():
+    """
+    This function tells the model which tokens belong to the same sentence
+    when multiple sentences are packed into one batch.
+    But during performance modeling (e.g., estimating memory or compute),
+    we don’t care about how sequences are packed—we only need the model’s structure (like top_k=2, num_experts=64).
+    Returning None simply means “assume no packing,” which is a safe and reasonable default for modeling.
+    Even if real inference uses packing, it doesn’t change the model’s architecture, parameters,
+    or compute graph—so performance estimates remain accurate.
+    """
+    from transformers import masking_utils
+
+    original_func = masking_utils.find_packed_sequence_indices
+
+    def safe_find_packed_sequence_indices(position_ids: torch.Tensor):
+        if position_ids.device.type == "meta":
+            return None
+        return original_func(position_ids)
+
+    masking_utils.find_packed_sequence_indices = safe_find_packed_sequence_indices
+    try:
+        yield
+    finally:
+        masking_utils.find_packed_sequence_indices = original_func
+
+
 class AutoModelConfigLoader:
     modules_to_not_convert_map = {
         # The list of modules to not quantize, useful for quantizing models that explicitly require to have

@@ -8,6 +8,7 @@ import logging
 from ..compilation import get_backend
 from ..core.config_resolver import ConfigResolver
 from ..core.user_config import UserInputConfig
+from ..transformers.custom_model_registry import get_visual
 from ..transformers.model import TransformerModel
 
 logger = logging.getLogger(__name__)
@@ -28,7 +29,7 @@ def _prepare_vl_compile(model: TransformerModel) -> bool:
         "Skipping compile for visual encoder: wrap visual.forward with torch._dynamo.disable "
         "(small share ~20%, limited fusion benefit, current compile errors; introduces graph break)."
     )
-    visual = model.get_visual()
+    visual = get_visual(model)
     if visual is not None and hasattr(visual, "forward"):
         import torch._dynamo
 

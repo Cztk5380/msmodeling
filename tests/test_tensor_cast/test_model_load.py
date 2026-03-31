@@ -181,3 +181,31 @@ class ModelLoadTestCase(unittest.TestCase):
                 ),
             )
             self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))
+
+    @parameterized.expand(
+        [
+            ["Qwen/Qwen3.5-397B-A17B", "modelscope"],
+        ]
+    )
+    # temporarily disable since it relies on Transformers mainline
+    def test_qwen3_5(self, model_id, remote_source):
+        user_config = UserInputConfig(
+            model_id=model_id, do_compile=False, remote_source=remote_source
+        )
+        model = build_model(user_config)
+        attn_meta, kv_cache_by_layers, num_tokens = create_attn_metadata_and_kv_cache(
+            model, model.model_config
+        )
+        inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
+        with torch.no_grad(), patch_torch():
+            outputs = model.forward(
+                inputs,
+                position_ids,
+                attention_meta=attn_meta,
+                kv_cache_by_layers=kv_cache_by_layers,
+                cache_position=torch.arange(
+                    0, num_tokens, dtype=torch.long, device="cpu"
+                ),
+            )
+            self.assertEqual(outputs.shape, (1, num_tokens, model.vocab_size))

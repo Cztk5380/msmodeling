@@ -3,6 +3,7 @@ import re
 from typing import Optional, Tuple
 
 import torch
+from transformers import AutoConfig, AutoModel
 
 from tensor_cast.layers.attention import flash_attention_forward
 from tensor_cast.transformers.custom_model_registry import (
@@ -23,6 +24,11 @@ from tensor_cast.transformers.transformations import (
     wrap_model,
 )
 from ..utils import replace_module
+from .bailing_moe_hf.configuration_bailing_moe_v2 import BailingMoeV2Config
+from .bailing_moe_hf.modeling_bailing_moe_v2 import BailingMoeV2Model
+
+AutoConfig.register("bailing_moe", BailingMoeV2Config)
+AutoModel.register(BailingMoeV2Config, BailingMoeV2Model)
 
 
 register_model_profile(
@@ -30,6 +36,7 @@ register_model_profile(
         model_type="bailing_moe",
         moe_module_name="BailingMoeV2SparseMoeBlock",
         moe_gate_returns_raw_logits=False,
+        custom_expert_module_type=None,
     )
 )
 

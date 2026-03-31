@@ -21,7 +21,7 @@ import unittest
 from enum import Enum
 
 from parameterized import parameterized
-from transformers.modeling_utils import no_init_weights
+from transformers.initialization import no_init_weights
 
 from tensor_cast.model_config import (
     ModelConfig,

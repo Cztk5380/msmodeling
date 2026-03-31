@@ -22,7 +22,16 @@ from ..layers.moe_layer import MoELayer, ParallelMoELayer
 from ..layers.quant_linear import QuantLinearBase
 from ..layers.rotary_embedding import CachingRotaryEmb
 from ..quantize_utils import quantize_linear_modules
-from .custom_model_registry import get_model_profile
+from .custom_model_registry import (
+    get_language_layers,
+    get_model_profile,
+    get_visual,
+    get_visual_layers,
+    get_visual_layers_path,
+    get_visual_merger_linear,
+    get_visual_mlp_linear,
+    get_vl_language_model,
+)
 from .utils import strip_module_name
 
 
@@ -117,10 +126,10 @@ def maybe_reuse_layers(model: "ModelWrapperBase") -> "ModelWrapperBase":
     if hasattr(unwrapped, "layers"):
         reuse_layers(unwrapped.layers)
 
-    visual_layers = model.get_visual_layers()
+    visual_layers = get_visual_layers(model)
     if visual_layers is not None:
         reuse_layers(visual_layers)
-        language_model = model.get_vl_language_model()
+        language_model = get_vl_language_model(model)
         if hasattr(language_model, "layers"):
             reuse_layers(language_model.layers)
     from tensor_cast.layers.mtp import MtpWrapper
@@ -131,16 +140,17 @@ def maybe_reuse_layers(model: "ModelWrapperBase") -> "ModelWrapperBase":
     return model
 
 
+def patch_model(model_type: str):
+    profile = get_model_profile(model_type)
+    if profile and profile.patch_method:
+        profile.patch_method()
+
+
 def patch_rotary_emb(model: "ModelWrapperBase") -> "ModelWrapperBase":
     unwrapped = model.unwrap()
-    vl_language_model = model.get_vl_language_model()
-
+    vl_language_model = get_vl_language_model(model)
     if vl_language_model is not None:
         unwrapped = vl_language_model
-        profile = get_model_profile(model.hf_config.model_type)
-        if profile and profile.vl_patch_method:
-            profile.vl_patch_method()
-
     if model.model_config.cache_rotary_embedding and hasattr(unwrapped, "rotary_emb"):
         unwrapped.rotary_emb = CachingRotaryEmb(
             unwrapped.rotary_emb,
@@ -166,7 +176,7 @@ def patch_attention(model: "ModelWrapperBase") -> "ModelWrapperBase":
     for i in range(model.num_hidden_layers):
         model.attention_by_layers[i] = model.model_config.attention_cls()
 
-    visual_model = model.get_visual()
+    visual_model = get_visual(model)
     if visual_model is not None:
         pattern = "blocks.*.attn"
         depth_layer_idx = len(model.attention_by_layers)
@@ -226,22 +236,46 @@ def patch_mla(model: "ModelWrapperBase") -> "ModelWrapperBase":
     return model
 
 
+def _is_3d_tensor_experts(experts_module, expected_num_experts):
+    if experts_module is None:
+        return False
+
+    if isinstance(experts_module, torch.nn.ModuleList):
+        return False
+
+    if isinstance(experts_module, torch.nn.Module):
+        for _, param in experts_module.named_parameters():
+            if param.ndim == 3 and param.shape[0] == expected_num_experts:
+                return True
+    return False
+
+
 def _patch_moe_expert_helper(model: "ModelWrapperBase", module):
     """Helper for MoE patching."""
     profile = get_model_profile(model.hf_config.model_type)
-    if profile is None or profile.custom_expert_module_type is None:
+    if not profile or not profile.custom_expert_module_type:
         return
-    custom_experts_adapter_cls = profile.custom_expert_module_type
-    assert hasattr(module, "num_experts")
-    expert_num = module.num_experts
-    assert isinstance(expert_num, int) and expert_num > 0
-    experts = torch.nn.ModuleList(
-        [custom_experts_adapter_cls(module.experts) for _ in range(expert_num)]
+
+    experts = module.experts
+    expert_num = (
+        len(experts)
+        if isinstance(experts, torch.nn.ModuleList)
+        else getattr(experts, "num_experts", 0)
     )
-    module.experts = experts
+    assert isinstance(expert_num, int) and expert_num > 0
+
+    adapter = profile.custom_expert_module_type
+    module.experts = torch.nn.ModuleList(
+        [
+            adapter(experts, i)
+            if _is_3d_tensor_experts(experts, expert_num)
+            else adapter(experts)
+            for i in range(expert_num)
+        ]
+    )
 
 
-def patch_moe(model: "ModelWrapperBase") -> "ModelWrapperBase":
+def patch_moe(model: "ModelWrapperBase", custom_moe_layer=None) -> "ModelWrapperBase":
     # replace the vanilla mixture-of-expert (MOE) module with the fused one
     # so that it can be "meta" and torch.compile traced and easily optimized
     # by the backend.
@@ -266,14 +300,15 @@ def patch_moe(model: "ModelWrapperBase") -> "ModelWrapperBase":
             if not _all_required_fields_exist(module, moe_config.field_names):
                 continue
             _patch_moe_expert_helper(model, module)
-            moe_layer = MoELayer(moe_config, module)
+            if custom_moe_layer is not None:
+                moe_layer = custom_moe_layer(moe_config, module)
+            else:
+                moe_layer = MoELayer(moe_config, module)
 
+            expert_num = moe_layer.fused_moe.experts.num_experts
             if model.top_k is None:
                 model.top_k = moe_layer.top_k
-                model.num_routing_experts = len(moe_layer.fused_moe.experts)
-            else:
-                assert model.top_k == moe_layer.top_k
-                assert model.num_routing_experts == len(moe_layer.fused_moe.experts)
+                model.num_routing_experts = expert_num
 
             model._replace_module(name, moe_layer)
     return model
@@ -282,7 +317,7 @@ def patch_moe(model: "ModelWrapperBase") -> "ModelWrapperBase":
 def _shard_model_visual_by_tp_helper(model: "ModelWrapperBase"):
     """Helper for visual sharding."""
     tp_size = model.parallel_group_manager.tp_group.world_size
-    visual_layers_path = model.get_visual_layers_path()
+    visual_layers_path = get_visual_layers_path(model.hf_config.model_type)
     if tp_size <= 1 or visual_layers_path is None:
         return
     pattern = f"{visual_layers_path}.*.attn"
@@ -326,7 +361,7 @@ def shard_model_by_tp(model: "ModelWrapperBase") -> "ModelWrapperBase":
                 "global_tp_group": tp_group,
             }
             config_info = self.hf_config if not self.is_vl_model else self.text_config
-            language_layers = self.get_language_layers()
+            language_layers = get_language_layers(self.hf_config.model_type)
             layer_prefixes = [f"{language_layers}"]
             if self.model_config.mtp_config is not None:
                 layer_prefixes.append("mtp.layers.*.mtp_block")
@@ -385,7 +420,7 @@ def shard_model_by_tp(model: "ModelWrapperBase") -> "ModelWrapperBase":
                         f"{prefix}.*.mlp.down_proj": (ROWWISE_LINEAR, params),
                     }
                 )
-            visual_layers_path = self.get_visual_layers_path()
+            visual_layers_path = get_visual_layers_path(self.hf_config.model_type)
             if visual_layers_path is not None:
                 params = {
                     "tp_group": tp_group,
@@ -397,7 +432,9 @@ def shard_model_by_tp(model: "ModelWrapperBase") -> "ModelWrapperBase":
                         f"{visual_layers_path}.*.attn.proj": (ROWWISE_LINEAR, params),
                     }
                 )
-                visual_merger_linear = self.get_visual_merger_linear()
+                visual_merger_linear = get_visual_merger_linear(
+                    self.hf_config.model_type
+                )
                 for key, parallel_type in visual_merger_linear.items():
                     tp_plan[key] = (parallel_type, params)
 
@@ -405,7 +442,7 @@ def shard_model_by_tp(model: "ModelWrapperBase") -> "ModelWrapperBase":
                     "tp_group": mlp_tp_group,
                     "global_tp_group": tp_group,
                 }
-                visual_mlp_linear = self.get_visual_mlp_linear()
+                visual_mlp_linear = get_visual_mlp_linear(self.hf_config.model_type)
                 for key, parallel_type in visual_mlp_linear.items():
                     tp_plan[key] = (parallel_type, params)
             if not self.model_config.parallel_config.has_ep():

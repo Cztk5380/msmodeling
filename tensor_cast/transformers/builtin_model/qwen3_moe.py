@@ -1,6 +1,5 @@
 from ..custom_model_registry import ModelProfile, register_model_profile
 
-
 register_model_profile(
     ModelProfile(
         model_type="qwen3_moe",

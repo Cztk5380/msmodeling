@@ -8,10 +8,13 @@ from ..core.quantization.datatypes import QuantizeAttentionAction, QuantizeLinea
 from ..core.user_config import UserInputConfig
 from ..device import DeviceProfile
 from ..model_config import WordEmbeddingTPMode
+
+from ..utils import check_dependencies
 from .utils import check_positive_integer, LOG_LEVELS
 
 
 def main():
+    check_dependencies()
     """
     Main function to parse arguments and run the inference simulation.
     """

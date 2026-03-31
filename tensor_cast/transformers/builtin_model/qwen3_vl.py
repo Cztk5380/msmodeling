@@ -1,5 +1,3 @@
-import torch
-
 from tensor_cast.layers import COLWISE_LINEAR, ROWWISE_LINEAR
 from tensor_cast.transformers.custom_model_registry import (
     ModelProfile,
@@ -74,39 +72,14 @@ def patch_method_for_qwen3_vl():
         cls._deepstack_process = _patched_deepstack_process
 
 
-class TensorQwen3VLMoeTextMLP(torch.nn.Module):
-    def __init__(self, original_module: torch.nn.Module):
-        super().__init__()
-        self.hidden_size = original_module.hidden_size
-        self.intermediate_size = original_module.intermediate_size
-        self.act_fn = original_module.act_fn
-        # Split gate_up_proj into separate gate_proj and up_proj for proper TP sharding
-        self.gate_proj = torch.nn.Linear(
-            self.hidden_size, self.intermediate_size, bias=False
-        )
-        self.up_proj = torch.nn.Linear(
-            self.hidden_size, self.intermediate_size, bias=False
-        )
-        self.down_proj = torch.nn.Linear(
-            self.intermediate_size, self.hidden_size, bias=False
-        )
-
-    def forward(self, hidden_states):
-        gate = self.gate_proj(hidden_states)
-        up = self.up_proj(hidden_states)
-        hidden_states = self.down_proj(up * self.act_fn(gate))
-        return hidden_states
-
-
 register_model_profile(
     ModelProfile(
         model_type="qwen3_vl_moe",
         moe_module_name="Qwen3VLMoeTextSparseMoeBlock",
         moe_gate_returns_raw_logits=True,
         moe_num_experts_key=["text_config", "num_experts"],
-        custom_expert_module_type=TensorQwen3VLMoeTextMLP,
         model_family="qwen3_vl",
-        vl_patch_method=patch_method_for_qwen3_vl,
+        patch_method=patch_method_for_qwen3_vl,
         **QWEN3_VL_VISUAL_CONFIG,
     )
 )
@@ -116,7 +89,7 @@ register_model_profile(
     ModelProfile(
         model_type="qwen3_vl",
         model_family="qwen3_vl",  # Vision language model, belongs to qwen3_vl family
-        vl_patch_method=patch_method_for_qwen3_vl,
+        patch_method=patch_method_for_qwen3_vl,
         **QWEN3_VL_VISUAL_CONFIG,
     )
 )

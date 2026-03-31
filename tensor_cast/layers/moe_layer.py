@@ -26,18 +26,90 @@ def assign_experts(num_experts, world_size, rank):
     return start, num_local_experts
 
 
+class ExpertWrapper(torch.nn.Module):
+    """
+    A unified wrapper for both ModuleList and fused expert implementations.
+
+    This wrapper abstracts the differences between:
+    1. Traditional ModuleList-based experts (each expert is a separate module)
+    2. Fused / merged expert implementations (single module with num_expert attribute)
+
+    Core purposes:
+    - Provide a unified interface to call individual experts
+    - Support expert slicing/sharding for expert parallelism (EP)
+    - Hide implementation details from upper MoE layers
+    - Ensure compatibility across different MoE model architectures
+
+    The wrapper maintains consistent behavior regardless of how experts are stored,
+    enabling unified parallelism and execution logic in MoE layers.
+    """
+
+    def __init__(self, experts: torch.nn.Module):
+        super().__init__()
+        self.experts = experts
+        if isinstance(self.experts, torch.nn.ModuleList):
+            self._num_experts = len(self.experts)
+            self._is_module_list = True
+        elif hasattr(self.experts, "num_experts"):
+            self._num_experts = self.experts.num_experts
+            self._is_module_list = False
+        else:
+            raise ValueError("Cannot determine number of experts")
+
+    @property
+    def num_experts(self) -> int:
+        return self._num_experts
+
+    def call_expert(
+        self, expert_idx: int, x: torch.Tensor, *args, **kwargs
+    ) -> torch.Tensor:
+        """
+        Call the i-th expert with input x.
+        For ModuleList: calls self.experts[i](x)
+        For fused expert: calls self.experts(x, *args, **kwargs)
+        """
+        if x.numel() == 0:
+            return x  # early return for empty tensors
+
+        if self._is_module_list:
+            return self.experts[expert_idx](x)
+        else:
+            # fused expert: ignore expert_idx, use global routing info in args/kwargs
+            return self.experts(x, *args, **kwargs)
+
+    def slice_experts(self, start: int, num_local_experts: int):
+        """Slice the experts according to assigned range."""
+        if isinstance(self.experts, torch.nn.ModuleList):
+            self.experts = self.experts[start : start + num_local_experts]
+            self._num_experts = num_local_experts  # update cached value
+        elif hasattr(self.experts, "num_experts"):
+            old_experts_module = self.experts
+            new_gate_up = old_experts_module.gate_up_proj.data[
+                start : start + num_local_experts
+            ]
+            new_down = old_experts_module.down_proj.data[
+                start : start + num_local_experts
+            ]
+            old_experts_module.gate_up_proj = torch.nn.Parameter(new_gate_up)
+            old_experts_module.down_proj = torch.nn.Parameter(new_down)
+            old_experts_module.num_experts = num_local_experts
+            self._num_experts = num_local_experts  # update cached value
+        else:
+            raise ValueError("Unsupported expert type for slicing")
+
+
 class FusedMoEBase(torch.nn.Module, ABC):
     def __init__(
         self,
         moe_config: MoEConfig,
-        experts: torch.nn.ModuleList,
+        experts: torch.nn.Module,
         shared_experts: Optional[torch.nn.Module],
         shared_experts_gate: Optional[torch.nn.Module],
         top_k: Optional[int],
     ):
         super().__init__()
         self.moe_config = moe_config
-        self.experts = experts
+        self.experts = ExpertWrapper(experts) if experts is not None else None
         self.shared_experts = shared_experts
         self.shared_experts_gate = shared_experts_gate
         self.top_k = top_k
@@ -81,11 +153,17 @@ class MoELayer(torch.nn.Module):
 
     def forward(self, hidden_states: torch.Tensor):
         if self.moe_config.gate_returns_raw_logits:
+            # Branch 1: Custom fused top-k + softmax gating (from raw logits)
+            # Uses tensor_cast custom moe_gating_top_k_softmax kernel
             if self.top_k is None:
                 raise ValueError(
                     "top_k must be specified if gate_returns_raw_logits is True"
                 )
-            router_logits = self.gate(hidden_states)
+            gate_output = self.gate(hidden_states)
+            if isinstance(gate_output, tuple):
+                router_logits = gate_output[0]
+            else:
+                router_logits = gate_output
             topk_weights, topk_indices = torch.ops.tensor_cast.moe_gating_top_k_softmax(
                 router_logits, self.top_k
             )
@@ -94,14 +172,21 @@ class MoELayer(torch.nn.Module):
                 topk_weights /= topk_weights.sum(dim=-1, keepdim=True)
             topk_weights = topk_weights.to(hidden_states.dtype)
         else:
+            # Branch 2: Standard gating (gate returns pre-computed results or raw logits)
+            # Supports tuple (indices/weights) or raw logits (needs manual top-k)
             gate_output = self.gate(hidden_states)
-            # Handle both 2-tuple and 3-tuple returns from gate
-            # Some gates return (topk_indices, topk_weights)
-            # Others return (topk_indices, topk_weights, router_logits)
             if isinstance(gate_output, tuple) and len(gate_output) >= 2:
-                topk_indices = gate_output[0]
-                topk_weights = gate_output[1]
-                # Ignore router_logits if present (gate_output[2])
+                # Gate returns pre-computed top-k results (tuple output)
+                # Used by: Mixtral, Qwen MoE, Grok, old DeepSeek MoE
+                if len(gate_output) == 3:
+                    router_logits, topk_weights, topk_indices = gate_output
+                else:
+                    topk_indices, topk_weights = gate_output[0], gate_output[1]
+            elif isinstance(gate_output, torch.Tensor):
+                # Gate returns raw logits only (tensor output)
+                # Used by: DeepSeek3.1
+                top_k = self.top_k
+                topk_weights, topk_indices = torch.topk(gate_output, top_k, dim=-1)
             else:
                 raise ValueError(
                     f"Expected gate to return tuple with at least 2 elements, got {type(gate_output)}"
@@ -139,10 +224,18 @@ class ParallelMoELayer(ModelWrapperBase):
         self.num_redundant_experts = num_redundant_experts
 
         moe_config = module.moe_config
-        experts = module.fused_moe.experts
+        experts = (
+            module.fused_moe.experts.experts
+            if module.fused_moe.experts is not None
+            else None
+        )
         shared_experts = module.fused_moe.shared_experts
         shared_experts_gate = module.fused_moe.shared_experts_gate
-        num_routing_experts = len(experts)
+        num_routing_experts = (
+            module.fused_moe.experts.num_experts
+            if module.fused_moe.experts is not None
+            else 0
+        )
 
         if moe_config.enable_external_shared_experts:
             assert shared_experts is not None
@@ -204,7 +297,7 @@ class FusedMoETensorCast(FusedMoEBase):
     def __init__(
         self,
         moe_config: MoEConfig,
-        experts: torch.nn.ModuleList,
+        experts: torch.nn.Module,
         shared_experts: Optional[torch.nn.Module],
         shared_experts_gate: Optional[torch.nn.Module],
         top_k: Optional[int],
@@ -216,7 +309,9 @@ class FusedMoETensorCast(FusedMoEBase):
             moe_config, experts, shared_experts, shared_experts_gate, top_k
         )
         self.ep_group = ep_group
-        self.num_global_experts = num_global_experts or len(self.experts)
+        self.num_global_experts = num_global_experts or (
+            self.experts.num_experts if self.experts is not None else 0
+        )
         self.num_external_shared_experts = num_external_shared_experts
 
         if self.experts is not None:
@@ -225,9 +320,7 @@ class FusedMoETensorCast(FusedMoEBase):
                 self.ep_group.world_size - num_external_shared_experts,
                 self.ep_group.rank_in_group - num_external_shared_experts,
             )
-            self.experts = self.experts[
-                expert_idx_start : expert_idx_start + num_local_experts
-            ]
+            self.experts.slice_experts(expert_idx_start, num_local_experts)
             self.num_local_experts = num_local_experts
             self.expert_idx_start = expert_idx_start
 
@@ -368,6 +461,7 @@ class FusedMoETensorCast(FusedMoEBase):
         topk_indices: torch.Tensor,  # [bsz, seq, topk]
         topk_weights: torch.Tensor,
     ) -> torch.Tensor:
+        original_shape = hidden_states.shape  # e.g., (2, 100, 4096)
         num_tokens = topk_indices.numel()
         split_sizes = self.get_split_sizes(num_tokens, self.top_k)
 
@@ -415,12 +509,11 @@ class FusedMoETensorCast(FusedMoEBase):
                 )
             experts_hidden_states.append(shared_expert_output)
         else:
-            assert len(dispatched_hidden_states) == len(self.experts)
-            for expert_idx in range(len(self.experts)):
-                expert_output = self.experts[expert_idx](
-                    dispatched_hidden_states[expert_idx]
+            for expert_idx, x in enumerate(dispatched_hidden_states):
+                out = self.experts.call_expert(
+                    expert_idx, x, topk_indices, topk_weights
                 )
-                experts_hidden_states.append(expert_output)
+                experts_hidden_states.append(out)
 
         combined_hidden_states = self.combine_tokens(
             experts_hidden_states,
@@ -433,6 +526,7 @@ class FusedMoETensorCast(FusedMoEBase):
             combined_hidden_states * expert_weights.unsqueeze(-1)
         ).sum(dim=-2)
 
+        final_hidden_states = final_hidden_states.view(original_shape)
         if self.shared_experts and self.num_external_shared_experts == 0:
             shared_expert_output = self.shared_experts(hidden_states)
             if self.shared_experts_gate:

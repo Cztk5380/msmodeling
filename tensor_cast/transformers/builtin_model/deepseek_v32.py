@@ -36,6 +36,7 @@ register_model_profile(
     ModelProfile(
         model_type="deepseek_v32",
         moe_module_name="DeepseekV32MoE",
+        moe_num_experts_key="n_routed_experts",
         moe_gate_returns_raw_logits=False,
         mla_module_name="DeepseekV32SparseAttention",
         mla_module_class_type=DeepseekSparseAttention,

@@ -28,6 +28,7 @@ from tensor_cast.core.quantization.datatypes import (
     QuantizeAttentionAction,
     QuantizeLinearAction,
 )
+from tensor_cast.utils import check_dependencies
 from ..utils import (
     check_prefix_cache_hit_rate,
     get_common_argparser,
@@ -181,6 +182,7 @@ def arg_parse():
 
 
 def main():
+    check_dependencies()
     start_time = time.time()
     args = arg_parse()
     logging.basicConfig(

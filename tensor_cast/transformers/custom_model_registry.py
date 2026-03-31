@@ -2,16 +2,17 @@ import dataclasses
 import fnmatch
 import importlib
 import logging
+import operator
 import os
-
 from typing import Any, Callable, Dict, List, Optional, Type, TYPE_CHECKING, Union
+
+import torch
 
 from ..layers.mla import MultiheadLatentAttentionTensorCast
 from ..model_config import MlaConfig, MlaFieldNames, MoEConfig, MoEFieldNames, MtpConfig
 
 if TYPE_CHECKING:
-    import torch
-
+    from ..layers.utils import ModelWrapperBase
     from .model import TransformerModel
 
 
@@ -83,6 +84,37 @@ def resolve_visual_config(
     return config
 
 
+class MoeExpertMLP(torch.nn.Module):
+    def __init__(self, original_experts_module: torch.nn.Module, expert_idx: int):
+        super().__init__()
+        self.expert_idx = expert_idx
+        self.hidden_size = original_experts_module.hidden_dim
+        self.intermediate_size = original_experts_module.intermediate_dim
+        self.act_fn = original_experts_module.act_fn
+
+        intermediate_dim = original_experts_module.intermediate_dim
+        hidden_dim = original_experts_module.hidden_dim
+
+        self.gate_proj = torch.nn.Linear(hidden_dim, intermediate_dim, bias=False)
+        self.up_proj = torch.nn.Linear(hidden_dim, intermediate_dim, bias=False)
+        self.down_proj = torch.nn.Linear(intermediate_dim, hidden_dim, bias=False)
+
+        with torch.no_grad():
+            gate_up_weight = original_experts_module.gate_up_proj.data[expert_idx]
+            gate_weight, up_weight = gate_up_weight.chunk(2, dim=0)
+            self.gate_proj.weight.copy_(gate_weight)
+            self.up_proj.weight.copy_(up_weight)
+            self.down_proj.weight.copy_(
+                original_experts_module.down_proj.data[expert_idx]
+            )
+
+    def forward(self, hidden_states):
+        gate = self.gate_proj(hidden_states)
+        up = self.up_proj(hidden_states)
+        hidden_states = self.down_proj(up * self.act_fn(gate))
+        return hidden_states
+
+
 @dataclasses.dataclass
 class ModelProfile:
     """Model Profile containing static metadata and factory methods to build runtime configurations.
@@ -98,49 +130,102 @@ class ModelProfile:
     Model families group related model types for unified processing.
     """
 
+    # Unique identifier for the model architecture, usually corresponding to `model_type` in HuggingFace config.
+    # Example: "llama", "qwen2", "glm"
     model_type: str
 
-    # MoE (Mixture-of-Experts) configuration
+    # --- MoE (Mixture-of-Experts) configuration ---
+    # Fully-qualified class name of the MoE expert module.
+    # Used to dynamically locate and instantiate the MoE block during tensor conversion or model loading.
+    # Example: "transformers.models.mixtral.modeling_mixtral.MixtralSparseMoeBlock"
     moe_module_name: Optional[str] = None
-    """Full-qualified class name of MoE module"""
+
+    # Indicates whether the MoE gate network returns raw logits instead of softmax probabilities.
+    # If True, subsequent logic will handle the softmax (e.g., for computing load balancing loss).
     moe_gate_returns_raw_logits: bool = False
-    """Whether MoE gate returns raw logits"""
+
+    # The configuration key(s) used to retrieve the number of experts from the model config.
+    # Supports a string or a list of strings (tried in order).
+    # Example: ["num_local_experts", "num_experts"]
     moe_num_experts_key: Union[str, List[str]] = "num_experts"
-    """Configuration key(s) to get number of experts"""
+
+    # Dictionary to override default MoE field mappings defined in MoEFieldNames.
+    # Used when a specific model's field naming deviates from the standard.
+    # Example: {"gate_proj": "router", "up_proj": "w1"}
     moe_field_names_override: Optional[Dict[str, Any]] = None
-    """Field name overrides for MoE"""
 
-    # MTP (Multi-Task Processing) configuration
+    # --- MTP (Multi-Task Processing) configuration ---
+    # Fully-qualified class name of the MTP (Multi-Task Processing) block module.
+    # Points to the module path handling multi-task or multi-token prediction (e.g., in DeepSeek V3).
     mtp_block_module_name: Optional[str] = None
-    """Full-qualified class name of MTP block module"""
 
-    # MLA (Multihead Latent Attention) configuration
+    # --- MLA (Multihead Latent Attention) configuration ---
+    # Fully-qualified class name of the MLA (Multihead Latent Attention) module.
+    # Points to the MLA attention class path for tensor conversion or dynamic loading.
+    # Example: "transformers.models.deepseek_v2.modeling_deepseek.DeepseekV2Attention"
     mla_module_name: Optional[str] = None
-    """Full-qualified class name of MLA module"""
-    mla_field_names_override: Optional[Dict[str, Any]] = None
-    """Field name overrides for MLA"""
 
+    # Dictionary to override default MLA field mappings defined in MlaFieldNames.
+    # Example overriding default names: {"q_proj": "q_a_proj", "kv_a_proj_with_mqa": "kv_a_layernorm"}
+    mla_field_names_override: Optional[Dict[str, Any]] = None
+
+    # Python class type for the MLA module.
+    # Defaults to the built-in MultiheadLatentAttentionTensorCast.
+    # Can be specified if a custom MLA implementation is needed.
     mla_module_class_type: Optional[Type["torch.nn.Module"]] = (
         MultiheadLatentAttentionTensorCast
     )
-    # Custom expert module configuration
-    custom_expert_module_type: Optional[Type["torch.nn.Module"]] = None
-    """Python type for dynamic custom expert module creation"""
 
+    # --- Custom expert module configuration ---
+    # Python type used for dynamically creating a custom expert module.
+    # Provided when the standard MoE expert structure does not meet the requirements.
+    custom_expert_module_type: Optional[Type["torch.nn.Module"]] = MoeExpertMLP
+
+    # --- General configuration ---
+    # Model family identifier used to group related model types for unified processing.
+    # For example, the "llama" family might include "llama", "baichuan", "yi", etc.
     model_family: Optional[str] = None
-    """Model family identifier for grouping related model types"""
 
-    vl_patch_method: Optional[Callable] = None
-    """Method for visual language model patching"""
+    # Method for dynamic model patching.
+    # A callable executed during model loading or conversion to modify the model structure
+    # (e.g., replacing specific attention operators).
+    patch_method: Optional[Callable] = None
 
+    # --- Visual language model patching ---
+    # Access path for the Vision Encoder instance within the model.
+    # Points to the root module responsible for image feature extraction.
+    # Example: "model.vision_tower" or "visual"
     visual_module_path: Optional[str] = None
+
+    # Access path for the Language Model (LLM) instance within the model.
+    # Points to the core LLM responsible for text processing and multi-modal fusion.
+    # Example: "model.text_model" or "language_model"
     language_module_path: Optional[str] = None
+
+    # [Module Import Path] Python module where vision layer classes are defined.
+    # Used to dynamically import layer types for model parsing and modification.
+    # Example: "transformers.models.clip.modeling_clip"
     visual_layers_module_path: Optional[str] = None
+
+    # [Model Instance Path] Dot-separated attribute chain to access vision layers in the model object.
+    # Used to locate actual layer instances in the model structure.
+    # Example: "vision_model.encoder.layers"
     visual_layers_path_str: Optional[str] = None
+
+    # [String Path Representation] of the language model layers.
+    # Similar to visual_layers_path_str, identifying the LLM layers' weight namespace. Example: "language_model.layers"
     language_layers_path_str: Optional[str] = None
+
+    # Mapping for linear layers in the vision feature merger/projector.
+    # Defines how visual features are fused or projected. Empty = default strategy.
+    # Example: {"proj": "visual_projection"}
     visual_merger_linear_mapping: Optional[Dict[str, Any]] = dataclasses.field(
         default_factory=dict
     )
+
+    # Mapping for linear layers inside vision MLP blocks (FFN).
+    # Used to locate fc1/fc2 in each transformer layer.
+    # Example: {"fc1": "fc1", "fc2": "fc2"}
     visual_mlp_linear_mapping: Optional[Dict[str, Any]] = dataclasses.field(
         default_factory=dict
     )
@@ -205,14 +290,6 @@ class ModelProfile:
             field_names=field_names,
         )
 
-    def build_custom_expert_module(
-        self, original_module: "torch.nn.Module"
-    ) -> Optional["torch.nn.Module"]:
-        if self.custom_expert_module_type is None:
-            return None
-
-        return self.custom_expert_module_type(original_module)
-
 
 def get_model_family(model_type: str) -> Optional[str]:
     profile = get_model_profile(model_type)
@@ -266,6 +343,64 @@ def get_moe_config(model_type: str = "") -> Optional[MoEConfig]:
         enable_external_shared=False,
         host_external_shared=False,
         fused_moe_cls=None,
+    )
+
+
+def get_vl_model_module(model: "ModelWrapperBase", profile_attr: str, default_key: str):
+    profile = get_model_profile(model.hf_config.model_type)
+    path = getattr(profile, profile_attr, None)
+    if not path and profile and profile.model_family == "default":
+        path = COMMON_VISUAL_CONFIG[default_key]
+    return operator.attrgetter(path)(model.unwrap()) if path else None
+
+
+def get_visual(model: "ModelWrapperBase"):
+    return get_vl_model_module(model, "visual_module_path", "visual_module_path")
+
+
+def get_vl_language_model(model: "ModelWrapperBase"):
+    return get_vl_model_module(model, "language_module_path", "language_module_path")
+
+
+def get_visual_layers(model: "ModelWrapperBase"):
+    return get_vl_model_module(
+        model, "visual_layers_module_path", "visual_layers_module_path"
+    )
+
+
+def get_vl_model_profile_attr(
+    model_type: str, profile_attr: str, default_key: str, fallback_value=None
+):
+    profile = get_model_profile(model_type)
+    if profile and getattr(profile, profile_attr, None):
+        return getattr(profile, profile_attr)
+
+    if profile and profile.model_family == "default":
+        return COMMON_VISUAL_CONFIG[default_key]
+    return fallback_value
+
+
+def get_visual_merger_linear(model_type: str):
+    return get_vl_model_profile_attr(
+        model_type, "visual_merger_linear_mapping", "visual_merger_linear_mapping", {}
+    )
+
+
+def get_visual_mlp_linear(model_type: str):
+    return get_vl_model_profile_attr(
+        model_type, "visual_mlp_linear_mapping", "visual_visual_mlp_linear_mapping", {}
+    )
+
+
+def get_visual_layers_path(model_type: str) -> Optional[str]:
+    return get_vl_model_profile_attr(
+        model_type, "visual_layers_path_str", "visual_layers_path_str", None
+    )
+
+
+def get_language_layers(model_type: str) -> str:
+    return get_vl_model_profile_attr(
+        model_type, "language_layers_path_str", "language_layers_path_str", "layers"
     )
 
 

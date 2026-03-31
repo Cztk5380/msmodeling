@@ -204,7 +204,10 @@ class TestQuantLinear(unittest.TestCase):
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        with torch.no_grad(), patch_torch():
+        with (
+            torch.no_grad(),
+            patch_torch(),
+        ):
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
 
@@ -253,7 +256,10 @@ class TestQuantLinear(unittest.TestCase):
         num_tokens = 100
         inputs = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
-        with torch.no_grad(), patch_torch():
+        with (
+            torch.no_grad(),
+            patch_torch(),
+        ):
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
 
@@ -301,7 +307,10 @@ class TestQuantLinear(unittest.TestCase):
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        with (
+            Runtime(perf_model, machine_config) as runtime,
+            torch.no_grad(),
+        ):
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
         result = runtime.table_averages()
@@ -351,7 +360,10 @@ class TestQuantLinear(unittest.TestCase):
         qmodel = TransformerModel(model_id, model_config_with_quant)
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        with (
+            Runtime(perf_model, machine_config) as runtime,
+            torch.no_grad(),
+        ):
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
         result = runtime.table_averages()
@@ -432,7 +444,10 @@ class TestQuantLinear(unittest.TestCase):
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        with (
+            Runtime(perf_model, machine_config) as runtime,
+            torch.no_grad(),
+        ):
             _ = model.forward(inputs, position_ids)
         result = runtime.table_averages()
         self.assertIn("tensor_cast.dynamic_quantize_symmetric.default", result)
@@ -485,7 +500,10 @@ class TestQuantLinear(unittest.TestCase):
         position_ids = torch.empty([1, num_tokens], dtype=torch.long, device="meta")
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        with (
+            Runtime(perf_model, machine_config) as runtime,
+            torch.no_grad(),
+        ):
             outputs = model.forward(
                 inputs,
                 position_ids,
@@ -623,7 +641,10 @@ class TestQuantLinear(unittest.TestCase):
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
 
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        with (
+            Runtime(perf_model, machine_config) as runtime,
+            torch.no_grad(),
+        ):
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
 
@@ -670,7 +691,10 @@ class TestQuantLinear(unittest.TestCase):
         machine_config = TEST_DEVICE
         perf_model = AnalyticPerformanceModel(machine_config)
 
-        with Runtime(perf_model, machine_config) as runtime, torch.no_grad():
+        with (
+            Runtime(perf_model, machine_config) as runtime,
+            torch.no_grad(),
+        ):
             outputs = qmodel.forward(inputs, position_ids)
             self.assertEqual(outputs.shape, (1, num_tokens, qmodel.vocab_size))
 

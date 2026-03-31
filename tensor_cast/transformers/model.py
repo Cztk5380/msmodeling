@@ -1,13 +1,13 @@
 import contextlib
 import dataclasses
 import logging
-import operator
 import typing
 from typing import Dict, Optional, Union
 
 import torch
 from transformers import PreTrainedModel
-from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS, no_init_weights
+from transformers.initialization import no_init_weights
+from transformers.modeling_utils import ALL_ATTENTION_FUNCTIONS
 
 from tensor_cast.transformers.transformations import (
     maybe_enable_mtp,
@@ -25,12 +25,13 @@ from ..layers.utils import ModelWrapperBase
 from ..model_config import ModelConfig
 from ..parallel_group import ParallelGroupManager
 from ..performance_model.utils import bytes_of_tensor
-from .custom_model_registry import (
-    COMMON_VISUAL_CONFIG,
-    get_custom_model,
-    get_model_profile,
+from .custom_model_registry import get_custom_model
+from .transformations import patch_model
+from .utils import (
+    AutoModelConfigLoader,
+    init_on_device_without_buffers,
+    patch_find_packed_sequence_indices_for_meta,
 )
-from .utils import AutoModelConfigLoader, init_on_device_without_buffers
 
 if typing.TYPE_CHECKING:
     from ..layers.sampler import SamplingMetadata
@@ -224,6 +225,7 @@ class TransformerModel(ModelWrapperBase):
                     wrap_model(self)
                     maybe_enable_mtp(self)
                     maybe_reuse_layers(self)
+                    patch_model(model_type)
                     patch_rotary_emb(self)
                     patch_attention(self)
                     patch_mla(self)
@@ -275,88 +277,6 @@ class TransformerModel(ModelWrapperBase):
             parent_module = self._inner.get_submodule(parent_name)
         setattr(parent_module, child_name, new_module)
 
-    def _get_vl_model_profile(self):
-        model_type = self.hf_config.model_type
-        return get_model_profile(model_type)
-
-    def get_visual(self):
-        profile = self._get_vl_model_profile()
-        attr_path = None
-        if profile and profile.visual_module_path:
-            attr_path = profile.visual_module_path
-        elif profile and profile.model_family == "default":
-            attr_path = COMMON_VISUAL_CONFIG["visual_module_path"]
-
-        if attr_path:
-            return operator.attrgetter(attr_path)(self.unwrap())
-        return None
-
-    def get_vl_language_model(self):
-        profile = self._get_vl_model_profile()
-        attr_path = None
-        if profile and profile.language_module_path:
-            attr_path = profile.language_module_path
-        elif profile and profile.model_family == "default":
-            attr_path = COMMON_VISUAL_CONFIG["language_module_path"]
-
-        if attr_path:
-            return operator.attrgetter(attr_path)(self.unwrap())
-        return None
-
-    def get_visual_layers(self):
-        profile = self._get_vl_model_profile()
-        attr_path = None
-        if profile and profile.visual_layers_module_path:
-            attr_path = profile.visual_layers_module_path
-        elif profile and profile.model_family == "default":
-            attr_path = COMMON_VISUAL_CONFIG["visual_layers_module_path"]
-
-        if attr_path:
-            return operator.attrgetter(attr_path)(self.unwrap())
-        return None
-
-    def get_visual_merger_linear(self):
-        profile = self._get_vl_model_profile()
-        if profile and profile.visual_merger_linear_mapping:
-            return profile.visual_merger_linear_mapping
-        if profile and profile.model_family == "default":
-            return COMMON_VISUAL_CONFIG["visual_merger_linear_mapping"]
-        return {}
-
-    def get_visual_mlp_linear(self):
-        profile = self._get_vl_model_profile()
-        if profile and profile.visual_mlp_linear_mapping:
-            return profile.visual_mlp_linear_mapping
-        if profile and profile.model_family == "default":
-            return COMMON_VISUAL_CONFIG["visual_mlp_linear_mapping"]
-        return {}
-
-    def get_visual_layers_path(self) -> Optional[str]:
-        """
-        Return the string prefix of visual layers path:
-          - "visual.blocks"
-          - "vision_tower.encoder.layer"
-        """
-        profile = self._get_vl_model_profile()
-        if profile and profile.visual_layers_path_str:
-            return profile.visual_layers_path_str
-        if profile and profile.model_family == "default":
-            return COMMON_VISUAL_CONFIG["visual_layers_path_str"]
-        return None
-
-    def get_language_layers(self) -> str:
-        """
-        Return the string prefix of transformer layers:
-          - "language_model.layers"
-          - "layers"
-        """
-        profile = self._get_vl_model_profile()
-        if profile and profile.language_layers_path_str:
-            return profile.language_layers_path_str
-        if profile and profile.model_family == "default":
-            return COMMON_VISUAL_CONFIG["language_layers_path_str"]
-        return "layers"
-
     @staticmethod
     def get_weight_size_nested(modules):
         total_size = 0
@@ -405,10 +325,17 @@ class TransformerModel(ModelWrapperBase):
         inputs_embeds: Optional[torch.Tensor] = None,
         **kwargs: object,  # NOTE: extra args should be torch.compile compatible
     ) -> Union[torch.Tensor, TensorDict]:
-        return self._inner(
-            input_ids=input_ids,
-            position_ids=position_ids,
-            inputs_embeds=inputs_embeds,
-            attention_by_layers=getattr(self, "attention_by_layers", None),
-            **kwargs,
-        )
+        """
+        Tensors will be migrated to fake tensor in follow-up work; this patch will be removed.
+        """
+        context = contextlib.nullcontext()
+        if not torch.compiler.is_compiling():
+            context = patch_find_packed_sequence_indices_for_meta()
+        with context:
+            return self._inner(
+                input_ids=input_ids,
+                position_ids=position_ids,
+                inputs_embeds=inputs_embeds,
+                attention_by_layers=getattr(self, "attention_by_layers", None),
+                **kwargs,
+            )
