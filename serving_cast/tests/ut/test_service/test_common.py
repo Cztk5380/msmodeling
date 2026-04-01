@@ -21,4 +21,7 @@ class SimpleArgs:
         self.log_level = "INFO"
         self.image_height = 520
         self.image_width = 520
+        self.prefill_devices_per_instance = None
+        self.decode_devices_per_instance = None
+        self.enable_optimize_prefill_decode_ratio = False
         self.prefix_cache_hit_rate = 0.0

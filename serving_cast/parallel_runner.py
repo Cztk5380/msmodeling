@@ -1,7 +1,7 @@
 import argparse
 import copy
 import logging
-from concurrent.futures import Executor, ProcessPoolExecutor
+from concurrent.futures import Executor, ProcessPoolExecutor, ThreadPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from functools import partial
 from typing import Callable, Iterator, Optional, Type
@@ -14,6 +14,7 @@ from tensor_cast.core.user_config import UserInputConfig
 from tensor_cast.device import DeviceProfile
 from .service.optimizer_factory import OptimizerFactory
 from .service.optimizer_summary import OptimizerSummary
+from .service.pd_ratio_throughput_optimizer import PDRatioThroughputOptimizer
 from .service.utils import LIMIT_COUNT, OptimizerData
 
 
@@ -58,7 +59,6 @@ class ParallelRunner:
         self._executor_class = executor_class or ProcessPoolExecutor
         self._worker_initializer = worker_initializer or self._init_worker
 
-        self.user_input = UserInputConfig.from_args(args)
         self.summary_result = []
         self.optimizer_data = OptimizerData(
             input_length=self.args.input_length,
@@ -71,6 +71,8 @@ class ParallelRunner:
             serving_cost=self.args.serving_cost,
             num_mtp_tokens=self.args.num_mtp_tokens,
             mtp_acceptance_rate=self.args.mtp_acceptance_rate,
+            prefill_devices_per_instance=self.args.prefill_devices_per_instance,
+            decode_devices_per_instance=self.args.decode_devices_per_instance,
             prefix_cache_hit_rate=self.args.prefix_cache_hit_rate,
         )
 
@@ -89,7 +91,11 @@ class ParallelRunner:
         return self.summary_result
 
     def run_disagg(self) -> list[OptimizerSummary]:
+        # if set pd_ratio, run PD ratio optimization
         # if set ttft_limits, run Prefill; if set tpot_limits, run Decode
+        if self.args.enable_optimize_prefill_decode_ratio:
+            return self._run_pd_ratio()
+
         if self.args.ttft_limits is not None:
             logger.info("Run Prefill with ttft %r ms.", self.args.ttft_limits)
             overwrite_optimizer_data = copy.deepcopy(self.optimizer_data)
@@ -105,6 +111,55 @@ class ParallelRunner:
             overwrite_optimizer_data.ttft_limits = None
             df_list = self._get_df_list(overwrite_optimizer_data)
             self._add_summary_result(df_list, overwrite_optimizer_data)
+
+        return self.summary_result
+
+    def _run_pd_ratio(self) -> list[OptimizerSummary]:
+        """Run PD ratio optimization.
+
+        This method performs independent optimization for Prefill and Decode,
+        then combines the results to find the optimal PD ratio.
+
+        Returns:
+            List of OptimizerSummary with PD ratio results.
+        """
+        p_devices = self.args.prefill_devices_per_instance
+        d_devices = self.args.decode_devices_per_instance
+
+        # Phase 1 & 2: Prefill & Decode optimization
+        # Use ThreadPoolExecutor to avoid nested process pool issue
+        # (_run_pd_phase internally uses ProcessPoolExecutor)
+        logger.info(
+            "Phase 1 & 2: Running Prefill and Decode optimization in parallel..."
+        )
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            p_future = executor.submit(
+                self._run_pd_phase,
+                devices_per_instance=p_devices,
+                is_prefill=True,
+            )
+            d_future = executor.submit(
+                self._run_pd_phase,
+                devices_per_instance=d_devices,
+                is_prefill=False,
+            )
+            p_df = p_future.result()
+            d_df = d_future.result()
+
+        # Phase 3: Combine and calculate PD ratio
+        logger.info("Phase 3: Combining results and calculating PD ratio...")
+        pd_optimizer = PDRatioThroughputOptimizer(
+            output_length=self.args.output_length,
+        )
+        pd_optimizer.set_p_results(p_df)
+        pd_optimizer.set_d_results(d_df)
+        result_df = pd_optimizer.optimize()
+
+        # Add result to summary_result using _add_summary_result pattern
+        if result_df.empty:
+            logger.info("No PD ratio results found.")
+        else:
+            self._add_summary_result([result_df], self.optimizer_data)
 
         return self.summary_result
 
@@ -131,36 +186,59 @@ class ParallelRunner:
 
         return model_runner
 
-    def _get_user_config(self) -> Iterator[UserInputConfig]:
+    def _get_user_config(
+        self, num_devices: Optional[int] = None
+    ) -> Iterator[UserInputConfig]:
+        # Use provided num_devices or default from args
+        target_devices = (
+            num_devices if num_devices is not None else self.args.num_devices
+        )
         # get tp list
         tp_list = getattr(self.args, "tp_sizes", None)
         if tp_list is None:
-            tp_list = [1 << i for i in range(self.args.num_devices.bit_length())]
+            tp_list = [1 << i for i in range(target_devices.bit_length())]
 
+        tmp_args = copy.deepcopy(self.args)
+        tmp_args.num_devices = target_devices
         for tp in tp_list:
-            tmp_user_input = copy.deepcopy(self.user_input)
+            tmp_user_input = UserInputConfig.from_args(tmp_args)
             tmp_user_input.tp_size = tp
             # if the moe_config is None, ep will be set False in update_parallel_config
             # so set it True here, moe models can enable ep parallel correctly
             tmp_user_input.ep_size = tmp_user_input.world_size
             tmp_user_input.moe_dp_size = 1
             tmp_user_input.moe_tp_size = 1
-            if self.args.num_devices % tp != 0:
+            if target_devices % tp != 0:
                 continue
             yield tmp_user_input
 
     def _get_df_list(
-        self, overwrite_optimizer_data: OptimizerData
+        self,
+        overwrite_optimizer_data: OptimizerData,
+        user_configs: Optional[list] = None,
     ) -> list[pd.DataFrame]:
+        """Execute optimization tasks in parallel and return list of DataFrames.
+
+        Args:
+            overwrite_optimizer_data: Optimizer data for tasks.
+            user_configs: Optional list of user configs. If None, use self._get_user_config().
+
+        Returns:
+            List of result DataFrames (non-None results only).
+        """
+        configs = (
+            user_configs if user_configs is not None else list(self._get_user_config())
+        )
+
         with self._executor_class(
             max_workers=self.args.jobs, initializer=self._worker_initializer
         ) as executor:
-            # use partial to make sure it is serializable
             results = executor.map(
                 partial(
-                    self._submit_task, overwrite_optimizer_data=overwrite_optimizer_data
+                    self._submit_task,
+                    overwrite_optimizer_data=overwrite_optimizer_data,
                 ),
-                self._get_user_config(),
+                configs,
             )
 
             try:
@@ -202,8 +280,19 @@ class ParallelRunner:
         )
 
     def _submit_task(
-        self, user_input: UserInputConfig, overwrite_optimizer_data: OptimizerData
+        self,
+        user_input: UserInputConfig,
+        overwrite_optimizer_data: OptimizerData,
     ):
+        """Submit a single optimization task.
+
+        Args:
+            user_input: User input configuration.
+            overwrite_optimizer_data: Optimizer data for this task.
+
+        Returns:
+            DataFrame with optimization results or None.
+        """
         # 1. get model config
         if self.args.compile:
             torch._dynamo.config.recompile_limit = LIMIT_COUNT
@@ -211,22 +300,15 @@ class ParallelRunner:
         torch.compiler.reset()
 
         logger.info("Start processing TP size: %d", user_input.tp_size)
+
         model_runner = self._get_model_runnner(user_input)
         if model_runner is None:
             return None
-        if (
-            model_runner.model.model_config.mla_config is None
-            and model_runner.model.text_config.num_key_value_heads
-            % model_runner.model.model_config.parallel_config.tensor_parallel_size
-            != 0
-        ):
-            logger.warning(
-                "No MLA or TEXT config found for model %r, skip.", self.args.model_id
-            )
-            return None
+
         # 2. get strategy result
         strategy = OptimizerFactory.create_strategy(model_runner, self.args.disagg)
         result = strategy.run(overwrite_optimizer_data, self.args.batch_range)
+
         if (
             not isinstance(result, OptimizerSummary)
             or len(result.get_summary_df()) == 0
@@ -238,6 +320,7 @@ class ParallelRunner:
                 overwrite_optimizer_data.tpot_limits,
             )
             return None
+
         result_df = result.get_summary_df()
         logger.info(
             "Finish processing TP size: %d",
@@ -245,3 +328,51 @@ class ParallelRunner:
         )
 
         return result_df
+
+    def _run_pd_phase(
+        self,
+        devices_per_instance: int,
+        is_prefill: bool,
+    ) -> pd.DataFrame:
+        """Run optimization phase for either Prefill or Decode.
+
+        Args:
+            devices_per_instance: Number of devices per instance.
+            is_prefill: True for Prefill phase, False for Decode phase.
+
+        Returns:
+            DataFrame with optimization results.
+        """
+        # Create optimizer data for this phase
+        overwrite_optimizer_data = copy.deepcopy(self.optimizer_data)
+        if is_prefill:
+            overwrite_optimizer_data.ttft_limits = self.args.ttft_limits
+            overwrite_optimizer_data.tpot_limits = None
+        else:
+            overwrite_optimizer_data.ttft_limits = None
+            overwrite_optimizer_data.tpot_limits = self.args.tpot_limits
+        overwrite_optimizer_data.num_devices = devices_per_instance
+
+        # Get user configs for the specified device count
+        user_configs = list(self._get_user_config(num_devices=devices_per_instance))
+
+        if not user_configs:
+            phase_name = "Prefill" if is_prefill else "Decode"
+            logger.warning(
+                "No valid configurations found for %s with %d devices.",
+                phase_name,
+                devices_per_instance,
+            )
+            return pd.DataFrame()
+
+        # Run optimization in parallel using _get_df_list
+        df_list = self._get_df_list(
+            overwrite_optimizer_data=overwrite_optimizer_data,
+            user_configs=user_configs,
+        )
+
+        # Concatenate all DataFrames
+        if not df_list:
+            return pd.DataFrame()
+
+        return pd.concat(df_list, axis=0, ignore_index=True)

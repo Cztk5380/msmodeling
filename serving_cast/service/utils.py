@@ -55,6 +55,8 @@ class OptimizerData:
     serving_cost: float = None
     num_mtp_tokens: int = None
     mtp_acceptance_rate: list = None
+    prefill_devices_per_instance: int = None
+    decode_devices_per_instance: int = None
     prefix_cache_hit_rate: float = 0.0
 
     def get_effective_input_length(self, is_decode: bool = False):

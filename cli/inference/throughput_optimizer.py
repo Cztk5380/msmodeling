@@ -177,6 +177,24 @@ def arg_parse():
         default=None,
         help="Width of the input images",
     )
+    pd_ratio_group = parser.add_argument_group("PD Ratio Optimization Options")
+    pd_ratio_group.add_argument(
+        "--prefill-devices-per-instance",
+        type=check_positive_integer,
+        default=None,
+        help="Number of devices per Prefill instance for PD ratio optimization",
+    )
+    pd_ratio_group.add_argument(
+        "--decode-devices-per-instance",
+        type=check_positive_integer,
+        default=None,
+        help="Number of devices per Decode instance for PD ratio optimization",
+    )
+    pd_ratio_group.add_argument(
+        "--enable-optimize-prefill-decode-ratio",
+        action="store_true",
+        help="Enable PD ratio optimization mode",
+    )
     args = parser.parse_args()
     return args
 
@@ -195,7 +213,12 @@ def main():
         input_length=args.input_length,
         prefix_cache_hit_rate=args.prefix_cache_hit_rate,
     ).get_effective_input_length()
-    if args.max_prefill_tokens < effective_input_length:
+
+    if (
+        not args.disagg
+        and not args.enable_optimize_prefill_decode_ratio
+        and args.max_prefill_tokens < effective_input_length
+    ):
         logger.warning(
             "max_prefill_tokens (%r) is smaller than effective_input_length (%r). "
             "We currently do not have support for this scenario.",
@@ -215,16 +238,37 @@ def main():
         )
         return 1
 
+    # Validate PD ratio optimization parameters
+    if args.enable_optimize_prefill_decode_ratio:
+        if args.disagg:
+            logger.warning(
+                "--enable-optimize-prefill-decode-ratio cannot be used together with --disagg."
+            )
+            return 1
+        if (
+            args.prefill_devices_per_instance is None
+            or args.decode_devices_per_instance is None
+        ):
+            logger.warning(
+                "Both --prefill-devices-per-instance and --decode-devices-per-instance "
+                "are required when PD ratio optimization is enabled."
+            )
+            return 1
+
     from serving_cast.parallel_runner import ParallelRunner
 
     logger.info("Starting experiments.")
     tasks = ParallelRunner(args)
-    if args.disagg:
-        results = tasks.run_disagg()
-    else:
+
+    # Select and run the appropriate method based on mode
+    if not args.enable_optimize_prefill_decode_ratio and not args.disagg:
         results = tasks.run_agg()
+    else:
+        results = tasks.run_disagg()
+
     for res in results:
         res.report_final_result(args)
+
     end_time = time.time()
     logger.info("All experiments completed in %.2f seconds.", end_time - start_time)
 

@@ -399,6 +399,8 @@ class TestThroughputOptimizer(TestCase):
             max_prefill_tokens = 99
             num_mtp_tokens = 0
             mtp_acceptance_rate = [0.9, 0.6, 0.4, 0.2]
+            disagg = False
+            enable_optimize_prefill_decode_ratio = False
 
         with (
             patch.object(
@@ -411,3 +413,52 @@ class TestThroughputOptimizer(TestCase):
         ):
             self.assertEqual(throughput_optimizer_module.main(), 1)
             mock_get_effective_input_length.assert_called_once_with()
+
+    def test_deepseek_model_pd_ratio_with_output_validation(self):
+        """Test deepseek model PD ratio with comprehensive output validation"""
+        args = [
+            "--input-length=3500",
+            "--output-length=1500",
+            "deepseek-ai/DeepSeek-V3.1",
+            "--enable-optimize-prefill-decode-ratio",
+            "--prefill-devices-per-instance=16",
+            "--decode-devices-per-instance=16",
+            "--compile",
+            "--quantize-linear-action=W8A8_DYNAMIC",
+            "--quantize-attention-action=INT8",
+            "--device=TEST_DEVICE",
+            "--jobs=10",
+            "--ttft-limits=7000",
+            "--tpot-limits=200",
+        ]
+
+        # Execute command
+        result = self._run_throughput_optimizer(args)
+
+        # Basic execution check
+        if result.returncode != 0:
+            self.fail(
+                f"Script execution failed with return code {result.returncode}: {result.stderr}"
+            )
+
+        # Combine stdout and stderr for analysis
+        full_output = result.stdout + result.stderr
+        # Validate table structure
+        local_columns = [
+            "Top",
+            "PD Ratio",
+            "P QPS (req/s)",
+            "D QPS (req/s)",
+            "TTFT (ms)",
+            "TPOT (ms)",
+            "P Parallel",
+            "D Parallel",
+            "P Devices/Instance",
+            "D Devices/Instance",
+            "P Batch Size",
+            "D Batch Size",
+            "P Concurrency",
+            "D Concurrency",
+        ]
+        table_start_pattern = r"Top \d PD Ratio Configurations:"
+        self._validate_table_structure(full_output, local_columns, table_start_pattern)

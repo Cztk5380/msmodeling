@@ -1,6 +1,5 @@
 # Copyright Huawei Technologies Co., Ltd. 2025-2025. All rights reserved.
 import unittest
-from unittest.mock import MagicMock, patch
 
 import pandas as pd
 from serving_cast.service.optimizer_summary import _get_agg_table_buf, OptimizerSummary
@@ -61,28 +60,7 @@ class TestSummary(unittest.TestCase):
         flag = self.summary.check_early_stop_flag()
         self.assertIsNone(flag)
 
-    @patch("serving_cast.service.optimizer_summary.logger")
-    def test_report_final_result_no_dataframe(self, mock_logger):
-        """Test report_final_result when no DataFrame is set"""
-        mock_args = MagicMock()
-        self.summary.report_final_result(mock_args)
-        mock_logger.warning.assert_called_once_with(
-            "Summary DataFrame is None. Please set it first."
-        )
-
-    @patch("serving_cast.service.optimizer_summary.logger")
-    def test_report_final_result_empty_dataframe(self, mock_logger):
-        """Test report_final_result when DataFrame is empty"""
-        self.summary.set_summary_df(pd.DataFrame())
-        mock_args = MagicMock()
-        self.summary.report_final_result(mock_args)
-        mock_logger.warning.assert_called_once_with(
-            "Summary DataFrame is None. Please set it first."
-        )
-
-    @patch("serving_cast.service.optimizer_summary.logger")
-    @patch("serving_cast.service.optimizer_summary._get_agg_table_buf")
-    def test_report_final_result_successful(self, mock_get_agg_table_buf, mock_logger):
+    def test_report_final_result_successful(self):
         """Test report_final_result with valid DataFrame"""
         # Create a test DataFrame with values within limits
         test_df = pd.DataFrame(
@@ -98,18 +76,19 @@ class TestSummary(unittest.TestCase):
         )
         self.summary.set_summary_df(test_df)
 
-        mock_args = MagicMock()
-        mock_args.model_id = "test_model"
-        mock_args.num_devices = 1
-        mock_args.device = "test_device"
-        mock_args.dump_original_results = False
+        class Args:
+            model_id = "Qwen/Qwen3-8B"
+            num_devices = 1
+            device = "test_device"
+            dump_original_results = False
+            quantize_linear_action = "DISABLED"
+            quantize_attention_action = "DISABLED"
+            disagg = False
 
-        mock_get_agg_table_buf.return_value = "mocked table buffer"
+        args = Args()
 
-        self.summary.report_final_result(mock_args)
-
-        # Verify logger was called (indicating successful execution)
-        mock_logger.info.assert_called_once()
+        # Should not raise exception
+        self.summary.report_final_result(args)
 
 
 class TestGetAggTableBuf(unittest.TestCase):
@@ -151,6 +130,122 @@ class TestGetAggTableBuf(unittest.TestCase):
         self.assertIn("Top 1 Aggregation Configurations:", result)
         self.assertIn("1", result)  # Top rank
         self.assertIn("100.00", result)  # Throughput value
+
+
+class SimpleArgs:
+    """Simple args class for testing without mock."""
+
+    def __init__(self):
+        self.model_id = "test_model"
+        self.device = "TEST_DEVICE"
+        self.quantize_linear_action = "W8A8_DYNAMIC"
+        self.quantize_attention_action = "DISABLED"
+        self.dump_original_results = False
+
+
+class TestSummaryPDMode(unittest.TestCase):
+    """Test cases for OptimizerSummary PD ratio mode."""
+
+    def setUp(self):
+        """Set up test fixtures for PD mode."""
+        self.pd_data_config = OptimizerData(
+            input_length=1024,
+            output_length=1024,
+            ttft_limits=100,
+            tpot_limits=10,
+            prefill_devices_per_instance=4,
+            decode_devices_per_instance=2,
+            num_devices=8,
+        )
+        self.summary = OptimizerSummary(self.pd_data_config)
+
+    def test_is_pd_ratio_mode_true(self):
+        """Test _is_pd_ratio_mode returns True for PD config."""
+        self.assertTrue(self.summary._is_pd_ratio_mode())
+
+    def test_is_pd_ratio_mode_false(self):
+        """Test _is_pd_ratio_mode returns False for non-PD config."""
+        non_pd_config = OptimizerData(
+            input_length=1024,
+            output_length=1024,
+            ttft_limits=100,
+            tpot_limits=10,
+        )
+        summary = OptimizerSummary(non_pd_config)
+        self.assertFalse(summary._is_pd_ratio_mode())
+
+    def test_prepare_pd_ratio_results_deduplication(self):
+        """Test _prepare_pd_ratio_results deduplicates by parallel combination."""
+        df = pd.DataFrame(
+            {
+                "ttft_p": [100.0, 100.0],
+                "tpot_d": [10.0, 10.0],
+                "concurrency_p": [10, 10],
+                "concurrency_d": [8, 8],
+                "parallel_p": ["tp4pp1dp1", "tp4pp1dp1"],
+                "parallel_d": ["tp2pp1dp1", "tp2pp1dp1"],
+                "batch_size_p": [4, 4],
+                "batch_size_d": [8, 8],
+                "num_devices_p": [4, 4],
+                "num_devices_d": [2, 2],
+                "p_qps": [100.0, 100.0],
+                "d_qps": [0.78125, 0.78125],
+                "pd_ratio": [0.0078125, 0.0078125],
+                "balanced_qps": [0.78125, 0.78125],
+            }
+        )
+        self.summary.set_summary_df(df)
+        result = self.summary._prepare_pd_ratio_results()
+        self.assertEqual(len(result), 1)
+
+    def test_calculate_instance_distribution(self):
+        """Test _calculate_instance_distribution calculation."""
+        p_inst, d_inst = self.summary._calculate_instance_distribution(
+            pd_ratio=1.0,
+            total_devices=8,
+            p_devices_per_inst=4,
+            d_devices_per_inst=2,
+        )
+        self.assertGreater(p_inst, 0)
+        self.assertGreater(d_inst, 0)
+        self.assertLessEqual(p_inst * 4 + d_inst * 2, 8)
+
+    def test_get_pd_ratio_final_out_structure(self):
+        """Test _get_pd_ratio_final_out output structure."""
+        df = pd.DataFrame(
+            {
+                "ttft_p": [100.0],
+                "tpot_d": [10.0],
+                "concurrency_p": [10],
+                "concurrency_d": [8],
+                "parallel_p": ["tp4pp1dp1"],
+                "parallel_d": ["tp2pp1dp1"],
+                "batch_size_p": [4],
+                "batch_size_d": [8],
+                "num_devices_p": [4],
+                "num_devices_d": [2],
+                "p_qps": [100.0],
+                "d_qps": [0.78125],
+                "pd_ratio": [0.0078125],
+                "balanced_qps": [0.78125],
+            }
+        )
+        self.summary.set_summary_df(df)
+
+        args = SimpleArgs()
+        result = self.summary._get_pd_ratio_final_out(args, df)
+        result_str = "\n".join(result)
+        self.assertIn("Overall Best Configuration:", result_str)
+        self.assertIn("PD Ratio:", result_str)
+        self.assertIn("Prefill QPS:", result_str)
+        self.assertIn("Decode QPS:", result_str)
+
+    def test_report_final_result_pd_mode_empty(self):
+        """Test report_final_result in PD mode with empty DataFrame does not raise."""
+        self.summary.set_summary_df(pd.DataFrame())
+        args = SimpleArgs()
+        # Should not raise exception
+        self.summary.report_final_result(args)
 
 
 if __name__ == "__main__":

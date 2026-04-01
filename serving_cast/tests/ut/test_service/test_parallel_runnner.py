@@ -44,13 +44,6 @@ class TestTaskRunner(unittest.TestCase):
         self.args.jobs = 4
         self.device_profile = DeviceProfile.all_device_profiles[self.args.device]
 
-    def test_initialization(self):
-        """Test TaskRunner initialization"""
-        task_runner = ParallelRunner(self.args)
-        user_input = UserInputConfig.from_args(self.args)
-
-        self.assertEqual(task_runner.user_input, user_input)
-
     def test_get_user_config_multiple_tp(self):
         """Test _get_user_config with multiple TP values"""
         self.args.tp_sizes = [2, 4]
@@ -187,6 +180,63 @@ class TestTaskRunner(unittest.TestCase):
         row = result_df.iloc[0]
         self.assertEqual(row["model_id"], self.args.model_id)
         self.assertEqual(row["parallel"], "tp1pp1dp1")
+
+
+class TestParallelRunnerPDMode(unittest.TestCase):
+    """Test cases for ParallelRunner PD ratio mode."""
+
+    def setUp(self):
+        """Set up test fixtures for PD mode."""
+        self.args = SimpleArgs()
+        self.args.serving_cost = 0
+        self.args.jobs = 4
+        self.args.enable_optimize_prefill_decode_ratio = True
+        self.args.prefill_devices_per_instance = 4
+        self.args.decode_devices_per_instance = 2
+        self.args.input_length = 1024
+        self.args.output_length = 1024
+        self.args.ttft_limits = 100
+        self.args.tpot_limits = 10
+        self.args.num_devices = 8
+        self.args.batch_range = [1, 16]
+
+    def test_add_summary_result_with_empty_list(self):
+        """Test _add_summary_result with empty df_list."""
+        task_runner = ParallelRunner(self.args)
+        optimizer_data = OptimizerData(
+            input_length=1024,
+            output_length=1024,
+            ttft_limits=100,
+            tpot_limits=10,
+        )
+
+        task_runner._add_summary_result([], optimizer_data)
+        self.assertEqual(len(task_runner.summary_result), 0)
+
+    def test_add_summary_result_with_valid_df(self):
+        """Test _add_summary_result with valid DataFrame."""
+        import pandas as pd
+
+        task_runner = ParallelRunner(self.args)
+        optimizer_data = OptimizerData(
+            input_length=1024,
+            output_length=1024,
+            ttft_limits=100,
+            tpot_limits=10,
+        )
+
+        df = pd.DataFrame(
+            {
+                "ttft": [100.0],
+                "tpot": [10.0],
+                "concurrency": [10],
+                "parallel": ["tp4pp1dp1"],
+                "batch_size": [4],
+            }
+        )
+
+        task_runner._add_summary_result([df], optimizer_data)
+        self.assertEqual(len(task_runner.summary_result), 1)
 
 
 if __name__ == "__main__":
