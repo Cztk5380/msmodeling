@@ -78,6 +78,29 @@ For detailed usage, please refer to the two documentation files:
 
 * [For TensorCast performance simulation framework.](./docs/en/tensor_cast_instruct.md)
 
+## Contributions
+
+### Coding style
+
+Use `lintrunner` to make sure the coding style aligns:
+
+```bash
+pip install lintrunner
+cd /path/to/msmodeling
+lintrunner init  # run once
+lintrunner --all-files -a  # run every time before code check-in: check and apply necessary changes to follow the coding style
+```
+
+Fix the remaining lint issues reported by `lintrunner`.
+
+### Unit tests
+
+```bash
+cd /path/to/msmodeling
+```
+
+Make sure unit tests pass by running: `python -m pytest -n auto tests`
+
 ## License
 
 msmodeling has a MulanPSL2-style license, as found in the [LICENSE](LICENSE) file.
